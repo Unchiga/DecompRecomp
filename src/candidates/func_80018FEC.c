@@ -13,6 +13,8 @@
  * count are identical; the difference is placement, not missing operations.
  */
 #define D_8009B369_IN_DATA
+#define MAIN_MODE_STATE_NEXT_IN_DATA
+#define MAIN_MODE_STATE_ACTIVE_IN_DATA
 #include "../types.h"
 #include "../game/func_8002C604.h"
 #include "../game/duel_side_state.h"
@@ -26,12 +28,11 @@
 #include "../game/fade.h"
 #include "../game/display_object_motion.h"
 #include "../game/display_object_work_slots.h"
-#define D_8009B269_AS_SCALAR_DATA
-#define D_8009B26C_AS_SCALAR_DATA
 #include "../unmatched.h"
 #include "../game/sound_output.h"
 #include "../game/model_scene_states.h"
 #include "../psyq/rand.h"
+#include "../game/main_mode_state.h"
 
 extern u8 D_8009B1B9;
 extern u8 *D_8009B214;
