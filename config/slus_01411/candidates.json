@@ -75,7 +75,7 @@
       "target": "src/candidates_target/func_80018FEC.S",
       "candidate_build_sha256": "67c2cdcbfceb307ba66fdf63e43388bc2dfd59c2d997d876d9b1fe3b0b747e53",
       "target_bytes_sha256": "f839accb5fc927d77e04cb72f2fd5d0ee0d43b3c711a9d345905ad1b648f6bf8",
-      "canonical_contract_sha256": "e237a4258c8b09b33083995d0a2924895126f4be4beb8e6aac3fe9c5a24a9a9b",
+      "canonical_contract_sha256": "cb1fd0b78f60edda0d96b9dbd54c0b5947bd32318c2dcaa99affa62dc454a7c6",
       "canonical_contracts": {
         "D_80090918": "c74bc727ce49847bc6b12c96e28bad26df908aa19361e68fc73e2e35e49e3c19",
         "D_8009B162": "31937783a4244fcbe24da5c7ff740671b5eb9d675376209c2ecf601a97ea8b51",
@@ -100,8 +100,8 @@
         "SD_BGMFadeOutWithStep": "9255d0b23311b7895849da043f20758d11eecc7c7434754f7d94f48c80df3655",
         "SD_SEPlayFull": "65d7e46aae4136635df740c914ebbfab1cdf3f4a87d91ddd06ba64e889a4cf8b",
         "func_8003FF88": "4cfb04280c2f4fe2abf3bdbeb2400e081a944155de8a57355882c1fd4db56a6c",
-        "func_8004036C": "387bb90451ff1b916a431345dfa02c6653ef163b34e92dbad6368ac0010f7319",
-        "func_80042B40": "bb25caae57faf33ca19fd743b804cf0de3552ebe50d590d8233b07bb95e1fdc8",
+        "func_8004036C": "7900e42fa4ee0b3d87f4e13afba7ce65dcc1ac45b96ae3c6cbfb74b36d2bae3d",
+        "func_80042B40": "759a0e7ee017235e4a86f4e8fa3fe23f0eb9bab30805f7ce4aaddc809bda3599",
         "gDuel_bEffectRequestStatus": "ed7698a356e70c70a35ec63a220ef8f4d9e2c092243e4ff7df670d75a758bb24",
         "gDuel_bWinnerSide": "556443ec3b7902c64553223a8cf73edbf5a607cdb41b3d82f4422a392dcc1324"
       }
