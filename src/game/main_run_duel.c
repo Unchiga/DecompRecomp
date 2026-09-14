@@ -1,23 +1,25 @@
-/*
- * Reclassified from matching_c (#3859). Under gcc_2_8_1_g8 this
- * source rebuilt the target byte for byte, but only by
- * 1 inline asm statement, so it is kept here as a candidate
- * rather than counted as a decompilation. It was src/game/main_run_duel_and_library.c.
- */
 #define D_8009B0C0_IN_DATA
 #define D_8009B362_IN_DATA
 #define D_8009B369_IN_DATA
 #define D_8009B368_IN_DATA
 #define MAIN_MODE_STATE_NEXT_AS_SCALAR
 #define MAIN_MODE_STATE_ACTIVE_AS_SCALAR
+#define D_8009B2F8_AS_ABSOLUTE_ARRAY
+#define D_8009B370_AS_ABSOLUTE_ARRAY
+#define GCAMPAIGN_SCENE_INDEX_AS_ABSOLUTE_ARRAY
+#define D_8009B16C_IN_DATA
 #include "../types.h"
+#include "../game/ai_opponent_data.h"
+#include "../game/duel_check_quit_input.h"
 #include "../game/func_800179F4.h"
+#include "../game/func_80024DC8.h"
 #include "../game/graphics_frame.h"
 #include "../game/func_800339D0.h"
 #include "../game/save_data.h"
 #include "../game/main_frame.h"
 #include "../game/fade.h"
 #include "../game/file_transfer.h"
+#include "../game/main_modes.h"
 #include "../game/main_reset_frontend_runtime.h"
 #include "../game/main_services.h"
 #include "../game/sound.h"
@@ -31,9 +33,8 @@
 #define D_8009B370_AS_BYTE_ARRAY
 #include "../unmatched.h"
 
-extern s8 gDuel_bOpponentID[9];
+u8 D_8009B26C;
 
-extern u16 D_8009B16C[9];
 #define HIGH_MEMORY_ADDRESSES_MODEL_PREFIX
 #include "../game/high_memory_addresses.h"
 #include "../game/main_mode_state.h"
@@ -46,7 +47,7 @@ void Main_RunDuel(void)
     if (!(value & 0x40)) {
         D_8009B26C = value | 0x40;
         D_8009B26E = 1;
-        if (!D_8009B369 && gDuel_bOpponentID[0] >= 0)
+        if (!D_8009B369 && gDuel_bOpponentID >= 0)
             D_8009B26E = 0;
         D_8009B0A3[0] = 10;
         return;
@@ -74,7 +75,7 @@ void Main_RunDuel(void)
             func_800179F4();
         } else {
             DuelScene_UpdateWithSideInput();
-            if (D_8009B16C[0] & 0x2000)
+            if (D_8009B16C & 0x2000)
                 D_8009B26E = 2;
         }
         break;
@@ -91,7 +92,6 @@ void Main_RunDuel(void)
         func_80012D84(4);
         File_WaitForTransfers();
         next = D_8009B368;
-        __asm__ volatile("nop");
         D_8009B26C = next;
         if (D_8009B26C == state)
             gCampaignSceneIndex[0] = table[D_8009B362 * 2];
@@ -99,4 +99,3 @@ void Main_RunDuel(void)
     }
     }
 }
-
