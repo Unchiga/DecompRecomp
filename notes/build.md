@@ -1233,16 +1233,11 @@ The resident ranges were blocked by placement and by byte layout. The overlay
 blobs have a different and more basic obstacle, and it took two candidates to
 see it.
 
-`password` looks like the most tractable of the five. Its bulk is four
-identical 1464-byte objects at regular stride, uniformly `.word`, mostly
-zero, and referenced by nothing anywhere in the tree -- no source, no
-generated assembly, no configuration. Its head holds two ranges that look
-better still: `D_8016D440` is 36 words and `D_8016D4DC` is 45, both entirely
-zero, and both have real consumers: `D_8016D440` in `shop.c` and
-`D_8016D4DC` in `Password_UpdateShopScreen` (now a build-integrated candidate,
-[`src/candidates/password/func_8016A37C.c`](../src/candidates/password/func_8016A37C.c)).
-
-Both are traps, for the same reason.
+The password head is now mapped without accepting those misleading sparse
+extents. [`module_state.c`](../src/overlays/password/module_state.c) owns the
+complete `0x8016D400-0x8016D590` prefix as one `0x190`-byte
+`PasswordModuleState`, whose field offsets are supported by the name-entry and
+shop consumers. The remainder, `0x8016D590-0x8016F800`, stays raw.
 
 `shop.c` declares `extern u8 *D_8016D440[]` and walks it to store **four**
 objects -- sixteen bytes -- and the overlay's own function notes describe
@@ -1251,10 +1246,11 @@ runs 144 bytes, because that is the distance to the next *named* symbol.
 `D_8016D4DC` is worse: the stored C declares it `u16`, and the label spans
 180 bytes.
 
-So in these blobs a label's extent is the gap to the next name, not the size
-of the object it names. The regions are sparsely named, so most labels look
-far larger than what they actually label, and carving by label extent would
-invent object sizes that contradict the declarations already in the tree.
+Those gaps are now explicit padding and later fields within the enclosing
+state record, not invented sizes for either interior object. Generated
+unmatched assembly retains the historical labels through linker aliases from
+`gPassword_ModuleState`, while matching C keeps its original symbol
+relocations and instruction bytes.
 
 That is the same shape as `free_duel`'s `gFreeDuel_pThumbWidget`, eight bytes
 of label against a four-byte pointer in two `asm()` aliases. One instance
@@ -1323,7 +1319,7 @@ The remaining overlay data work is in the bulk blobs, not the headers:
 | overlay | raw blob | bytes |
 |---|---|---:|
 | `main_menu` | `0x4558-0x8000` | 15016 |
-| `password` | `0x5400-0x7800` | 9216 |
+| `password` | `0x5590-0x7800` | 8816 |
 | `free_duel` | `0x1030-0x2800` | 6096 |
 | `overworld_before_coup` | `0x2274-0x3000` | 3468 |
 | `overworld_after_coup` | `0x2274-0x3000` | 3468 |
