@@ -238,7 +238,6 @@ void func_80034830(void);
  * func_8004158C.h. func_800534B8 is now owned by model_debug_controller.h. */
 void func_8004EB00(void);
 s32 func_80051350(s32 arg0, s32 arg1, s32 arg2);
-void func_8005C7BC(void);
 
 /* Three caller-visible contracts that were outside the central inventory.
  *
