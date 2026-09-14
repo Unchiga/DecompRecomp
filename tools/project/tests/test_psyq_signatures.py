@@ -15,6 +15,7 @@ from psyq_signatures import (
     evidence,
     find_matches,
     parse_signature,
+    report_coverage,
     scan,
     validate_catalogue_scope,
 )
@@ -303,6 +304,16 @@ class PsyqSignatureTests(unittest.TestCase):
         self.assertEqual(result["absent"], 1)
         self.assertEqual(result["unanchored"], 1)
         self.assertEqual(
+            result["objects"],
+            [
+                {
+                    "provider": "LIBTEST.LIB/UNIQUE.OBJ",
+                    "start": 0x80010000,
+                    "end": 0x80010008,
+                }
+            ],
+        )
+        self.assertEqual(
             result["proposals"],
             {
                 0x80010000: {
@@ -320,9 +331,17 @@ class PsyqSignatureTests(unittest.TestCase):
                 "AliasA": ["LIBA/SHARED.OBJ+0x0"],
                 "AliasB": ["LIBB/SHARED.OBJ+0x0"],
             },
-            0x80010040: {"OffStart": ["LIB/OFFSTART.OBJ+0x4"]},
+            0x80010034: {
+                "NamedAliasA": ["LIBA/NAMED.OBJ+0x0"],
+                "NamedAliasB": ["LIBB/NAMED.OBJ+0x0"],
+            },
+            0x80010040: {
+                "OffStartA": ["LIBA/OFFSTART.OBJ+0x4"],
+                "OffStartB": ["LIBB/OFFSTART.OBJ+0x4"],
+            },
             0x80010050: {
-                "GameCollision": ["LIB/GAME_COLLISION.OBJ+0x0"]
+                "GameCollisionA": ["LIBA/GAME_COLLISION.OBJ+0x0"],
+                "GameCollisionB": ["LIBB/GAME_COLLISION.OBJ+0x0"],
             },
         }
         inventory = {
@@ -342,15 +361,44 @@ class PsyqSignatureTests(unittest.TestCase):
                 "status": "sdk_asm",
                 "module": "psyq/sdk",
             },
+            0x80010030: {
+                "name": "func_80010030",
+                "status": "sdk_asm",
+                "module": "psyq/sdk",
+            },
+            0x80010034: {
+                "name": "LocallyResolvedName",
+                "status": "sdk_asm",
+                "module": "psyq/sdk",
+            },
             0x80010050: {
                 "name": "func_80010050",
                 "size": "0x20",
                 "status": "matching_c",
                 "module": "game",
             },
+            0x80010060: {
+                "name": "func_80010060",
+                "size": "0x30",
+                "status": "sdk_asm",
+                "module": "psyq/sdk",
+            },
         }
 
-        result = classify(proposals, inventory)
+        objects = [
+            {
+                "provider": "LIB/NEW.OBJ",
+                "start": 0x80010010,
+                "end": 0x80010040,
+            },
+            {
+                "provider": "LIB/UNNAMED.OBJ",
+                "start": 0x80010060,
+                "end": 0x80010090,
+            },
+        ]
+
+        result = classify(proposals, inventory, objects)
 
         self.assertEqual(result["agreed"], [(0x80010000, "KnownName")])
         self.assertEqual(
@@ -369,22 +417,98 @@ class PsyqSignatureTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            result["ambiguous"], [(0x80010030, ["AliasA", "AliasB"])]
+            [
+                (address, row["name"], providers)
+                for address, row, providers
+                in result["object_covered_inventory"]
+            ],
+            [
+                (0x80010010, "func_80010010", ["LIB/NEW.OBJ"]),
+                (0x80010030, "func_80010030", ["LIB/NEW.OBJ"]),
+                (0x80010060, "func_80010060", ["LIB/UNNAMED.OBJ"]),
+            ],
+        )
+        self.assertEqual(result["object_uncovered_inventory"], [])
+        self.assertEqual(
+            result["ambiguous"],
+            [
+                (0x80010030, ["AliasA", "AliasB"]),
+                (0x80010034, ["NamedAliasA", "NamedAliasB"]),
+            ],
+        )
+        self.assertEqual(
+            result["ambiguous_locally_named"],
+            [
+                (
+                    0x80010034,
+                    ["NamedAliasA", "NamedAliasB"],
+                    "LocallyResolvedName",
+                )
+            ],
+        )
+        self.assertEqual(
+            result["ambiguous_unresolved"],
+            [
+                (
+                    0x80010030,
+                    ["AliasA", "AliasB"],
+                    "func_80010030",
+                )
+            ],
         )
         self.assertEqual(
             result["outside_psyq"],
             [
                 (
                     0x80010050,
-                    "GameCollision",
+                    ["GameCollisionA", "GameCollisionB"],
                     "func_80010050",
                     "matching_c",
                     "game",
-                    ["LIB/GAME_COLLISION.OBJ+0x0"],
+                    [
+                        "LIBA/GAME_COLLISION.OBJ+0x0",
+                        "LIBB/GAME_COLLISION.OBJ+0x0",
+                    ],
                 )
             ],
         )
         self.assertEqual(result["off_start"], 1)
+        self.assertEqual(
+            [
+                (address, row["name"])
+                for address, row in result["address_named_inventory"]
+            ],
+            [
+                (0x80010010, "func_80010010"),
+                (0x80010030, "func_80010030"),
+                (0x80010060, "func_80010060"),
+            ],
+        )
+
+    def test_coverage_report_is_machine_readable(self) -> None:
+        result = {
+            "object_covered_inventory": [
+                (
+                    0x80010010,
+                    {"size": "0x20", "name": "func_80010010"},
+                    ["LIBA/A.OBJ", "LIBB/B.OBJ"],
+                )
+            ]
+        }
+
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        output = StringIO()
+        with redirect_stdout(output):
+            report_coverage(result)
+
+        self.assertEqual(
+            output.getvalue(),
+            "address,size,name,unique_signature_objects\n"
+            "0x80010010,0x20,func_80010010,"
+            "LIBA/A.OBJ;LIBB/B.OBJ\n",
+        )
 
 
 if __name__ == "__main__":

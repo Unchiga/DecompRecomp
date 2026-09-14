@@ -63,6 +63,17 @@ so the tool takes a path to it and fetches nothing:
     tools/environments/python/bin/python tools/project/psyq_signatures.py \
         --signatures <checkout>/460 --report
 
+To inventory address-named Psy-Q starts that still fall inside a uniquely
+matched library object:
+
+    tools/environments/python/bin/python tools/project/psyq_signatures.py \
+        --signatures <checkout>/460 --coverage-report
+
+The coverage report is CSV with the function address, inventory size/name,
+and one or more matching library objects. It establishes object provenance,
+not an internal function name; overlapping byte-identical objects are all
+retained.
+
 `--emit-map` labels generated evidence as Psy-Q 4.6 by default. The permitted
 4.7 LIBDS cross-reference must pass `--psyq-version 4.7` when emitting rows;
 the option changes the evidence text, not signature matching. Selecting 4.7
@@ -114,31 +125,42 @@ The unique-object labels classify against the current function inventory as:
 
 | Inventory result | Count | Interpretation |
 |---|---:|---|
-| Existing names agreeing | 426 | Independent names corroborated by the pinned catalogue |
+| Existing names agreeing | 428 | Independent names corroborated by the pinned catalogue |
 | Existing names differing | 1 | `__SN_ENTRY_POINT` versus the project's `entrypoint` at `0x800129D8`; this is a naming choice, not a provenance conflict |
-| New names for `func_XXXXXXXX` rows | 2 | `NormalClip` and `RotAverageNclip3_nom`, both withheld because their observed call arities conflict with `libgte.h` |
-| Addresses claimed under several names | 8 | Four resolved only with local call-graph evidence and four still unresolved below |
+| New names for `func_XXXXXXXX` rows | 0 | Every unique signature proposal now agrees with an inventory name or is filtered by the ownership/start rules |
+| Addresses claimed under several names | 8 | All eight retain their local inventory names unchanged; this bucket records inventory state and does not resolve between byte-identical aliases |
+| Ambiguous address-named starts | 0 | No multi-name signature collision currently lands on an address-based Psy-Q inventory name awaiting identification |
+| Psy-Q inventory rows still address-named | 23 | The catalogue supplies no unique, non-placeholder label at those exact function starts; they still require other evidence |
+| Address-named rows inside a unique object match | 7 | Object provenance is established even though the internal label is absent or only an IDA placeholder |
+| Address-named rows outside unique object matches | 16 | No unique catalogue object currently covers the function start |
 | Labels on non-Psy-Q function starts | 0 | Rejected even when the game-owned inventory name still starts with `func_` |
 | Labels away from a function start | 4 | Ignored as interior labels rather than function identities |
 
-The 426 agreements are a regression checkpoint, not an immutable project
+The 428 agreements are a regression checkpoint, not an immutable project
 constant. The count rises as independently established names enter the
 inventory and can change when function boundaries do. Matcher debugging must
 compare the same pinned catalogue against the same inventory rather than
 treating any future count change as a matcher failure.
 
-The four byte-ambiguous addresses already resolved with evidence beyond the
-signature are `PCread`, `SpuWrite`, `CdReadyCallback_8007A840`, and `GsDrawOt`.
-The signature tool correctly leaves them ambiguous; the local tiebreaks are
-recorded below. The four unresolved catalogue conflicts are small routines
-duplicated verbatim across libraries, so bytes alone cannot separate them:
+All eight byte-ambiguous addresses retain non-address local inventory names:
+`PCread`, `SpuWrite`, `CdReadyCallback_8007A840`, `CdMix`, `CdControlB`,
+`GsGetActiveBuff`, `GsDrawOt`, and `GsSetRefView2`. This bucket is not a
+resolution registry: the signature tool refuses to choose between
+byte-identical catalogue labels and merely reports that renaming is not
+actionable. In particular, the bytes do not adjudicate `CdMix` versus `DsMix`
+or `GsSetRefView2` versus `GsSetRefViewUnit`; those retained aliases remain
+naming-policy questions rather than signature matches.
 
-| Address | Competing names |
-|---|---|
-| `0x8007CDC0` | `CdMix`, `DsMix` |
-| `0x8007E7F0` | `DsControl`, `DsControlB` (inventory keeps `CdControlB`) |
-| `0x80085320` | `GsGetActiveBuff` (applied), `SsUtGetReverbType` |
-| `0x8008AD50` | `GsSetRefView2` (applied), `GsSetRefViewUnit` |
+The zero new signature proposals does **not** mean every Psy-Q routine is
+named. The inventory still has 23 `sdk_asm` rows named `func_XXXXXXXX`.
+They are outside the catalogue's actionable exact-start labels: their
+objects may be absent, modified, matched more than once, or expose only IDA
+placeholder labels. Those rows need library maps, call-graph/ABI evidence, or
+additional version-correct signatures rather than a less conservative match.
+The `--coverage-report` split narrows that work: 7 already sit inside 5
+uniquely matched object ranges, while 16 are not covered by any unique 4.6
+object match. The former can be researched within a known library object;
+neither category receives a guessed function name.
 
 ### Patched LIBDS cross-reference
 
@@ -166,6 +188,14 @@ on already-named LIBDS functions all agree. The two that differ are the
 existing `CdMix`/`DsMix` and `CdReadyCallback_8007A840`/`DsSetDebug`
 conflicts, which stay as they are, and `0x8007E7F0` remains ambiguous between
 `DsControl` and `DsControlB`.
+
+The patched `DSSYS_2.OBJ` queue prefix is also now named through independent
+version evidence. Psy-Q 4.0, the PsyZ object reconstruction, and two Resident
+Evil 2 maps agree on `CQ_clear_queue`, `CQ_delete_command`, `CQ_last_queue`,
+`CQ_error_flush`, `CQ_execute`, `CQ_sync_system`, and `CQ_add_result` in that
+order. The permitted 4.7 object fixes the corresponding current boundaries
+around its added `DS_CQ_flush` entry and places `DsInit` immediately after the
+same seven-function queue core.
 
 Four game sources already called three of these by address. `file_stream.c`
 and `main_run_boot_sequence.c` call `DsInit`, and `func_80013C28.c`
@@ -304,6 +334,9 @@ Every row below is now an applied project symbol.
 | `0x80073D8C` | `PAD_init` | Applied at offset `0x1C` of the same unique `LIBAPI.LIB/PAD.OBJ` signature. |
 | `0x80073E1C` | `InitPAD` | `Input_InitPads` passes two adjacent 34-byte receive buffers and their exact lengths. |
 | `0x80073EAC` | `StartPAD` | Called immediately after `InitPAD` to start the controller service before local input state is reset. |
+| `0x80073EDC` | `SetPatchPad` | The unique Psy-Q 4.6 `LIBAPI.LIB/PAD.OBJ` match places this immediately after `StartPAD`; its body installs `_Pad1` and `_IsVSync` through `SysDeqIntRP`/`SysEnqIntRP`, matching the recovered SDK implementation. |
+| `0x80073F54` | `_Pad1` | The first callback installed by `SetPatchPad`; it clears the controller receive-buffer halfword at offset `0xA` and performs the SDK delay loop. |
+| `0x80073FBC` | `_IsVSync` | The second callback installed by `SetPatchPad`; its two-word flag predicate matches the private PAD synchronization helper. |
 | `0x80074000` | `InitPAD2` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A18.OBJ` signature. |
 | `0x80074010` | `StartPAD2` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A19.OBJ` signature. |
 | `0x80074020` | `PAD_init2` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A21.OBJ` signature. |
@@ -314,6 +347,7 @@ Every row below is now an applied project symbol.
 | `0x800740F0` | `FlushCache` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/C68.OBJ` signature. |
 | `0x80074100` | `_remove_ChgclrPAD` | Applied at offset zero of the unique `0x70`-byte Psy-Q 4.6 `LIBAPI.LIB/CHCLRPAD.OBJ` signature. |
 | `0x80074170` | `VSync` | Applied Psy-Q 4.6 identity; matching callers query frame timing for AI yielding and time-varying screen effects. |
+| `0x800742E8` | `v_wait` | Both calls come from `VSync`; the function waits for the VSync count with the SDK `max << 15` timeout, prints `VSync: timeout`, and disables clear-on-interrupt through `ChangeClearPAD`/`ChangeClearRCnt`. |
 | `0x80074380` | `ChangeClearRCnt` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/L10.OBJ` signature. |
 | `0x80074390` | `ResetCallback` | Applied at offset zero of the unique 1,728-byte Psy-Q 4.6 `LIBETC.LIB/INTR.OBJ` signature. |
 | `0x800743C0` | `InterruptCallback` | Applied at offset `0x30` of the same unique `LIBETC.LIB/INTR.OBJ` signature. |
@@ -325,14 +359,29 @@ Every row below is now an applied project symbol.
 | `0x800744E4` | `CheckCallback` | Applied at offset `0x154` of the same unique `LIBETC.LIB/INTR.OBJ` signature. |
 | `0x800744F4` | `GetIntrMask` | Applied at offset `0x164` of the same unique `LIBETC.LIB/INTR.OBJ` signature. |
 | `0x8007450C` | `SetIntrMask` | Applied at offset `0x17C` of the same unique `LIBETC.LIB/INTR.OBJ` signature. |
+| `0x80074524` | `startIntr` | First private routine after the public wrappers in the unique 4.6 `INTR.OBJ`; initializes the interrupt environment and installs the VSync/DMA dispatchers, matching the recovered SDK routine. |
+| `0x800745FC` | `trapIntr` | Interrupt trap/dispatch loop in the unique 4.6 `INTR.OBJ`; acknowledges active lines, invokes registered handlers, diagnoses timeouts, and returns from the exception. |
+| `0x800747CC` | `setIntr` | Callback setter in the unique 4.6 `INTR.OBJ`; updates the handler and enabled masks while preserving the hardware mask and clear-on-interrupt behavior. |
+| `0x80074914` | `stopIntr` | Saves interrupt masks/state, disables dispatch, and resets the exception entry. |
+| `0x800749B4` | `restartIntr` | Restores the exception entry and the state saved by `stopIntr`. |
+| `0x80074A2C` | `memclr_80074A2C` | Private `INTR.OBJ` word-clear loop. The address suffix preserves a unique linked symbol for this static helper. |
 | `0x80074A58` | `_96_remove` | Applied at offset `0x8` of the unique 32-byte Psy-Q 4.6 `LIBAPI.LIB/C114.OBJ` signature. |
 | `0x80074A70` | `ReturnFromException` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A23.OBJ` signature. |
 | `0x80074A80` | `ResetEntryInt` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A24.OBJ` signature. |
 | `0x80074A90` | `HookEntryInt` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A25.OBJ` signature. |
 | `0x80074AA0` | `startIntrVSync` | Applied at offset zero of the unique 288-byte Psy-Q 4.6 `LIBETC.LIB/INTR_VB.OBJ` signature. |
+| `0x80074AF8` | `trapIntrVSync` | Private VSync interrupt dispatcher: increments the VSync count and invokes each non-null callback in the eight-entry table. |
+| `0x80074B64` | `setIntrVSync` | Private callback-table setter returned by `startIntrVSync`; replaces one entry and returns its previous callback. |
+| `0x80074B90` | `memclr_80074B90` | Private `INTR_VB.OBJ` word-clear loop; address suffix distinguishes the linked static copy. |
+| `0x80074BC0` | `startIntrDMA` | Applied at offset zero of the unique 672-byte Psy-Q 4.6 `LIBETC.LIB/INTR_DMA.OBJ` signature. |
+| `0x80074C0C` | `trapIntrDMA` | Private DMA interrupt dispatcher: acknowledges active channels, invokes their callbacks, and reports DMA bus errors with channel MADR values. |
+| `0x80074D8C` | `setIntrDMA` | Private callback setter returned by `startIntrDMA`; updates the callback table and the corresponding DICR enable bit. |
+| `0x80074E38` | `memclr_80074E38` | Private `INTR_DMA.OBJ` word-clear loop; address suffix distinguishes the linked static copy. |
+| `0x80074E60` | `SpuInit` | Canonical `libspu.h` wrapper: its complete function body calls `_SpuInit(0)`. The pinned 4.6 `S_I.OBJ` bytes agree through the function extent; only catalogue trailing object padding is absent before the linked `_SpuInit`. |
 | `0x80074E80` | `_SpuInit` | Applied at offset zero of the unique 352-byte Psy-Q 4.6 `LIBSPU.LIB/S_INI.OBJ` signature. |
 | `0x80074F68` | `SpuStart` | Applied at offset `0xE8` of the same unique `LIBSPU.LIB/S_INI.OBJ` signature. |
 | `0x80074FE0` | `_spu_init` | Applied at offset zero of the unique 2,880-byte Psy-Q 4.6 `LIBSPU.LIB/SPU.OBJ` signature. |
+| `0x80075260` | `_spu_FwriteByIO` | Private helper at exact object offset `0x280` in the recovered Silent Hill map. Psy-Q 4.0, PsyZ, Xenogears, Parasite Eve, and other independent maps/sources preserve the name and programmed-I/O SPU transfer behavior. |
 | `0x80075420` | `_spu_FiDMA` | Applied at offset `0x440` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
 | `0x800754DC` | `_spu_Fr_` | Applied at offset `0x4FC` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
 | `0x80075584` | `_spu_t` | Applied at offset `0x5A4` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
@@ -342,6 +391,8 @@ Every row below is now an applied project symbol.
 | `0x80075930` | `_spu_FsetRXXa` | Applied at offset `0x950` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
 | `0x800759D4` | `_spu_FgetRXXa` | Applied at offset `0x9F4` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
 | `0x80075A10` | `_spu_FsetPCR` | Applied at offset `0xA30` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
+| `0x80075A68` | `_spu_FsetDelayW` | Private helper at exact offset `0xA88` in the recovered Silent Hill map; independent maps and sources confirm its write-direction DMA timing register update. |
+| `0x80075A90` | `_spu_FsetDelayR` | Private sibling at exact offset `0xAB0`; independent maps and sources confirm its read-direction DMA timing register update. |
 | `0x80075AB8` | `_spu_Fw1ts` | Applied at offset `0xAD8` of the same unique `LIBSPU.LIB/SPU.OBJ` signature. |
 | `0x80075B20` | `DeliverEvent` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/A07.OBJ` signature. |
 | `0x80075B30` | `_SpuDataCallback` | Applied from the unique 48-byte Psy-Q 4.6 `LIBSPU.LIB/S_DCB.OBJ` signature. |
@@ -386,26 +437,42 @@ Every row below is now an applied project symbol.
 | `0x800785C0` | `StGetNext` | Applied Psy-Q 4.6 identity from the unique 192-byte `LIBCD.LIB/C_009.OBJ` signature. |
 | `0x80078680` | `StSetMask` | Applied Psy-Q 4.6 identity from the unique 32-byte `LIBCD.LIB/C_010.OBJ` signature. |
 | `0x800786A0` | `StCdInterrupt` | Applied Psy-Q 4.6 identity from the unique 2,800-byte `LIBCD.LIB/C_011.OBJ` signature. |
+| `0x80078FBC` | `mem2mem` | Private `C_011.OBJ` helper at exact offset `0x91C` in all three recovered Silent Hill regional maps; PsyZ, SotN, and Tomba reconstructions preserve the same word-copy helper name after `StCdInterrupt`. |
+| `0x80078FE8` | `dma_execute` | Private sibling at exact offset `0x948` in all three Silent Hill maps; the same independent reconstructions identify its CD-stream DMA programming body. |
+| `0x80079190` | `getintr` | Private `BIOS_1.OBJ` interrupt dispatcher at object offset zero, named by the PsyZ reconstruction and recovered Silent Hill maps; its exact body leads into the public `CD_sync` entry. |
+| `0x8007A634` | `callback_8007A634` | Private final `BIOS_1.OBJ` interrupt callback, named `callback` by PsyZ and recovered Silent Hill maps and positioned immediately after `CD_set_test_parmnum`; address-qualified locally to avoid a generic global symbol. |
 | `0x8007A820` | `CdReady` | Applied confirmed identity for the public wrapper that preserves the canonical mode/result arguments and directly returns internal `CD_ready`; `StCdInterrupt` is a live caller. |
 | `0x8007A840` | `CdReadyCallback_8007A840` | Applied confirmed identity for the setter that replaces and returns the callback invoked by internal `CD_ready`; address-qualified because `0x8007E860` is the second live copy. |
 | `0x8007A860`, `0x8007E8A0` | `CdDataCallback`, `CdDataCallback_8007E8A0` | Applied confirmed identities for byte-identical wrappers that install a callback on DMA channel `3`; the second copy is address-qualified because both are resident and live. |
 | `0x8007D3F0` | `DsSearchFile` | Receives a 24-byte file record and a path, then supplies disc-position data. |
+| `0x8007D6D0` | `_cmp` | Exact `DSFILE.OBJ` offset `0x2E0`; the complete reconstructed Psy-Q 4.6 translation unit shows the private 12-byte ISO name comparison used by `DsSearchFile`. |
+| `0x8007D6F0` | `DS_newmedia` | Exact object offset `0x300`; reconstructed code reads sector 16, validates `CD001`, and caches the ISO path table. |
+| `0x8007D9B4` | `DS_searchdir` | Exact object offset `0x5C4`; reconstructed code searches directory-cache entries by parent and name. |
+| `0x8007DA58` | `DS_cachefile` | Exact object offset `0x668`; reconstructed code reads one ISO directory and fills the resident `DslFILE` cache. |
+| `0x8007DCF4` | `ds_read` | Exact object offset `0x904`; reconstructed code wraps `DsRead` and `DsReadSync` for synchronous sector reads used by the two cache builders. |
 | `0x8007E350` | `CdFlush` | Applied confirmed identity for the no-argument wrapper around the CD library's internal state-reset routine. |
 | `0x8007E3D0` | `CdGetSector` | Applied confirmed identity for the resident CD-sector transfer interface. |
 | `0x8007E4F0` | `CdGetSector2` | Applied confirmed identity for the parallel two-argument sector-transfer wrapper using the library's second transfer path. |
 | `0x8007A710` | `CdIntToPos` | Applied Psy-Q 4.6 LIBCD identity; canonical copy of the sector-to-packed-BCD position conversion. |
 | `0x8007CDE0` | `DsRead` | Applied Psy-Q 4.6 identity at offset zero of the unique 1,296-byte `LIBDS.LIB/DSREAD.OBJ` signature. |
+| `0x8007CF10` | `DS_read_cbsync` | Stable private name from Psy-Q 4.0 and two independent Resident Evil 2 maps; it remains the first helper after `DsRead`, and the exact 4.6 body starts the ready system when the command-completion event is `2`. |
+| `0x8007CF44` | `DS_read_cbready` | Stable second private DSREAD callback from the same three maps; the exact 4.6 body advances the sector transfer and dispatches the saved completion callback. |
+| `0x8007D0BC` | `DS_read_cbdata` | Stable third private DSREAD callback before `DsReadSync` in the older SDK and both independent maps; the exact 4.6 body advances the transfer destination/count state and reports completion. |
 | `0x8007D190` | `DsReadSync` | Applied Psy-Q 4.6 identity at offset `0x3B0` of the same unique `LIBDS.LIB/DSREAD.OBJ` signature. |
 | `0x8007D200` | `DsReadCallback` | Applied Psy-Q 4.6 identity at offset `0x420` of the same unique `LIBDS.LIB/DSREAD.OBJ` signature. |
 | `0x8007D214` | `DsReadBreak` | Applied Psy-Q 4.6 identity at offset `0x434` of the same unique `LIBDS.LIB/DSREAD.OBJ` signature. |
 | `0x8007D2D0` | `DsReadMode` | Applied Psy-Q 4.6 identity at offset `0x4F0` of the same unique `LIBDS.LIB/DSREAD.OBJ` signature. |
 | `0x8007D2F0` | `DsRead2` | Applied Psy-Q 4.6 identity from the unique 256-byte `LIBDS.LIB/DSREAD2.OBJ` signature; the matching movie control path retries this two-argument read. |
+| `0x8007D3C4` | `StCdInterrupt2` | Private second function in `DSREAD2.OBJ`, named by the PsyZ object reconstruction and independent Resident Evil 2 maps; its position immediately after `DsRead2` is stable across those sources. |
 | `0x8007E600` | `CdIntToPos_8007E600` | Applied address-qualified identity for the second byte-identical resident copy used by matching game C. |
 | `0x800781F0` | `CdPosToInt` | Applied Psy-Q 4.6 LIBCD identity; canonical copy of the packed-BCD position-to-sector conversion. |
 | `0x8007E710` | `CdPosToInt_8007E710` | Applied address-qualified identity for the second byte-identical resident copy used by matching game C. |
 | `0x8007DD50` | `DsStartReadySystem` | Applied Psy-Q 4.6 identity at offset zero of the unique 1,440-byte `LIBDS.LIB/DSREADY.OBJ` signature; the matching file-transfer path installs its ready callback with an unlimited count. |
 | `0x8007DDD4` | `DsEndReadySystem` | Applied Psy-Q 4.6 identity at offset `0x84` of the same unique `LIBDS.LIB/DSREADY.OBJ` signature; matching `func_8001455C` uses the canonical `libds.h` declaration in two ready-system teardown states. |
 | `0x8007DE38` | `DsReadySystemMode` | Applied Psy-Q 4.6 identity at offset `0xE8` of the same unique `LIBDS.LIB/DSREADY.OBJ` signature; the matching file-transfer path selects mode `1`. |
+| `0x8007DE4C` | `ER_cbready` | Stable private name from Psy-Q 4.0 and two independent Resident Evil 2 maps. The added `DsReadySystemMode` entry accounts for the offset shift in 4.6, while the function remains the first private DSREADY callback after the public setup entries. |
+| `0x8007E128` | `ER_retry` | Stable private name and ordering between `ER_cbready` and `ER_cbsync` in the older SDK and independent maps; the exact 4.6 body implements the ready-system retry state. |
+| `0x8007E1E0` | `ER_cbsync` | Stable private name immediately after `ER_retry` in the older SDK and independent maps; the exact 4.6 body handles the corresponding sync-completion state. |
 | `0x8007E390` | `DsFlush` | Applied Psy-Q 4.6 identity from the unique 64-byte `LIBDS.LIB/D2_005.OBJ` signature. |
 | `0x8007E790` | `DsLastPos` | Applied Psy-Q 4.6 identity from the unique 96-byte `LIBDS.LIB/D3_008.OBJ` signature. |
 | `0x8007E7F0` | `CdControlB` | Applied confirmed identity for the three-argument CD command that blocks until the internal completion code is `2`; matching `func_8005C62C` uses the canonical `libcd.h` declaration for its set-location and physical-seek commands. |
@@ -422,6 +489,7 @@ Every row below is now an applied project symbol.
 | `0x8007F5D4` | `DrawSyncCallback` | Applied at offset `0x284` of the same unique `SYS.OBJ` signature. |
 | `0x8007F634` | `SetDispMask` | Applied at offset `0x2E4` of the same unique `SYS.OBJ` signature. |
 | `0x8007F6CC` | `DrawSync` | Applied Psy-Q 4.6 identity; `model_handler_registry.c` waits for queued GPU drawing after dispatching a model primitive handler. |
+| `0x8007F734` | `checkRECT` | Private `SYS.OBJ` rectangle validator identified by the exact `0x3E4` object offset and `0x11C` extent shared with the independently recovered Silent Hill Psy-Q map. |
 | `0x8007F850` | `ClearImage` | Applied at offset `0x500` of the unique Psy-Q 4.6 `LIBGPU.LIB/SYS.OBJ` signature; matching movie paths clear their display rectangles with the configured RGB triplet. |
 | `0x8007F8E0` | `ClearImage2` | Applied at offset `0x590` of the same unique `SYS.OBJ` signature. |
 | `0x8007F978` | `LoadImage` | Applied Psy-Q identity; `Duel_SetupCardRecord` uses the tracked `RECT *` / `u32 *` prototype for two image transfers. |
@@ -439,11 +507,36 @@ Every row below is now an applied project symbol.
 | `0x80080458` | `SetDrawArea` | Applied at offset `0x1108` of the same unique `SYS.OBJ` signature. |
 | `0x800804D8` | `SetDrawOffset` | Applied at offset `0x1188` of the same unique `SYS.OBJ` signature. |
 | `0x80080518` | `SetDrawEnv` | Applied at offset `0x11C8` of the same unique `SYS.OBJ` signature. |
+| `0x80080710` | `SetDrawEnv2` | Private draw-environment builder at the exact ordered `SYS.OBJ` boundary and `0x270` extent recovered independently in Silent Hill. |
+| `0x80080980` | `get_mode` | Private command-field getter; exact ordered boundary and `0x20` extent agree with the independent map. |
+| `0x800809A0` | `get_cs` | Private draw-command start builder; exact ordered boundary and `0x98` extent agree with the independent map. |
+| `0x80080A38` | `get_ce` | Private draw-command end builder; exact ordered boundary and `0x98` extent agree with the independent map. |
+| `0x80080AD0` | `get_ofs` | Private draw-offset getter; exact ordered boundary and `0x1C` extent agree with the independent map. |
+| `0x80080AEC` | `get_tw` | Private texture-window getter; exact ordered boundary and `0x80` extent agree with the independent map. |
+| `0x80080B6C` | `_status` | Private GPU status helper at the exact ordered `SYS.OBJ` boundary and `0x18` extent. |
+| `0x80080B84` | `_otc` | Private ordering-table clear runtime at the exact ordered boundary and `0xE0` extent. |
+| `0x80080C64` | `_clr` | Private image-clear command runtime at the exact ordered boundary and `0x230` extent. |
+| `0x80080E94` | `_dws` | Private DMA write-stream runtime at the exact ordered boundary and `0x23C` extent. |
+| `0x800810D0` | `_drs` | Private DMA read-stream runtime at the exact ordered boundary and `0x280` extent. |
+| `0x80081350` | `_ctl` | Private GPU control helper at the exact ordered boundary. |
+| `0x80081364` | `_getctl` | Private GPU control-state getter at the exact ordered boundary. |
+| `0x8008136C` | `_cwb` | Private command-word builder at the exact ordered boundary and `0x40` extent. |
+| `0x800813AC` | `_cwc` | Private command-word callback path at the exact ordered boundary and `0x48` extent. |
+| `0x800813F4` | `_param` | Private GPU parameter helper at the exact ordered boundary and `0x30` extent. |
+| `0x80081424` | `_addque` | Private queue insertion helper at the exact ordered boundary and `0x24` extent. |
+| `0x80081448` | `_addque2` | Private extended queue insertion runtime at the exact ordered boundary and `0x2B0` extent. |
+| `0x800816F8` | `_exeque` | Private queued-command executor at the exact ordered boundary and `0x260` extent. |
+| `0x80081958` | `_reset` | Private GPU queue/reset runtime; ordered placement between `_exeque` and `_sync` agrees with the independent map. |
+| `0x80081A94` | `_sync` | Private GPU synchronization runtime; ordered placement before the alarm helpers agrees with the independent map. |
+| `0x80081BD0` | `set_alarm` | Private timeout-alarm setter at the exact ordered boundary and `0x34` extent. |
+| `0x80081C04` | `get_alarm` | Private timeout-alarm query runtime at the exact ordered boundary and `0x144` extent. |
+| `0x80081D48` | `_version` | Private GPU version-reporting helper immediately before `LoadImage2`, matching the independent map and `0xA0` extent. |
 | `0x80081DE8` | `LoadImage2` | Applied Psy-Q identity; streamed package callbacks pass rectangle-shaped records and staged image data. |
 | `0x80081ED4` | `StoreImage2` | Applied Psy-Q 4.6 identity; `func_800582C0` reads a VRAM rectangle into a local pixel buffer before transforming and re-uploading it. |
 | `0x80081FC0` | `MoveImage2` | Applied Psy-Q identity; `file_cd_helpers.c` passes the current display rectangle plus destination coordinates. |
 | `0x80082104` | `DrawOTag2` | Applied at offset `0x2DB4` of the unique Psy-Q 4.6 `LIBGPU.LIB/SYS.OBJ` signature. |
 | `0x80082200` | `_GPU_ResetCallback` | Applied at offset `0x2EB0` of the unique Psy-Q 4.6 `LIBGPU.LIB/SYS.OBJ` signature. |
+| `0x80082228` | `memset_80082228` | The recovered Psy-Q `SYS.ASM` marks the private routine after `_GPU_ResetCallback` as `memset`; its exact body fills `a2` bytes at `a0` with `a1`. The address suffix distinguishes it from the separately linked libc `memset`. |
 | `0x80082250` | `GPU_cw` | Applied from the unique 16-byte Psy-Q 4.6 `LIBAPI.LIB/C73.OBJ` signature. |
 | `0x80082290` | `BreakDraw` | Applied at offset zero of the unique 544-byte Psy-Q 4.6 `LIBGPU.LIB/BREAK.OBJ` signature. |
 | `0x80082324` | `IsIdleGPU` | Applied Psy-Q 4.6 identity; matching upload and move paths poll mode `3` around GPU image operations. |
@@ -467,12 +560,15 @@ Every row below is now an applied project symbol.
 | `0x800829E0` | `SetDrawMode` | Applied from the unique 148-byte Psy-Q 4.6 `LIBGPU.LIB/P41.OBJ` signature. |
 | `0x80082A80` | `OpenTIM` | Applied Psy-Q 4.6 identity at offset zero of the unique 400-byte `LIBGPU.LIB/T00.OBJ` signature. |
 | `0x80082A90` | `ReadTIM` | Applied Psy-Q 4.6 identity at offset `0x10` of the same unique `LIBGPU.LIB/T00.OBJ` signature. |
+| `0x80082AF4` | `ProduceTIM` | Private parser at exact object offset `0x74`, identified from the complete recovered `T00.C`: it validates TIM ID `0x10`, records mode and optional CLUT pointers, records image pointers, and returns the consumed word count used by `ReadTIM`. |
 | `0x80084240` | `GsSortBoxFill` | Applied Psy-Q 4.6 identity; the matching fade renderer submits strip or full-screen box fills to its ordering table. |
 | `0x80084320` | `GsSortPoly` | Applied from the unique complete 464-byte Psy-Q 4.6 `LIBGS.LIB/2D_PRIM.OBJ` signature. Main-menu background, decimal-digit, card-type-icon and starchip-bar callers use the canonical `libgs.h` declaration and `GsOT *` view. |
 | `0x800844F0` | `GsSortSprite` | Applied from the unique exact Psy-Q 4.6 `LIBGS.LIB/2D_SP0.OBJ` signature. Canonical `libgs.h` takes a `GsSPRITE *`, `GsOT *` and unsigned-short priority; `display_object.h` confirms the game-owned attribute word is copied into compatible sprite descriptors and interprets its bits with the LIBGS flag names. |
 | `0x800849F0` | `GsSortFastSprite` | Applied Psy-Q 4.6 identity; matching UI paths submit sprite records to an ordering table at the requested priority. |
 | `0x80084DD0` | `GsInitGraph` | Applied Psy-Q 4.6 identity at offset zero of the unique 1,360-byte `LIBGS.LIB/GS_001.OBJ` signature. |
+| `0x80084E44` | `gpu_init` | Private `GS_001.OBJ` label preserved at exact offset `0x74` by Psy-Q 4.0, all three recovered Silent Hill regional maps, and independent PsyZ and Parappa maps. |
 | `0x80084F60` | `GsInitGraph2` | Applied Psy-Q 4.6 identity at offset `0x190` of the same `LIBGS.LIB/GS_001.OBJ` object. |
+| `0x80084FC8` | `valiable_init` | Original SDK misspelling preserved at exact offset `0x1F8` by the same Psy-Q 4.0 and independent map evidence; the function occupies the private state-initialization slot between `GsInitGraph2` and `GsSortClear`. |
 | `0x800851E8` | `GsSortClear` | Applied Psy-Q 4.6 identity at offset `0x418` of the same `LIBGS.LIB/GS_001.OBJ` object. |
 | `0x80085320` | `GsGetActiveBuff` | Applied Psy-Q 4.6 identity. The 16-byte `LIBGS.LIB/GS_0021.OBJ` signature is shared with `LIBSND.LIB/UT_REV_2.OBJ` (`SsUtGetReverbType`); the body returns the halfword at `0x800FE0CC`, which `GsSwapDispBuff` writes and `GsSetDrawBuffOffset` reads, placing it in the LIBGS display-buffer block. Matching movie paths use the result as the active buffer index, and `func_8005B8A0` and `Movie_StopStream` write `D_800FE0CC` directly before calling `GsSwapDispBuff`. |
 | `0x80085330` | `GsSetDrawBuffOffset` | Applied from the unique 272-byte `LIBGS.LIB/GS_0022.OBJ` signature; calls `PutDrawEnv` and mirrors the offset into the GTE with `SetGeomOffset`. |
@@ -485,6 +581,8 @@ Every row below is now an applied project symbol.
 | `0x800856A0` | `GsDefDispBuff` | Applied from the unique 160-byte `LIBGS.LIB/GS_103.OBJ` signature; seeds both display buffers and calls `GsSetDrawBuffOffset` and `GsSetDrawBuffClip`. Matching graphics and movie start-up paths pass screen rectangles to it. |
 | `0x80085740` | `GsInit3D` | Applied from the unique 128-byte `LIBGS.LIB/GS_104.OBJ` signature; calls `GsSetDrawBuffOffset`. `func_80013154` calls it with no arguments during start-up. |
 | `0x800857E0` | `GsSetFlatLight` | Applied Psy-Q 4.6 identity; the matching scene setup installs three directional light records. |
+| `0x80085C98` | `gte_set_lc` | Private `GS_107.OBJ` label at exact offset `0x4B8` in all three recovered Silent Hill regional maps; Psy-Q 4.0 and the independent PsyZ map preserve the same name and position before `gte_read_lc`. |
+| `0x80085CFC` | `gte_read_lc` | Private `GS_107.OBJ` label at exact offset `0x51C` in all three recovered Silent Hill regional maps; Psy-Q 4.0 and the independent PsyZ map preserve its ordering immediately after `gte_set_lc`. |
 | `0x80085D50` | `GsSetAmbient` | Applied from the unique 48-byte `LIBGS.LIB/GS_110.OBJ` signature; scales its three colour arguments by 1/16 and forwards them to `SetBackColor`. |
 | `0x80085DB0` | `GsClearOt` | Applied from the unique 96-byte `LIBGS.LIB/GS_113.OBJ` signature; writes the offset and point halfwords into the `GsOT`, derives its tag pointer from `org` plus `4 << length`, and calls `ClearOTagR`. `func_80013154` already declares the matching `(u16, u16, void *)` prototype. |
 | `0x80085E10` | `GsSortOt` | Applied from the unique 192-byte `LIBGS.LIB/GS_114.OBJ` signature; walks the source ordering table on the `0x00FFFFFF` address mask and links it into the destination `GsOT`. |
@@ -493,6 +591,7 @@ Every row below is now an applied project symbol.
 | `0x800860B0` | `gte_init` | Applied from the unique 80-byte `LIBGS.LIB/GS_121.OBJ` signature; calls `InitGeom`, `SetFarColor(0, 0, 0)` and `SetGeomOffset(0, 0)` and clears the two halfwords at `0x800FE0BC`. Internal LIBGS helper, lower case in the library. |
 | `0x80086100` | `GsGetTimInfo` | Applied Psy-Q 4.6 identity; `model_texture_upload.c` parses a TIM image header before uploading its pixel and CLUT rectangles. |
 | `0x800861F0` | `Gssub_make_matrix` | Applied from the unique 208-byte `LIBGS.LIB/GS_123.OBJ` signature. Internal LIBGS helper. |
+| `0x800862C0` | `GsSetWorkBase` | Canonical `libgs.h` API and exact three-instruction body: stores its pointer argument into `D_800FE240`, the LIBGS packet work-base cursor used throughout matching game C. |
 | `0x800862D0` | `GsGetLs` | Applied from the unique 720-byte `LIBGS.LIB/GS_134.OBJ` signature; walks a coordinate hierarchy through `GsMulCoord2` and `GsMulCoord3` to build the local-screen matrix. |
 | `0x800865A0` | `GsMulCoord2` | Applied from the unique 128-byte `LIBGS.LIB/MATRIX8.OBJ` signature; combines two coordinate frames with `MulMatrix2` and `ApplyMatrixLV`, then adds the translation components. |
 | `0x80086620` | `GsMulCoord3` | Applied from the unique 128-byte `LIBGS.LIB/MATRIX9.OBJ` signature; the `GsMulCoord2` body using `MulMatrix` and `ApplyMatrixLV`. |
@@ -526,6 +625,7 @@ Every row below is now an applied project symbol.
 | `0x80087AB0` | `RotAverage4` | Applied Psy-Q 4.6 identity; the matching duel renderer transforms four vertices and returns depth and flag outputs. |
 | `0x80089460` | `ReadSZfifo4` | Applied Psy-Q 4.6 identity from the unique 32-byte `LIBGTE.LIB/REG05.OBJ` signature; stores GTE data registers `16`-`19` through four pointers and the `DivideFT4` body at `0x80089260` calls it. |
 | `0x800899A0` | `ratan2` | Applied Psy-Q 4.6 identity; matching view and duel callers derive 4096-unit angles from coordinate deltas. |
+| `0x80089BCC` | `_gte_patch_text` | Private handler installed by `_patch_gte`; recovered Psy-Q declarations use this symbol and the handwritten body saves and restores the exception frame before returning. |
 | `0x80089C00` | `SetDQA` | Applied Psy-Q 4.6 identity from the unique 16-byte `LIBGTE.LIB/REG03_14.OBJ` signature; writes GTE control register `27` and `SetFogNearFar` calls it. |
 | `0x80089C10` | `SetDQB` | Applied Psy-Q 4.6 identity from the unique 16-byte `LIBGTE.LIB/REG03_15.OBJ` signature; writes GTE control register `28` and `SetFogNearFar` calls it in the instruction after `SetDQA`. |
 | `0x80089C20` | `NormalColorCol` | Applied from the unique 32-byte Psy-Q 4.6 `LIBGTE.LIB/SMP_7.OBJ` signature; the zero-wildcard pattern exactly covers the inventory function extent. |
@@ -538,6 +638,9 @@ Every row below is now an applied project symbol.
 | `0x80089ED0` | `GsU_02000001` | Applied from the unique exact Psy-Q 4.6 `LIBHMD.LIB/02000001.OBJ` signature. Matching `func_800603DC` returns the canonical handler for the exact primitive type word `0x02000001`. |
 | `0x8008A4A0` | `GsGetLwUnit` | Applied at offset zero of the unique exact Psy-Q 4.6 `LIBHMD.LIB/LWUNIT.OBJ` signature. Canonical `libhmd.h` takes a `GsCOORDUNIT *` and output `MATRIX *`; matching `model_slot_properties.c` uses those types before `GsSetLsMatrix`, while `func_800580D4` and `func_80059B90` pass the same 0x50-byte unit and 32-byte output through local byte views. |
 | `0x8008AD50` | `GsSetRefView2` | Applied Psy-Q 4.6 identity; matching model paths install the shared 32-byte reference-view record. |
+| `0x8008B120` | `scale_view_param` | Private helper shared by the byte-identical `GS_131.OBJ`/`RVWUNIT.OBJ` variants. PsyZ names it in both objects, independent maps preserve its first-helper position, and recovered HMD SDK source contains the same static view-parameter scaler. |
+| `0x8008B20C` | `select_max_param` | Private helper named by both PsyZ object reconstructions and independent maps; it selects the dominant scaled view parameter between `scale_view_param` and `len_param`. |
+| `0x8008B2D4` | `len_param` | Private final helper named by PsyZ and independent maps; its compact body computes the parameter length used by the reference-view setup. |
 | `0x8008B2F0` | `TransposeMatrix` | Applied Psy-Q 4.6 identity from the unique 64-byte `LIBGTE.LIB/FGO_00.OBJ` signature; transposes the 3x3 halfword block and `GsSetRefView2` calls it. |
 | `0x8008B330` | `_card_info` | Applied Psy-Q 4.6 identity from the unique 16-byte `LIBCARD.LIB/C171.OBJ` signature; matching memory-card request paths issue this BIOS operation before polling their event handles. |
 | `0x8008B340` | `_card_load` | Applied Psy-Q 4.6 identity from the unique 16-byte `LIBCARD.LIB/C172.OBJ` signature; matching memory-card request paths issue it before polling load completion. |
@@ -565,19 +668,19 @@ Every row below is now an applied project symbol.
 | `0x8008B850` | `McrdGetGlobalStructure` | Applied at offset `0x50` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
 | `0x8008B85C` | `MemCardStart` | Applied at offset `0x5C` of the unique 6,352-byte Psy-Q 4.6 `LIBMCRD.LIB/LIBMCRD.OBJ` signature; matching dialog setup starts the high-level card service. |
 | `0x8008B8CC` | `MemCardStop` | Applied at offset `0xCC` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature; matching dialog teardown stops the service. |
-| `0x8008B90C` | `MemCardExist` | Applied at offset `0x10C` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
-| `0x8008BC90` | `MemCardAccept` | Applied at offset `0x490` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
+| `0x8008B90C` | `MemCardExist` | Applied at offset `0x10C` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The Psy-Q 4.7 map places `MemCardAccept` next at offset `0x490`, proving the former `0x8008B974` inventory start was an interior label and the full extent is `0x384`. |
+| `0x8008BC90` | `MemCardAccept` | Applied at offset `0x490` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The next exported start remains `MemCardOpen` at offset `0x7A0`, proving the full `0x310` extent. |
 | `0x8008BFA0` | `MemCardOpen` | Applied at offset `0x7A0` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
 | `0x8008C128` | `MemCardClose` | Applied at offset `0x928` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
-| `0x8008C16C` | `MemCardReadData` | Applied at offset `0x96C` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
-| `0x8008C3D4` | `MemCardWriteData` | Applied at offset `0xBD4` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
-| `0x8008C638` | `MemCardReadFile` | Applied at offset `0xE38` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
-| `0x8008C858` | `MemCardWriteFile` | Applied at offset `0x1058` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
+| `0x8008C16C` | `MemCardReadData` | Applied at offset `0x96C` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The version-stable next export at `0xBD4` proves the full `0x268` extent. |
+| `0x8008C3D4` | `MemCardWriteData` | Applied at offset `0xBD4` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The next export at `0xE38` proves the full `0x264` extent. |
+| `0x8008C638` | `MemCardReadFile` | Applied at offset `0xE38` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The next export at `0x1058` proves the full `0x220` extent. |
+| `0x8008C858` | `MemCardWriteFile` | Applied at offset `0x1058` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The next export at `0x1278` proves the full `0x220` extent. |
 | `0x8008CA78` | `MemCardGetDirentry` | Applied at offset `0x1278` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
 | `0x8008CCD4` | `MemCardCallback` | Applied at offset `0x14D4` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
 | `0x8008CCE8` | `MemCardSync` | Applied at offset `0x14E8` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature; matching dialog code polls command and result words until completion. |
 | `0x8008CE04` | `MemCardCreateFile` | Applied at offset `0x1604` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
-| `0x8008CF00` | `MemCardFormat` | Applied at offset `0x1700` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. |
+| `0x8008CF00` | `MemCardFormat` | Applied at offset `0x1700` of the same unique `LIBMCRD.LIB/LIBMCRD.OBJ` signature. The Psy-Q 4.7 map has no further export before object offset `0x18D0`; the three former interior starts are control-flow labels within its full `0x1D0` extent. |
 | `0x8008D0D0` | `UserFuncInit` | Applied at offset zero of the unique 272-byte Psy-Q 4.6 `LIBMCRD.LIB/USERFUNC.OBJ` signature. |
 | `0x8008D0E0` | `UserFuncOpen` | Applied at offset `0x10` of the same unique `LIBMCRD.LIB/USERFUNC.OBJ` signature. |
 | `0x8008D15C` | `UserFuncExecute` | Applied at offset `0x8C` of the same unique `LIBMCRD.LIB/USERFUNC.OBJ` signature. |
@@ -606,6 +709,7 @@ Every row below is now an applied project symbol.
 | `0x8008E390` | `memcpy` | Applied Psy-Q 4.6 identity from the unique 64-byte `LIBC2.LIB/MEMCPY.OBJ` signature. |
 | `0x8008E3D0` | `memset` | Applied Psy-Q 4.6 identity from the unique 48-byte `LIBC2.LIB/MEMSET.OBJ` signature; matching model paths clear eight-byte vector records, and `func_8005EBF4` clears its four-pointer keyframe control-point array through the canonical `memory.h` declaration. |
 | `0x8008E400` | `qsort` | Applied Psy-Q 4.6 identity from the unique 400-byte `LIBC.LIB`/`LIBC2.LIB` `QSORT.OBJ` signature; matching callers sort resident and overlay record arrays. |
+| `0x8008E550` | `qsexc` | Private exchange helper called at every swap site in `qsort`; its complete body swaps exactly the requested number of bytes between two elements, matching the historical libc `qsexc` contract. |
 | `0x8008E590` | `rand` | Confirmed Psy-Q C runtime implementation: advances `gRand_dwSeed` with the standard `0x41C64E6D`/`0x3039` recurrence and returns bits 16–30, matching `RAND_MAX` 32767 in `rand.h`. |
 | `0x8008E5C0` | `srand` | Confirmed Psy-Q C runtime seed entry point; directly stores its argument in `gRand_dwSeed`. |
 | `0x8008E5D0` | `strcat` | Applied Psy-Q 4.6 identity from the unique 176-byte `LIBC2.LIB/STRCAT.OBJ` signature. |
@@ -635,6 +739,13 @@ Every row below is now an applied project symbol.
 | `0x8008FE10` | `DecDCToutSync` | Applied Psy-Q 4.6 identity at offset `0x230` of the unique 1,680-byte `LIBPRESS.LIB/LIBPRESS.OBJ` signature. |
 | `0x8008FE58` | `DecDCTinCallback` | Applied Psy-Q 4.6 identity at offset `0x278` of the unique 1,680-byte `LIBPRESS.LIB/LIBPRESS.OBJ` signature. |
 | `0x8008FE7C` | `DecDCToutCallback` | Applied Psy-Q 4.6 identity at offset `0x29C` of the unique 1,680-byte `LIBPRESS.LIB/LIBPRESS.OBJ` signature. |
+| `0x8008FEA0` | `MDEC_reset` | Stable Psy-Q 2.6/3.0 private label plus exact MDEC control-register and DMA-channel reset sequence; `DecDCTReset` calls it and mode zero reloads both decoder tables through `MDEC_in`. |
+| `0x8008FF90` | `MDEC_in` | Stable private label plus exact input DMA setup: waits through `MDEC_in_sync`, enables MDEC DMA priority, publishes the command and input buffer, and starts channel zero. |
+| `0x80090020` | `MDEC_out` | Stable private label plus exact output DMA setup: waits through `MDEC_out_sync`, publishes the destination and transfer size, and starts channel one. |
+| `0x800900AC` | `MDEC_in_sync` | Stable private label and exact bounded wait on MDEC status bit `0x20000000`, with timeout recovery and `-1` on exhaustion. |
+| `0x80090140` | `MDEC_out_sync` | Stable private label and exact bounded wait on output DMA bit `0x01000000`, with the same timeout recovery contract. |
+| `0x800901D4` | `MDEC_status` | Stable private label and exact six-instruction read of the MDEC status register. |
+| `0x800901EC` | `timeout_800901EC` | Reconstructed SDK implementations identify the shared private timeout path; both sync waits call its diagnostic and MDEC/DMA reset body. The address suffix avoids exporting the generic local name `timeout`. |
 | `0x80090270` | `DecDCTvlcSize2` | Applied Psy-Q 4.6 identity at offset zero of the unique 896-byte `LIBPRESS.LIB/VLC_C.OBJ` signature. |
 | `0x800902A0` | `DecDCTvlc2` | Applied Psy-Q 4.6 identity at offset `0x30` of the unique 896-byte `LIBPRESS.LIB/VLC_C.OBJ` signature. |
 | `0x800905F0` | `DecDCTvlcBuild` | Applied Psy-Q 4.6 identity at offset zero of the unique 240-byte `LIBPRESS.LIB/BUILD.OBJ` signature. |
@@ -1064,14 +1175,16 @@ signatures:
 
 | Object | Resident signature range | Current naming boundary |
 |---|---:|---|
-| `LIBPRESS.LIB/LIBPRESS.OBJ` | `0x8008FBE0-0x80090270` (`0x690` bytes) | Nine API names are applied from `DecDCTReset` through `DecDCToutCallback`. Seven following function entries at `0x8008FEA0-0x800901EC` remain address-based; the final `0x8` bytes are zero alignment. |
+| `LIBPRESS.LIB/LIBPRESS.OBJ` | `0x8008FBE0-0x80090270` (`0x690` bytes) | Nine public API names are applied from `DecDCTReset` through `DecDCToutCallback`; the seven following private MDEC runtime functions are identified through stable older SDK labels, exact register/DMA behavior, and reconstructed implementations. The final `0x8` bytes are zero alignment. |
 | `LIBPRESS.LIB/VLC_C.OBJ` | `0x80090270-0x800905F0` (`0x380` bytes) | `DecDCTvlcSize2` and `DecDCTvlc2` occupy the range through `0x800905EC`; the final `0x4` bytes are zero alignment. |
 | `LIBPRESS.LIB/BUILD.OBJ` | `0x800905F0-0x800906E0` (`0xF0` bytes) | `DecDCTvlcBuild` occupies `0xE4` bytes; the final `0xC` bytes are the executable's text padding. |
 
-Exact object membership is not enough to name the seven remaining
-`LIBPRESS.OBJ` bodies. They may include additional public header interfaces
-and private helpers, so they retain address-based identities until an export
-offset, caller contract, or implementation signature distinguishes them.
+The private runtime identities are stronger than object membership alone.
+Psy-Q 2.6 and 3.0 label the same ordered roles `MDEC_reset`, `MDEC_in`,
+`MDEC_out`, `MDEC_in_sync`, `MDEC_out_sync`, and `MDEC_status`; reconstructed
+SDK implementations reproduce the retail register accesses and call graph.
+The final generic local `timeout` is address-qualified in the linked symbol
+table while retaining its recovered role.
 
 The resident movie setup path combines these layers: `func_8005B8A0` reaches
 the CD `St*` ring/stream calls and `DecDCTvlcBuild`. That call chain is evidence

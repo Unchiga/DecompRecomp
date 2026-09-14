@@ -218,6 +218,7 @@ def signature_entry_fields(
 def scan(signatures: Path, load_address: int, payload: bytes) -> dict:
     """address -> {name: [providers]}, plus counts for the report."""
     proposals: dict[int, dict[str, list[str]]] = {}
+    objects = []
     unique = multiple = absent = unanchored = 0
     paths = sorted(signatures.glob("*.json"))
     if not paths:
@@ -275,6 +276,14 @@ def scan(signatures: Path, load_address: int, payload: bytes) -> dict:
                 multiple += 1
                 continue
             unique += 1
+            object_start = load_address + matches[0]
+            objects.append(
+                {
+                    "provider": f"{library}/{entry_name}",
+                    "start": object_start,
+                    "end": object_start + len(pattern),
+                }
+            )
             for name, offset in labels:
                 if PLACEHOLDER.match(name):
                     continue
@@ -289,18 +298,18 @@ def scan(signatures: Path, load_address: int, payload: bytes) -> dict:
         "multiple": multiple,
         "absent": absent,
         "unanchored": unanchored,
+        "objects": objects,
     }
 
 
-def classify(proposals: dict, inventory: dict) -> dict:
+def classify(
+    proposals: dict, inventory: dict, objects: list[dict] | None = None
+) -> dict:
     ambiguous, agreed, disagreed, new = [], [], [], []
+    ambiguous_locally_named, ambiguous_unresolved = [], []
     outside_psyq, off_start = [], 0
     for address in sorted(proposals):
         names = proposals[address]
-        if len(names) > 1:
-            ambiguous.append((address, sorted(names)))
-            continue
-        name = next(iter(names))
         row = inventory.get(address)
         if row is None:
             off_start += 1
@@ -312,27 +321,70 @@ def classify(proposals: dict, inventory: dict) -> dict:
             outside_psyq.append(
                 (
                     address,
-                    name,
+                    sorted(names),
                     row["name"],
                     row.get("status", ""),
                     row.get("module", ""),
-                    sorted(names[name]),
+                    sorted(
+                        provider
+                        for providers in names.values()
+                        for provider in providers
+                    ),
                 )
             )
             continue
+        if len(names) > 1:
+            sorted_names = sorted(names)
+            ambiguous.append((address, sorted_names))
+            if not row.get("name", "").startswith("func_"):
+                ambiguous_locally_named.append(
+                    (address, sorted_names, row["name"])
+                )
+            else:
+                ambiguous_unresolved.append(
+                    (address, sorted_names, row.get("name"))
+                )
+            continue
+        name = next(iter(names))
         if row["name"] == name:
             agreed.append((address, name))
         elif row["name"].startswith("func_"):
             new.append((address, name, row, sorted(names[name])))
         else:
             disagreed.append((address, name, row["name"], sorted(names[name])))
+    address_named_inventory = [
+        (address, row)
+        for address, row in sorted(inventory.items())
+        if (
+            row.get("status") == "sdk_asm"
+            and row.get("module", "").startswith("psyq/")
+            and row.get("name", "").startswith("func_")
+        )
+    ]
+    object_covered_inventory = []
+    object_uncovered_inventory = []
+    for address, row in address_named_inventory:
+        providers = sorted(
+            item["provider"]
+            for item in objects or []
+            if item["start"] <= address < item["end"]
+        )
+        if providers:
+            object_covered_inventory.append((address, row, providers))
+        else:
+            object_uncovered_inventory.append((address, row))
     return {
         "agreed": agreed,
         "disagreed": disagreed,
         "new": new,
         "ambiguous": ambiguous,
+        "ambiguous_locally_named": ambiguous_locally_named,
+        "ambiguous_unresolved": ambiguous_unresolved,
         "outside_psyq": outside_psyq,
         "off_start": off_start,
+        "address_named_inventory": address_named_inventory,
+        "object_covered_inventory": object_covered_inventory,
+        "object_uncovered_inventory": object_uncovered_inventory,
     }
 
 
@@ -369,6 +421,26 @@ def report(scanned: dict, result: dict) -> None:
     print(f"names already in the inventory, differing: {len(result['disagreed'])}")
     print(f"new names for func_XXXXXXXX rows         : {len(result['new'])}")
     print(f"addresses claimed under several names    : {len(result['ambiguous'])}")
+    print(
+        "ambiguous addresses with local inventory names: "
+        f"{len(result['ambiguous_locally_named'])}"
+    )
+    print(
+        "ambiguous addresses still unresolved     : "
+        f"{len(result['ambiguous_unresolved'])}"
+    )
+    print(
+        "Psy-Q inventory rows still address-named : "
+        f"{len(result['address_named_inventory'])}"
+    )
+    print(
+        "  within unique matched library objects  : "
+        f"{len(result['object_covered_inventory'])}"
+    )
+    print(
+        "  outside unique matched library objects : "
+        f"{len(result['object_uncovered_inventory'])}"
+    )
     print(f"labels on non-Psy-Q function starts      : {len(result['outside_psyq'])}")
     print(f"labels away from a function start        : {result['off_start']}")
     if result["disagreed"]:
@@ -376,18 +448,31 @@ def report(scanned: dict, result: dict) -> None:
         print("differing:")
         for address, name, current, providers in result["disagreed"]:
             print(f"  {address:#010x} corpus {name} / inventory {current} [{providers[0]}]")
-    if result["ambiguous"]:
+    if result["ambiguous_locally_named"]:
         print()
-        print("ambiguous, left alone:")
-        for address, names in result["ambiguous"]:
-            print(f"  {address:#010x} {', '.join(names)}")
+        print("ambiguous signatures with local inventory names, left unchanged:")
+        for address, names, current in result["ambiguous_locally_named"]:
+            print(
+                f"  {address:#010x} inventory {current} / "
+                f"corpus {', '.join(names)}"
+            )
+    if result["ambiguous_unresolved"]:
+        print()
+        print("ambiguous and still unresolved:")
+        for address, names, current in result["ambiguous_unresolved"]:
+            current_text = "no function start" if current is None else current
+            print(
+                f"  {address:#010x} inventory {current_text} / "
+                f"corpus {', '.join(names)}"
+            )
     if result["outside_psyq"]:
         print()
         print("non-Psy-Q function starts, left alone:")
         for item in result["outside_psyq"]:
-            address, name, current, status, module, providers = item
+            address, names, current, status, module, providers = item
             print(
-                f"  {address:#010x} corpus {name} / inventory {current} "
+                f"  {address:#010x} corpus {', '.join(names)} / "
+                f"inventory {current} "
                 f"({status}, {module}) [{providers[0]}]"
             )
     if result["new"]:
@@ -395,6 +480,20 @@ def report(scanned: dict, result: dict) -> None:
         print("new:")
         for address, name, row, providers in result["new"]:
             print(f"  {address:#010x} {row['size']:>7} {name:<28} {providers[0]}")
+
+
+def report_coverage(result: dict) -> None:
+    writer = csv.writer(sys.stdout, lineterminator="\n")
+    writer.writerow(["address", "size", "name", "unique_signature_objects"])
+    for address, row, providers in result["object_covered_inventory"]:
+        writer.writerow(
+            [
+                f"0x{address:08X}",
+                row.get("size", ""),
+                row.get("name", ""),
+                ";".join(providers),
+            ]
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -415,6 +514,14 @@ def parse_args() -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--report", action="store_true")
     mode.add_argument(
+        "--coverage-report",
+        action="store_true",
+        help=(
+            "write address-named Psy-Q rows that fall inside uniquely "
+            "matched library objects"
+        ),
+    )
+    mode.add_argument(
         "--emit-map",
         action="store_true",
         help="write semantic-symbol-map.csv rows for the new names to stdout",
@@ -433,9 +540,11 @@ def main() -> int:
         load_address, payload = load_payload(root)
         inventory = load_inventory(root)
         scanned = scan(signatures, load_address, payload)
-        result = classify(scanned["proposals"], inventory)
+        result = classify(scanned["proposals"], inventory, scanned["objects"])
         if args.emit_map:
             emit_map(result, args.psyq_version)
+        elif args.coverage_report:
+            report_coverage(result)
         else:
             report(scanned, result)
         return 0
