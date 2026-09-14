@@ -17,6 +17,9 @@ extern s32 D_800FE240 __attribute__((section(".data")));
 extern u32 *D_800FE240 __attribute__((section(".data")));
 #endif
 
+/* Current model ordering table, not the packet work cursor above. */
+GsOT *func_80058F10(void);
+
 /* Copies a primitive, adds draw mode, and links it into the ordering table. */
 void func_8005B260(u32 *src, GsOT *ot, s32 idx, s32 flags);
 
