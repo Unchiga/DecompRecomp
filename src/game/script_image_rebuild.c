@@ -5,6 +5,7 @@
 #include "script_image_rebuild.h"
 #include "display_object.h"
 #include "scene_image_overlay_tables.h"
+#include "display_object_config.h"
 
 /* MATCH. Real C -- this retires the ASSEMBLY-DEBT transcription (Unchiga's
  * port, a 24-instruction `__asm__` block with s0/s1 pins) that stood here.
