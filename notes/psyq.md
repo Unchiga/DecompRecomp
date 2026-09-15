@@ -52,6 +52,40 @@ for the patched LIBDS version reported as 4.6.1; other libraries must not be
 identified from 4.7 patterns. Never import catalogues as authoritative labels
 or override conflicting local evidence.
 
+## Header ownership and measured ABI views
+
+Psy-Q declarations belong under [`src/psyq/`](../src/psyq/), including
+address-qualified copies and caller views that deliberately differ from a
+manual's canonical prototype. Game, candidate, and overlay files consume those
+headers; they do not privately redeclare functions classified as `sdk_asm`.
+`make check-psyq-declarations` enforces that boundary against the function
+inventory, and `make check-metadata` runs it on every pull request. The gate
+applies C backslash-newline splicing before comment and conditional handling,
+expands declaration macros, inspects block-local `extern` declarations, and
+resolves explicit `asm` aliases to their SDK link identity. It follows local
+includes from consumer sources so declaration-bearing shared headers outside
+the usual game/candidate/overlay directories cannot bypass ownership, while
+unused headers remain out of scope.
+
+The current inventory has 600 CRT/SDK functions. Psy-Q headers expose 335 named
+entries used or otherwise established by the project; the remaining internal
+assembly functions do not receive speculative prototypes merely to increase
+coverage. Declarations moved from outside the Psy-Q tree use these owners:
+
+| Header | Interface | Why it is not just the manual prototype |
+|---|---|---|
+| [`crt.h`](../src/psyq/crt.h) | `__main`, `__do_global_dtors` | Resident GCC/Psy-Q startup callbacks, identified from the unique `NOHEAP.OBJ` signature. |
+| [`libcd_abi_variants.h`](../src/psyq/libcd_abi_variants.h) | `CdIntToPos_8007E600`, `CdPosToInt_8007E710` | Address-qualified interfaces for the second resident copies of byte-identical LIBCD routines. |
+| [`libgs_abi_variants.h`](../src/psyq/libgs_abi_variants.h) | `GsSortFastSprite`, `GsSortGLine` | The `func_80029EC4` candidate preserves byte-oriented scratchpad pointers and a word-sized ordering-table handle. The canonical typed interfaces remain in `libgs.h`. |
+| [`libgte_abi_variants.h`](../src/psyq/libgte_abi_variants.h) | `NormalClip_800879A0`, `RotAverageNclip3_nom_80089CF0` | Address-qualified aliases preserve locally observed arities while `libgte.h` retains the canonical declarations. |
+| [`libspu_internal.h`](../src/psyq/libspu_internal.h) | `func_80074E60` | Unidentified 32-byte LIBSPU entry immediately preceding the confirmed `_SpuInit`; the address-based name avoids inventing semantics. |
+| [`sdk_internal.h`](../src/psyq/sdk_internal.h) | `func_80058F10`, `func_800862C0` | Unidentified SDK entries used by the embedded graphics getter and graphics frame setup. Their address-based names and existing ABIs are retained without assigning a library or return meaning. |
+
+Moving a declaration does not authorize normalizing its types. Candidate
+contract hashes include the declaration source and spelling, so ownership
+migrations are remeasured while candidate object fingerprints and the linked
+executable must remain unchanged.
+
 ## Psy-Q signature sweep
 
 Tier 1 evidence used to be gathered one function at a time. It is now produced
