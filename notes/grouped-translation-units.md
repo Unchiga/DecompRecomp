@@ -43,7 +43,7 @@ authority after later semantic renames or source grouping.
 | `src/game/main_frame.c` | `gcc_2_8_1_g8` | `Main_VBlankCB` (`0x80012CD4`), the contiguous four-stage frame update pump (`0x80012D4C`), and its count-controlled repeat wrapper (`0x80012D84`) |
 | `src/game/main_services.c` | `gcc_2_8_1_g8_split` | Two contiguous resident service functions: the per-frame callback/service pump `func_8001306C` (`0x8001306C`) and the boot-time graphics/input initializer `func_80013154` (`0x80013154`). The latter installs two frame-buffer ordering-table sets and starts the services the former pumps; the pad-driven `func_80013360` candidate bounds the unit above. |
 | `src/game/duel_card_checks.c` | `gcc_2_8_1_g0_split` | `Duel_CheckEquip` (`0x80019A08`), `Duel_CheckFusion` (`0x80019A60`) |
-| `src/game/duel_state_init.c` | `gcc_2_8_1_g8_split` | The duel reset phase, four contiguous functions starting at `0x800175A0` and spanning 0x224 bytes: duel-side and life-point initialization (`func_800175A0`, `0x800175A0`), `Duel_ClearHandSlots` (`0x800176D0`) clearing five hand-state entries, `func_80017708` (`0x80017708`) resetting the four selection records of each side, and `func_8001778C` (`0x8001778C`) clearing three fields of every card record. `func_800179F4.c` calls all four, the first three consecutively. Bounded below by `src/game/func_8001755C.c` at `gcc_2_8_1_g8` and above by `src/candidates/func_800177C4.c` at `gcc_2_8_1_g8_split_no_strength_reduce` |
+| `src/game/duel_state_init.c` | `gcc_2_8_1_g8_split` | The duel reset phase, four contiguous functions starting at `0x800175A0` and spanning 0x224 bytes: duel-side and life-point initialization (`func_800175A0`, `0x800175A0`), `Duel_ClearHandSlots` (`0x800176D0`) clearing five hand-state entries, `func_80017708` (`0x80017708`) resetting the four selection records of each side, and `func_8001778C` (`0x8001778C`) clearing three fields of every card record. `func_800179F4.c` calls all four, the first three consecutively. Bounded below by `src/game/func_8001755C.c` at `gcc_2_8_1_g8` and above by `src/game/func_800177C4.c` at `gcc_2_8_1_g8_split_no_strength_reduce_psyq_rtps` |
 | `src/game/func_80017DB4.c` | `gcc_2_8_1_g8_split` | 3 contiguous functions: `0x80017DB4`, `0x80017E3C`, `0x80017F04`. Split out of `src/game/func_800179F4.c` after #3859 moved `func_800179F4`, which matched only through pinned registers or inline asm, to `src/candidates/`. |
 | `src/game/duel_card_object_helpers.c` | `gcc_2_8_1_g8` | Screen-space duel display-object constructor (`0x80018150`) and contiguous card-category encoder (`0x800181EC`), mapping magic/equip, trap, and ritual types to `2`, `3`, and `4` with optional flag `0x80` |
 | `src/game/duel_phase_entry.c` | `gcc_2_8_1_g8_split` | Three contiguous entries from the `D_80090998` duel-phase callback table: resume/replay reconstruction (`0x8001825C`), initial combined-deck and selection setup (`0x80018608`), and draw-phase hand reconstruction (`0x8001898C`). All three use `DUEL_SCENE_FLAG_INITIALIZED` in `D_8009B23A` as the first-call latch, rebuild card/side state, and coordinate fade or file-transfer gates. The complete run is bounded by `gcc_2_8_1_g8` functions on both sides |
@@ -364,19 +364,14 @@ neighbours carry different profiles, so no run reached it anyway. Either way a
 run spanning one of them fails conditions 1 and 4 on the gap, which needs no
 special case.
 
-This used to be contrasted with a source carrying a single inline opcode, and
-that contrast no longer separates two groupable populations. Seven sources
-contain `.word 0x4A180001`, the GTE `rtps` encoding the period assembler
-could not spell, inside ordinary C with real operand constraints:
-`func_80015D18.c`, `func_80015DFC.c`, `func_80015EF4.c`, `func_800177C4.c`,
-`func_800178BC.c`, `func_8001B0CC.c` and `func_80029934.c`. All seven are
-build-integrated candidates under `src/candidates/`, so none of them is in
-matching C to group, and they are there for two different reasons. Five were
-reclassified by #3859, and each of those five rows says the source was
-byte-exact only through that inline asm statement -- two of them through a
-register pin as well -- so for those the opcode is the reason rather than an
-incidental detail. The other two, `func_80015EF4.c` and `func_80029934.c`,
-are ordinary unmatched candidates whose rows record a live residual.
+This used to be contrasted with sources carrying a source-authored
+`.word 0x4A180001` for the GTE `rtps` encoding. `func_800177C4.c` is now
+matching C built from typed scratchpad stores and the official Psy-Q GTE
+macros under `gcc_2_8_1_g8_split_no_strength_reduce_psyq_rtps`; the same
+normalization path also promoted `func_800178BC.c` and `func_8001B0CC.c`.
+Those one-function sources remain boundaries rather than a groupable
+translation unit. The remaining source-authored encoding is confined to the
+unmatched `src/candidates/func_80015EF4.c`.
 
 `display_projection.c` used to be an example here and no longer carries the
 encoding at all. #3859/#3904 moved `func_80015D18` and `func_80015DFC` out of
