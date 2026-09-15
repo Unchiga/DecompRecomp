@@ -19,8 +19,9 @@ coordinate unit receives zero rotation and translation `(0, height, 0)`.
 Its pointer is reloaded between writes; null still reaches `func_8005922C`
 with null. The other model slots use record byte +0xA1 to select orientation.
 
-The low byte of `D_8009B008` gates the editing display and can be toggled by
-the two-pad input combination. Editing retains modulo-seven stage selection,
+`ModelDebugDisplayState.display_enabled` is the low byte of `D_8009B008`; it
+gates the editing display and can be toggled by the two-pad input combination.
+Editing retains modulo-seven stage selection,
 modulo-six digit selection, three-decimal-digit wrapping, signed halfword
 height adjustment, and independent XOR-one flag changes. The real per-test
 pressed/repeat halfword reads use existing input-owner declaration arms.
@@ -40,8 +41,9 @@ not real arguments.
 ## Data ownership and matching
 
 The initialized, four-byte `D_8009B004` definition moves from the middle of
-the handler-state data unit into the controller. Its low half remains the
-existing scene-state bytes; no whole-word semantic rename is justified.
+the handler-state data unit into the controller. `ModelDebugState` records its
+two low scene-state bytes and the upper halfword's signed-height/unsigned-update
+views; no whole-word semantic rename is justified.
 The original small-data run is now three contiguous sections:
 
 | Address | Bytes | Owner |
