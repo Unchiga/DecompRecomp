@@ -6,7 +6,7 @@
 #define D_800EAE88_VISIBLE
 #include "../unmatched.h"
 
-s32 func_80027060(void) {
+s32 Duel_SelectTrapPlay(void) {
     DuelCardRecord *sp10[6];
     s32 slot;
     s8 v;
@@ -14,7 +14,7 @@ s32 func_80027060(void) {
     if (Duel_CollectFieldCardsByType(sp10, 0, CARD_TYPE_TRAP) == 0) {
         return 1;
     }
-    slot = func_80026C0C(DUEL_FIELD_SIDE_ZONE_COUNT);
+    slot = Duel_FindFreeFieldSlot(DUEL_FIELD_SIDE_ZONE_COUNT);
     if (slot < 0) {
         return 1;
     }
