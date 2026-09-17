@@ -1443,3 +1443,4 @@ BuildDeck_RefreshCountDisplay = 0x80031E5C; // type:func
 
 // Semantic names
 SD_PrepareSecondaryObjectReuse = 0x8004A8E4; // type:func
+SD_InitVoiceState = 0x80047480; // type:func
