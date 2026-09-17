@@ -40,13 +40,17 @@
  * field-cursor and card-pick paths where this source shares one.
  */
 #define D_8009B_DISPLAY_OBJECTS_VISIBLE
+#define D_8009B300_IN_DATA
 #define D_8009B360_AS_SIDE_ARRAY
 #define D_800EAE88_VISIBLE
 #define D_800EAE88_AS_BYTES
+#define D_800EAE91_AS_ARRAY
 #define D_800EAE92_AS_ARRAY
 #define DUEL_FIELD_GRID_2D
 #define GINPUT_PAD1_PRESSED_IN_DATA
+#define GDUEL_BCARDVIEWERYOFFSET_IN_DATA
 #define GDUEL_BEFFECTSTATE_IN_DATA
+#define GDUEL_WVIEWERCARDID_IN_DATA
 #define DUEL_PACKAGE_STAGE_RAW_ARENAS
 #include "../types.h"
 #include "../game/duel_scene_state.h"
@@ -77,10 +81,6 @@
 #include "../game/sound.h"
 #include "../unmatched.h"
 
-extern u8 gDuel_bCardViewerYOffset __attribute__((section(".data")));
-extern u16 gDuel_wViewerCardID __attribute__((section(".data")));
-extern u32 D_8009B300 __attribute__((section(".data")));
-
 #define B(p, o) (*((u8 *)(p) + (o)))
 #define H(p, o) (*(u16 *)((u8 *)(p) + (o)))
 #define S(p, o) (*(s16 *)((u8 *)(p) + (o)))
@@ -97,7 +97,6 @@ u8 D_8009B19C;
 extern s32 D_8009B1BC;
 extern u8 D_8009B21A;
 extern s8 D_8009B229;
-extern u8 D_800EAE91[];
 int DuelCard_CanActThisTurn(DuelCardRecord *object);
 void func_8001D240(DisplayObject *o);
 void func_8001D344(DisplayObject *object);
