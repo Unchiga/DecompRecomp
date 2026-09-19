@@ -103,7 +103,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8001186C,D_8001186C,D_8001186C,0x8006AF74,func_8006AF74,matching_c,game,C,src/game/model_subdivided_effect.c,address,8,"printf(D_8001186C, 0x1318, 0x1318);"
 0x8001187C,D_8001187C,D_8001187C,0x8006C37C,Model_UpdateDiscEffect,matching_c,game,C,src/game/model_disc_effect.c,read,8,scale = *(VECTOR *)D_8001187C;
 0x8001188C,D_8001188C,D_8001188C,0x8006CD78,func_8006CD78,matching_c,game,C,src/game/func_8006CD78.c,read,,scale = D_8001188C;
-0x8001189C,D_8001189C,D_8001189C,0x8006F1B4,func_8006F1B4,unmatched_asm,game,assembly,tmp/splat/asm/generated/text_05f9b4.s,address,,"addiu $t4, $v0, %lo(D_8001189C) | lui $v0, %hi(D_8001189C)"
+0x8001189C,D_8001189C,D_8001189C,0x8006F1B4,func_8006F1B4,matching_c,game,C,src/game/func_8006F1B4.c,read,,scale = D_8001189C;
 0x800118AC,D_800118AC,D_800118AC,0x80070D00,AiScript_Call,matching_c,game,C,src/game/ai_script_control_flow.c,address,8,printf(D_800118AC);
 0x800118CC,D_800118CC,D_800118CC,0x80070D00,AiScript_Call,matching_c,game,C,src/game/ai_script_control_flow.c,address,8,"printf(gAiScript_szSourceLineFormat, D_800118CC, 0x17B);"
 0x800118CC,D_800118CC,D_800118CC,0x80070DA8,AiScript_Return,matching_c,game,C,src/game/ai_script_control_flow.c,address,8,"printf(gAiScript_szSourceLineFormat, D_800118CC, 0x193);"
@@ -832,7 +832,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8009B0D8,D_8009B0D8,D_8009B0D8,0x80041D60,DisplayObject_UpdateCommandStream,matching_c,game,C,src/game/display_object_update_command_stream.c,read,32,s16 remain = (u16)arg0->field_5A - (u16)D_8009B0D8;
 0x8009B0E0,D_8009B0E0,D_8009B0E0,0x800136E4,File_SetPositionTable,matching_c,game,C,src/game/file_set_position_table.c,write,8,D_8009B0E0 = 0;
 0x8009B0E8,D_8009B0E8,D_8009B0E8,0x80013898,File_InitTransferState,matching_c,game,C,src/game/file_stream.c,write,32,D_8009B0E8 = 0;
-0x8009B0E8,D_8009B0E8,D_8009B0E8,0x80014A5C,func_80014A5C,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B0E8 = 0; | D_8009B0E8 = 1; | (+1 more)
+0x8009B0E8,D_8009B0E8,D_8009B0E8,0x80014A5C,File_ServiceTransfers,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B0E8 = 0; | D_8009B0E8 = 1; | (+1 more)
 0x8009B0EC,D_8009B0EC,D_8009B0EC,0x8001455C,File_StepActiveTransfer,matching_c,game,C,src/game/func_80014294.c,read_write,16,D_8009B0EC = 0x258; | D_8009B0EC = D_8009B0EC - 1; | (+1 more)
 0x8009B0F0,D_8009B0F0,D_8009B0F0,0x80013898,File_InitTransferState,matching_c,game,C,src/game/file_stream.c,write,,D_8009B0F0 = 0;
 0x8009B0F0,D_8009B0F0,D_8009B0F0,0x8001455C,File_StepActiveTransfer,matching_c,game,C,src/game/func_80014294.c,read,,cb2 = D_8009B0F0;
@@ -853,7 +853,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8009B0F4,D_8009B0F4,D_8009B0F4,0x800143DC,File_ActivateTransfer,matching_c,game,C,src/game/func_80014294.c,write,32,D_8009B0F4 =
 0x8009B0F4,D_8009B0F4,D_8009B0F4,0x800144B8,func_800144B8,matching_c,game,C,src/game/func_80014294.c,read_write,32,void func_800144B8(void){D_8009B0F4&=FILE_TRANSFER_STATE_SECONDARY_PENDING|FILE_TRANSFER_STATE_PRIMARY_REQUEST_LOCKED...
 0x8009B0F4,D_8009B0F4,D_8009B0F4,0x8001455C,File_StepActiveTransfer,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B0F4 = | D_8009B0F4 = D_8009B0F4 & 0xFFBFFFFF; | (+16 more)
-0x8009B0F4,D_8009B0F4,D_8009B0F4,0x80014A5C,func_80014A5C,matching_c,game,C,src/game/func_80014294.c,read,32,(D_8009B0F4 & FILE_TRANSFER_STATE_SECONDARY_PENDING)) { | if (!(D_8009B0F4 & FILE_TRANSFER_STATE_PRIMARY_ACTIVE) && | (+1 more)
+0x8009B0F4,D_8009B0F4,D_8009B0F4,0x80014A5C,File_ServiceTransfers,matching_c,game,C,src/game/func_80014294.c,read,32,(D_8009B0F4 & FILE_TRANSFER_STATE_SECONDARY_PENDING)) { | if (!(D_8009B0F4 & FILE_TRANSFER_STATE_PRIMARY_ACTIVE) && | (+1 more)
 0x8009B0F4,D_8009B0F4,D_8009B0F4,0x80014B30,func_80014B30,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B0F4 &= 0xFFDCFFFF;
 0x8009B0F4,D_8009B0F4,D_8009B0F4,0x80014C40,func_80014C40,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B0F4 & ~FILE_TRANSFER_STATE_SECONDARY_PENDING; | D_8009B0F4 = | (+4 more)
 0x8009B0F4,D_8009B0F4,D_8009B0F4,0x80014E1C,File_RequestAsyncTransfer,matching_c,game,C,src/game/file_transfer_flags.c,read_write,32,D_8009B0F4 = | D_8009B0F4 |= FILE_TRANSFER_STATE_PRIMARY_REQUEST_LOCKED; | (+1 more)
@@ -966,7 +966,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8009B120,D_8009B120,D_8009B120,0x8001455C,File_StepActiveTransfer,matching_c,game,C,src/game/func_80014294.c,read,,cb = D_8009B120;
 0x8009B120,D_8009B120,D_8009B120,0x80046768,SD_InitState,matching_c,game,C,src/game/sd_init_state.c,write,,D_8009B120 = func_800466C8;
 0x8009B124,D_8009B124,D_8009B124,0x80013898,File_InitTransferState,matching_c,game,C,src/game/file_stream.c,write,16,D_8009B124 = 0;
-0x8009B124,D_8009B124,D_8009B124,0x80014A5C,func_80014A5C,matching_c,game,C,src/game/func_80014294.c,read_write,16,D_8009B124 = 0; | D_8009B124 = 1; | (+1 more)
+0x8009B124,D_8009B124,D_8009B124,0x80014A5C,File_ServiceTransfers,matching_c,game,C,src/game/func_80014294.c,read_write,16,D_8009B124 = 0; | D_8009B124 = 1; | (+1 more)
 0x8009B128,D_8009B128,D_8009B128,0x80014B30,func_80014B30,matching_c,game,C,src/game/func_80014294.c,read,,callback = D_8009B128;
 0x8009B128,D_8009B128,D_8009B128,0x8004545C,SD_ArmBusyCallback,matching_c,game,C,src/game/sd_arm_busy_callback.c,write,,D_8009B128 = SD_ClearBusyFlag;
 0x8009B12C,D_8009B12C,D_8009B12C,0x80013898,File_InitTransferState,matching_c,game,C,src/game/file_stream.c,write,32,D_8009B12C = 0;
@@ -981,7 +981,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8009B134,D_8009B134,D_8009B134,0x80013898,File_InitTransferState,matching_c,game,C,src/game/file_stream.c,write,32,D_8009B134 = 0;
 0x8009B134,D_8009B134,D_8009B134,0x80013B04,func_80013B04,matching_c,game,C,src/game/file_transfer_setup.c,read,32,D_8009B134) == 0) {
 0x8009B134,D_8009B134,D_8009B134,0x800144B8,func_800144B8,matching_c,game,C,src/game/func_80014294.c,read_write,32,void func_800144B8(void){D_8009B0F4&=FILE_TRANSFER_STATE_SECONDARY_PENDING|FILE_TRANSFER_STATE_PRIMARY_REQUEST_LOCKED...
-0x8009B134,D_8009B134,D_8009B134,0x80014A5C,func_80014A5C,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B134 = 0; | D_8009B134 |= 0x40; | (+1 more)
+0x8009B134,D_8009B134,D_8009B134,0x80014A5C,File_ServiceTransfers,matching_c,game,C,src/game/func_80014294.c,read_write,32,D_8009B134 = 0; | D_8009B134 |= 0x40; | (+1 more)
 0x8009B134,D_8009B134,D_8009B134,0x80014E1C,File_RequestAsyncTransfer,matching_c,game,C,src/game/file_transfer_flags.c,read,32,D_8009B134) != 0) {
 0x8009B134,D_8009B134,D_8009B134,0x80014EEC,File_TryRequestAsyncTransfer,matching_c,game,C,src/game/file_transfer_flags.c,read,32,D_8009B134) != 0) {
 0x8009B134,D_8009B134,D_8009B134,0x80014FA4,func_80014FA4,matching_c,game,C,src/game/file_transfer_flags.c,read_write,32,D_8009B134 = value; | if ((D_8009B0F4 & FILE_TRANSFER_REQUEST_BLOCKED_MASK) | D_8009B134) {
@@ -1353,7 +1353,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8009B204,D_8009B204,D_8009B204,0x800179F4,Duel_InitScene,matching_c,game,C,src/game/duel_init_scene.c,write,16,D_8009B204 = 0;
 0x8009B204,D_8009B204,D_8009B204,0x80022D94,func_80022D94,matching_c,game,C,src/game/func_80022D94.c,write,16,D_8009B204=frames;D_8009B1EE=x;D_8009B192=z;D_8009B190=y;
 0x8009B204,D_8009B204,D_8009B204,0x800235C0,func_800235C0,matching_c,game,C,src/game/duel_field_display_objects.c,read_write,16,D_8009B204 = count; | count = (u16)D_8009B204 - 1; | (+1 more)
-0x8009B206,D_8009B206,D_8009B206,0x80019D18,DuelScene_UpdateCardPlacement,matching_c,game,C,src/game/duel_scene_card_placement.c,read_write,16,D_8009B206 = PLACEMENT_REPLAY_CARD(object).card_id; | effect = (DuelEffectRequest *)DuelEffect_AllocateRequest(((u32)((u16)D_8009B206 - 301) < 2) * 4); | (+3 more)
+0x8009B206,D_8009B206,D_8009B206,0x80019D18,DuelScene_UpdateCardPlacement,matching_c,game,C,src/game/duel_scene_card_placement.c,read_write,16,((u32)((u16)D_8009B206 - 301) < 2) * 4)); | D_8009B206 = PLACEMENT_REPLAY_CARD(object).card_id; | (+3 more)
 0x8009B208,D_8009B208,D_8009B208,0x8001825C,DuelScene_UpdateResume,matching_c,game,C,src/game/duel_phase_entry.c,read,8,(u8 *)&((DuelCardRecord *)b)[D_8009B208[n]] + replay_offset); | if (D_8009B208[n] >= 0) {
 0x8009B208,D_8009B208,D_8009B208,0x8001BD88,DuelScene_UpdateHandActions,matching_c,game,C,src/game/duel_scene_hand_actions.c,read_write,8,D_8009B208[2] = D_800EAE88[6] - 1; | D_8009B208[2] = D_800EAE88[6] - 6; | (+6 more)
 0x8009B208,D_8009B208,D_8009B208,0x8001F55C,DuelScene_UpdateBattle,unmatched_asm,game,assembly,tmp/splat/asm/generated/text_00fd5c.s,write,8,"sb $v0, %gp_rel(D_8009B208)($gp)"
@@ -2424,7 +2424,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x80014390,func_80014390,matching_c,game,C,src/game/func_80014294.c,address,,destination = (s32 *)&gFile_PrimaryTransferDescriptor.field_30;
 0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x800143DC,File_ActivateTransfer,matching_c,game,C,src/game/func_80014294.c,read,,*(FileTransferDescriptorWords *)&gFile_PrimaryTransferDescriptor = | gFile_PrimaryTransferDescriptor.status_flags | | (+1 more)
 0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x8001455C,File_StepActiveTransfer,matching_c,game,C,src/game/func_80014294.c,address,,p = &gFile_PrimaryTransferDescriptor;
-0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x80014A5C,func_80014A5C,matching_c,game,C,src/game/func_80014294.c,write,,gFile_PrimaryTransferDescriptor.done = 5; | gFile_PrimaryTransferDescriptor.substate = 0;
+0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x80014A5C,File_ServiceTransfers,matching_c,game,C,src/game/func_80014294.c,write,,gFile_PrimaryTransferDescriptor.done = 5; | gFile_PrimaryTransferDescriptor.substate = 0;
 0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x80014E1C,File_RequestAsyncTransfer,matching_c,game,C,src/game/file_transfer_flags.c,address,,"&gFile_PrimaryTransferDescriptor, | result = &gFile_PrimaryTransferDescriptor;"
 0x800E9E60,gFile_PrimaryTransferDescriptor,gFile_PrimaryTransferDescriptor,0x80014EEC,File_TryRequestAsyncTransfer,matching_c,game,C,src/game/file_transfer_flags.c,address,,"&gFile_PrimaryTransferDescriptor, | return &gFile_PrimaryTransferDescriptor;"
 0x800E9EA8,gFile_anLba,gFile_anLba,0x800136E4,File_SetPositionTable,matching_c,game,C,src/game/file_set_position_table.c,address,32,position = gFile_anLba;
