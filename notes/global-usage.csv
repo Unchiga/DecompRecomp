@@ -2313,7 +2313,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x8009B45C,g_SDValue,g_SDValue,0x80048920,SD_SESetVolume,matching_c,game,C,src/game/sd_se_set_volume.c,read,,SDValue *a = g_SDValue; | b = g_SDValue;
 0x8009B45C,g_SDValue,g_SDValue,0x80048A28,func_80048A28,matching_c,game,C,src/game/sound_voice_data.c,read,,SDValue *a = g_SDValue; | SDValue *c = g_SDValue; | (+3 more)
 0x8009B45C,g_SDValue,g_SDValue,0x80048C0C,func_80048C0C,matching_c,game,C,src/game/sound_voice_data.c,read,,SDValue *state = g_SDValue;
-0x8009B45C,g_SDValue,g_SDValue,0x80048D08,SD_LoadSequenceBankPair,matching_c,game,C,src/game/sound_voice_data.c,read,,e = (SDNote *)(n * 8 + (u32)g_SDValue->field_0444); | g_SDValue->field_043C[key] = n; | (+4 more)
+0x8009B45C,g_SDValue,g_SDValue,0x80048D08,SD_LoadSequenceBankPair,matching_c,game,C,src/game/sound_voice_data.c,read,,(u32)g_SDValue->field_0444 | g_SDValue->field_043C[key] = n; | (+4 more)
 0x8009B45C,g_SDValue,g_SDValue,0x80048F14,func_80048F14,matching_c,game,C,src/game/sound_voice_data.c,read,,a = g_SDValue; | b = g_SDValue; | (+1 more)
 0x8009B45C,g_SDValue,g_SDValue,0x80049010,func_80049010,matching_c,game,C,src/game/func_80049010.c,read,,SD_StopSequence(g_SDValue->field_157E); | func_80049CB0(g_SDValue->field_157E); | (+10 more)
 0x8009B45C,g_SDValue,g_SDValue,0x800490F0,func_800490F0,matching_c,game,C,src/game/sound_sequence_state.c,read,,g_SDValue->field_1582 = value; | g_SDValue->field_1584 = flag;
@@ -2775,7 +2775,7 @@ global_address,global_name,observed_names,function_address,function_name,functio
 0x800F2C40,D_800F2C40,D_800F2C40,0x80058E3C,Model_GetSlotAnimationSpeed,matching_c,game,C,src/game/model_slot_queries.c,read,,return D_800F2C40[index].field_E0D;
 0x800F2C40,D_800F2C40,D_800F2C40,0x80058E68,Model_GetSlotAnimationIndex,matching_c,game,C,src/game/model_slot_queries.c,read,,return D_800F2C40[index].field_BF5;
 0x800F2C40,D_800F2C40,D_800F2C40,0x80058E94,Model_GetSlotAnimationFrame,matching_c,game,C,src/game/model_slot_queries.c,read,,return D_800F2C40[index].field_E06 >> 4;
-0x800F2C40,D_800F2C40,D_800F2C40,0x80058EC0,func_80058EC0,matching_c,game,C,src/game/model_slot_queries.c,read,,return D_800F2C40[idx].field_750[sub].max; | u8 sub = D_800F2C40[idx].field_BF5;
+0x800F2C40,D_800F2C40,D_800F2C40,0x80058EC0,Model_GetSlotAnimationLength,matching_c,game,C,src/game/model_slot_queries.c,read,,return D_800F2C40[idx].field_750[sub].max; | u8 sub = D_800F2C40[idx].field_BF5;
 0x800F2C40,D_800F2C40,D_800F2C40,0x80058F20,Model_GetSlotDataEntry,matching_c,game,C,src/game/model_slot_support.c,address,,ModelSlot *entry = &D_800F2C40[index];
 0x800F2C40,D_800F2C40,D_800F2C40,0x80058F74,Model_GetCurrentDataEntry,matching_c,game,C,src/game/model_slot_support.c,address,,ModelSlot *entry = &D_800F2C40[index];
 0x800F2C40,D_800F2C40,D_800F2C40,0x80058FB0,Model_CopySlotU16Values,matching_c,game,C,src/game/model_slot_support.c,address,,ModelSlot *rec = &D_800F2C40[idx];
