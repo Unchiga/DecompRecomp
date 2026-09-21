@@ -60,7 +60,8 @@ typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR 
 enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
 enum {
-    ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, SLIDER_VOLUME, ACT_GIVE_CARDS,
+    ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, ACT_GIVE_CARDS,
+    SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, SLIDER_STREAM, CHECK_MUTE,
     CHECK_MOD = 200    /* + mod */
 };
 
@@ -82,7 +83,13 @@ static Menu menus[MENU_COUNT] = {
               {0, 0, ITEM_SEPARATOR, 0, -1},
               {"Screenshot", "F12", ITEM_ACTION, ACT_SCREENSHOT, -1},
               {0, 0, ITEM_SEPARATOR, 0, -1}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1}}, 6},
-    {"Audio", {{"Volume", 0, ITEM_SLIDER, SLIDER_VOLUME, SET_MASTER_VOLUME}}, 1},
+    {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
+               {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
+               {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
+               {"Movies", 0, ITEM_SLIDER, SLIDER_STREAM, SET_STREAM_VOLUME},
+               {0, 0, ITEM_SEPARATOR, 0, -1},
+               {"Mute all", "M", ITEM_CHECK, CHECK_MUTE, -1},
+               {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS}}, 7},
     {"View", {{"Window scale: 1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
               {"Window scale: 2x", 0, ITEM_RADIO, MENU_ITEM_SCALE_2, SET_SCALE, 2},
               {"Window scale: 3x", 0, ITEM_RADIO, MENU_ITEM_SCALE_3, SET_SCALE, 3},
@@ -332,6 +339,9 @@ void Menu_LoadSettings(void)
 {
     Settings_Load();
     Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
+    Spu_SetBusVolume(SPU_BUS_MUSIC, Settings_Get(SET_MUSIC_VOLUME));
+    Spu_SetBusVolume(SPU_BUS_SFX, Settings_Get(SET_SFX_VOLUME));
+    Spu_SetBusVolume(SPU_BUS_STREAM, Settings_Get(SET_STREAM_VOLUME));
     Platform_SetScale(Settings_Get(SET_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Mods_SetEnabled(MODS_FIELD_MODELS, Settings_Get(SET_MOD_3D_MONSTERS));
@@ -342,6 +352,9 @@ static void setting_changed(SettingId id, int value)
 {
     switch (id) {
     case SET_MASTER_VOLUME: Spu_SetOutputVolume(value); break;
+    case SET_MUSIC_VOLUME: Spu_SetBusVolume(SPU_BUS_MUSIC, value); break;
+    case SET_SFX_VOLUME: Spu_SetBusVolume(SPU_BUS_SFX, value); break;
+    case SET_STREAM_VOLUME: Spu_SetBusVolume(SPU_BUS_STREAM, value); break;
     case SET_SCALE: Platform_SetScale(value); break;
     case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_MOD_3D_MONSTERS: Mods_SetEnabled(MODS_FIELD_MODELS, value); break;
@@ -538,6 +551,7 @@ static void draw_radio(int x, int middle, int on)
 
 static int item_state(const Item *item)
 {
+    if (item->id == CHECK_MUTE) return Spu_Muted();
     if (item->id >= CHECK_MOD) return Mods_Enabled(item->id - CHECK_MOD);
     if (item->setting >= 0 && item->kind == ITEM_CHECK) return Settings_Get(item->setting) != 0;
     if (item->setting >= 0 && item->kind == ITEM_RADIO) return Settings_Get(item->setting) == item->value;
@@ -662,6 +676,7 @@ static void activate(const Item *item, int *quit)
     case ACT_SCREENSHOT: Platform_Screenshot(0); break;
     case ACT_EXIT: *quit = 1; break;
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
+    case CHECK_MUTE: Spu_SetMuted(!Spu_Muted()); break;
     default:
         if (item->id >= CHECK_MOD) {
             Settings_Set(item->setting, !Mods_Enabled(item->id - CHECK_MOD));

@@ -36,6 +36,7 @@ static volatile int hold, mixing;
 #define SPU_SFX_FIRST_VOICE 20
 _Static_assert(SPU_SFX_FIRST_VOICE == SD_VOICE_SLOT_FIRST_VOICE, "SFX voice split changed");
 static volatile int output_volume = 100;
+static volatile int output_muted;
 static volatile int bus_volume[SPU_BUS_COUNT] = {100, 100, 100};
 
 #define CD_RING 65536u /* frames; power of two */
@@ -79,6 +80,8 @@ void Spu_GetAdsr(unsigned v, uint16_t *a1, uint16_t *a2) { *a1 = voices[v].adsr1
 void Spu_SetMaster(int16_t l, int16_t r) { master_left = l; master_right = r; }
 void Spu_SetOutputVolume(int percent) { output_volume = percent < 0 ? 0 : percent > 100 ? 100 : percent; }
 int Spu_GetOutputVolume(void) { return output_volume; }
+void Spu_SetMuted(int muted) { output_muted = !!muted; }
+int Spu_Muted(void) { return output_muted; }
 void Spu_SetBusVolume(SpuBus bus, int percent)
 {
     if (bus < 0 || bus >= SPU_BUS_COUNT) return;
@@ -201,7 +204,7 @@ void Spu_Mix(int16_t *out, size_t frames)
 {
     static int output_gain = GAIN_ONE; /* the audio thread's own; no other writer */
     static int bus_gain[SPU_BUS_COUNT] = {GAIN_ONE, GAIN_ONE, GAIN_ONE};
-    const int output_target = output_volume << 8;
+    const int output_target = (output_muted ? 0 : output_volume) << 8;
     const int bus_target[SPU_BUS_COUNT] = {bus_volume[SPU_BUS_MUSIC] << 8,
                                            bus_volume[SPU_BUS_SFX] << 8,
                                            bus_volume[SPU_BUS_STREAM] << 8};

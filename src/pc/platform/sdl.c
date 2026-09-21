@@ -597,6 +597,10 @@ static void pump(void)
                 Platform_StepFrame();
                 break;
             }
+            if (down && key == SDLK_M) {
+                Spu_SetMuted(!Spu_Muted());
+                break;
+            }
             if (down && key == SDLK_ESCAPE) {
                 if (Settings_Get(SET_FULLSCREEN)) {
                     Settings_Set(SET_FULLSCREEN, 0);
@@ -760,6 +764,7 @@ static void run_event_script(unsigned frame)
                           : strncmp(name, "up", n) == 0 ? SDLK_UP : strncmp(name, "down", n) == 0 ? SDLK_DOWN
                           : strncmp(name, "return", n) == 0 ? SDLK_RETURN
                           : strncmp(name, "tab", n) == 0 ? SDLK_TAB : strncmp(name, "p", n) == 0 ? SDLK_P
+                          : strncmp(name, "m", n) == 0 ? SDLK_M
                           : strncmp(name, "period", n) == 0 ? SDLK_PERIOD
                           : SDLK_UNKNOWN;
             event.key.windowID = SDL_GetWindowID(window);

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "platform.h"
+#include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/guest/state.h"
 #include "menu.h"
@@ -394,6 +395,10 @@ static void pump(void)
             }
             if (event.type == KeyPress && key == XK_period && Platform_ClockRate() == 0) {
                 Platform_StepFrame();
+                continue;
+            }
+            if (event.type == KeyPress && (key == XK_m || key == XK_M)) {
+                Spu_SetMuted(!Spu_Muted());
                 continue;
             }
             /* Save states: F1-F4 pick a slot, F5 saves it, F7 loads it. */

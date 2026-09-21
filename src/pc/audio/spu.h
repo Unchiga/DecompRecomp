@@ -40,6 +40,8 @@ void Spu_CdFlush(void);
  * game's. Set from the main thread, read by the audio thread. */
 void Spu_SetOutputVolume(int percent);
 int Spu_GetOutputVolume(void);
+void Spu_SetMuted(int muted);
+int Spu_Muted(void);
 
 typedef enum { SPU_BUS_MUSIC, SPU_BUS_SFX, SPU_BUS_STREAM, SPU_BUS_COUNT } SpuBus;
 /* Port gains outside save-state data. Voices 0-19 are music, 20-23 are the
