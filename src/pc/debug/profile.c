@@ -90,3 +90,5 @@ void Profile_Sample(uintptr_t address)
         }
     }
 }
+
+void Profile_Flush(void) { write_profile(); }

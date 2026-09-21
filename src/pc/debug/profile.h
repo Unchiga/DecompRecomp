@@ -4,5 +4,6 @@
 
 void Profile_Init(void);
 void Profile_Sample(uintptr_t address);
+void Profile_Flush(void);
 
 #endif

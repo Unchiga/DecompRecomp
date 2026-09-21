@@ -3,6 +3,7 @@
 #include "mips.h"
 #include "pc/debug/crash.h"
 #include "pc/debug/log.h"
+#include "pc/debug/profile.h"
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -276,6 +277,7 @@ void Memories_Unimplemented(const char *name)
         return;
     }
     fflush(stdout);
-    fprintf(stderr, "memories-pc: reached %s, which has no native implementation yet\n", name);
+    Crash_ReportSoft("unimplemented routine", name);
+    Profile_Flush();
     _exit(70); /* not exit(): atexit handlers could re-enter game code */
 }

@@ -157,6 +157,9 @@ void Crash_ReportSoft(const char *kind, const char *detail)
     const char *tail_lines[32];
     int count, i;
     fprintf(stderr, "memories-pc: %s: %s\n", kind, detail ? detail : "");
+    fprintf(stderr, "frame=%u vblank=%u clock=%d%%\n", Memories_PresentedFrames(), Platform_VBlankCount(),
+            Platform_ClockRate());
+    walk((uintptr_t)__builtin_return_address(0), (uintptr_t)__builtin_frame_address(0));
     count = Log_Tail(32, tail_lines);
     for (i = 0; i < count; i++) fprintf(stderr, "  %s%s", tail_lines[i], strchr(tail_lines[i], '\n') ? "" : "\n");
 }

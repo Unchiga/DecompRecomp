@@ -5,6 +5,7 @@
 #include "pc/audio/spu.h"
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
+#include "pc/debug/crash.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -571,12 +572,15 @@ void Memories_StatePoint(unsigned presented_frames)
             scripted_path = strchr(script, ':') + 1;
         }
         if (wanted && *wanted) {
+            int load_result;
             if (strspn(wanted, "0123456789") == strlen(wanted)) {
                 slot_path(path, sizeof(path), atoi(wanted));
             } else {
                 snprintf(path, sizeof(path), "%s", wanted);
             }
-            if (!load(path) && strspn(wanted, "0123456789") == strlen(wanted)) last_loaded_slot = atoi(wanted);
+            load_result = load(path);
+            if (!load_result && strspn(wanted, "0123456789") == strlen(wanted)) last_loaded_slot = atoi(wanted);
+            if (load_result) Crash_ReportSoft("state load failed", path);
         }
     }
     if (scripted_path && !scripted_done && presented_frames >= scripted_frame) {
@@ -590,6 +594,7 @@ void Memories_StatePoint(unsigned presented_frames)
             save(path);
         } else {
             if (!load(path)) last_loaded_slot = requested_slot;
+            else Crash_ReportSoft("state load failed", path);
         }
     }
 }

@@ -14,6 +14,7 @@
 #include <string.h>
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"
+#include "pc/debug/crash.h"
 #include "pc/mods/mods.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
@@ -178,7 +179,9 @@ void DrawOTag(u32 *list)
     result = Memories_GpuCollect(IMAGE, (uint32_t)(uintptr_t)list, frame_words, MAX_FRAME_WORDS, MAX_CHAIN_HOPS,
                                  &count);
     if (result != MEMORIES_GPU_OK) {
-        fprintf(stderr, "memories-pc: DrawOTag(%p): %s\n", (void *)list, Memories_GpuResultName(result));
+        char detail[160];
+        snprintf(detail, sizeof(detail), "DrawOTag(%p): %s", (void *)list, Memories_GpuResultName(result));
+        Crash_ReportSoft("DrawOTag", detail);
         exit(70);
     }
     pending_words = count;
