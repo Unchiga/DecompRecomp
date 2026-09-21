@@ -14,6 +14,7 @@
 #include "platform.h"
 #include "menu.h"
 #include "settings.h"
+#include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
@@ -38,8 +39,18 @@ static volatile uint16_t pad_bits, scripted_bits, mouse_bits;
 static uint16_t wheel_bits;
 static int wheel_frames;
 static volatile uint16_t wheel_now;
+static int pointer_x, pointer_y, pointer_inside, cursor_hidden;
+static unsigned last_pointer_motion, current_frame;
 
 static void show(void);
+
+static void show_cursor(void)
+{
+    if (cursor_hidden) {
+        SDL_ShowCursor();
+        cursor_hidden = 0;
+    }
+}
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
  * L2/R2, T/Y L3/R3; Enter start, right Shift select. */
@@ -409,6 +420,18 @@ static void pump(void)
         MenuEvent menu_event;
         SDL_ConvertEventToRenderCoordinates(renderer, &event);
         translate(&event, &menu_event);
+        if (event.type == SDL_EVENT_MOUSE_MOTION) {
+            pointer_x = menu_event.x;
+            pointer_y = menu_event.y;
+            pointer_inside = 1;
+            last_pointer_motion = current_frame;
+            show_cursor();
+        } else if (event.type == SDL_EVENT_WINDOW_MOUSE_ENTER) {
+            pointer_inside = 1;
+        } else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
+            pointer_inside = 0;
+            show_cursor();
+        }
         if (menu_event.type != MENU_EVENT_NONE && Menu_Event(&menu_event, &quit)) {
             repaint_menu(); /* the menu answers now, not at the next frame */
             continue;
@@ -425,6 +448,15 @@ static void pump(void)
                 Settings_Set(SET_WINDOW_X, event.window.data1);
                 Settings_Set(SET_WINDOW_Y, event.window.data2);
                 Settings_Save();
+            }
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) Spu_SetOutputVolume(0);
+            show_cursor();
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) {
+                Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
             }
             break;
         case SDL_EVENT_GAMEPAD_ADDED: open_gamepad(event.gdevice.which); break;
@@ -649,10 +681,20 @@ static void run_event_script(unsigned frame)
 
 void Platform_Frame(unsigned frame)
 {
+    current_frame = frame;
     Gamepad_Poll(frame);
     Cheats_Frame();
     if (window) {
         run_event_script(frame);
+    }
+    if (window && Settings_Get(SET_HIDE_CURSOR) && pointer_inside && !cursor_hidden &&
+        pointer_x >= layout.dst.x && pointer_x < layout.dst.x + layout.dst.w &&
+        pointer_y >= layout.dst.y && pointer_y < layout.dst.y + layout.dst.h &&
+        frame - last_pointer_motion >= 120) {
+        SDL_HideCursor();
+        cursor_hidden = 1;
+    } else if ((!Settings_Get(SET_HIDE_CURSOR) || pointer_y < Menu_Height()) && cursor_hidden) {
+        show_cursor();
     }
     wheel_now = wheel_frames > 0 && wheel_frames-- ? wheel_bits : 0;
     scripted_bits = Platform_ScriptedBits(frame);
