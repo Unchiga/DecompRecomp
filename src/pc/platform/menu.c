@@ -295,6 +295,19 @@ static void fill(int x, int y, int w, int h, uint32_t colour, unsigned alpha)
     }
 }
 
+static void clear_alpha_rect(int x, int y, int w, int h)
+{
+    int row;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > canvas->width) w = canvas->width - x;
+    if (y + h > canvas->height) h = canvas->height - y;
+    if (w <= 0 || h <= 0) return;
+    for (row = y; row < y + h; row++) {
+        memset(canvas->pixels + (size_t)row * (size_t)canvas->stride + (size_t)x, 0, (size_t)w * 4);
+    }
+}
+
 static void outline(int x, int y, int w, int h, uint32_t colour)
 {
     fill(x, y, w, 1, colour, 255);
@@ -603,10 +616,11 @@ void Menu_Draw(MenuCanvas *into)
         return;
     }
     if (canvas->alpha) {
-        int x, y, w, h;
-        Menu_Bounds(&x, &y, &w, &h);
-        for (i = y; i < y + h && i < canvas->height; i++) {
-            memset(canvas->pixels + (size_t)i * (size_t)canvas->stride, 0, (size_t)canvas->width * 4);
+        clear_alpha_rect(0, 0, canvas->width, MENU_H);
+        if (open_menu >= 0) {
+            int x, y, w, h;
+            drop_geometry(open_menu, &x, &y, &w, &h);
+            clear_alpha_rect(x, y, w + SHADOW, h + SHADOW);
         }
     }
     fill(0, 0, canvas->width, MENU_H - 1, C_BAR, 255);

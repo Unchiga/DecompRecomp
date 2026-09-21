@@ -442,8 +442,13 @@ static void upload_overlay(int x, int y, int w, int h)
 static void draw_overlay(int *x, int *y, int *w, int *h)
 {
     int hx, hy, hw, hh;
-    Menu_Draw(&canvas);
-    Hud_Draw(&canvas);
+    if (Settings_Get(SET_SHOW_HUD) == 2) {
+        Hud_Draw(&canvas);
+        Menu_Draw(&canvas); /* dropdowns stay above the full statistics panel */
+    } else {
+        Menu_Draw(&canvas);
+        Hud_Draw(&canvas);
+    }
     Menu_Bounds(x, y, w, h);
     Hud_Bounds(&hx, &hy, &hw, &hh);
     if (!*w || !*h) { *x = hx; *y = hy; *w = hw; *h = hh; return; }

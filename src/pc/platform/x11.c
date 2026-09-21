@@ -252,8 +252,13 @@ static void present_frame(void)
 {
     int hx, hy, hw, hh;
     scale_game(0, image_h);
-    Menu_Draw(&canvas);
-    Hud_Draw(&canvas);
+    if (Settings_Get(SET_SHOW_HUD) == 2) {
+        Hud_Draw(&canvas);
+        Menu_Draw(&canvas);
+    } else {
+        Menu_Draw(&canvas);
+        Hud_Draw(&canvas);
+    }
     Menu_Bounds(&shown_menu.x, &shown_menu.y, &shown_menu.w, &shown_menu.h);
     Hud_Bounds(&hx, &hy, &hw, &hh);
     if (hw && hh && (!shown_menu.w || !shown_menu.h)) {
@@ -278,8 +283,13 @@ static void repaint_menu(void)
     if (old_w && old_h) {
         scale_game(old_y, old_y + old_h);
     }
-    Menu_Draw(&canvas);
-    Hud_Draw(&canvas);
+    if (Settings_Get(SET_SHOW_HUD) == 2) {
+        Hud_Draw(&canvas);
+        Menu_Draw(&canvas);
+    } else {
+        Menu_Draw(&canvas);
+        Hud_Draw(&canvas);
+    }
     Menu_Bounds(&x, &y, &w, &h);
     Hud_Bounds(&hx, &hy, &hw, &hh);
     if (hw && hh && (!w || !h)) { x = hx; y = hy; w = hw; h = hh; }

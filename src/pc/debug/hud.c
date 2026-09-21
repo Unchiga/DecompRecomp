@@ -62,7 +62,7 @@ void Hud_Draw(MenuCanvas *canvas)
         return;
     }
     bounds.x = 8;
-    bounds.y = 34;
+    bounds.y = Menu_Height() + 8;
     bounds.w = canvas->width < 620 ? canvas->width - 16 : 612;
     bounds.h = 300;
     panel(canvas, bounds.x, bounds.y, bounds.w, bounds.h);
