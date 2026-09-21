@@ -88,6 +88,40 @@ DISPENV *GetDispEnv(DISPENV *env)
 
 unsigned Memories_PresentedFrames(void) { return (unsigned)frames_presented; }
 
+void Memories_DumpFrame(const char *path, int full_vram)
+{
+    FILE *file;
+    int x, y, w = disp_env.disp.w > 0 ? disp_env.disp.w : 320;
+    int h = disp_env.disp.h > 0 ? disp_env.disp.h : 240;
+    int x0 = full_vram ? 0 : disp_env.disp.x, y0 = full_vram ? 0 : disp_env.disp.y;
+    flush_drawing();
+    if (full_vram) {
+        w = SOFT_GPU_WIDTH;
+        h = SOFT_GPU_HEIGHT;
+    }
+    file = fopen(path, "wb");
+    if (!file) {
+        LOG(LOG_FRAMES, "cannot dump %s", path);
+        return;
+    }
+    fprintf(file, "P6\n%d %d\n255\n", w, h);
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            uint16_t c = SoftGpu_Vram()[((y0 + y) & 511) * SOFT_GPU_WIDTH + ((x0 + x) & 1023)];
+            if (disp_env.isrgb24 && !full_vram) {
+                fwrite((const uint8_t *)&SoftGpu_Vram()[((y0 + y) & 511) * SOFT_GPU_WIDTH + x0] + x * 3,
+                       1, 3, file);
+                continue;
+            }
+            fputc((c & 0x1f) << 3, file);
+            fputc(((c >> 5) & 0x1f) << 3, file);
+            fputc(((c >> 10) & 0x1f) << 3, file);
+        }
+    }
+    fclose(file);
+    LOG(LOG_FRAMES, "dumped %s", path);
+}
+
 void Memories_PresentDisplay(void)
 {
     const char *dump = getenv("MEMORIES_DUMP_FRAME");
@@ -98,29 +132,7 @@ void Memories_PresentDisplay(void)
     Platform_Frame((unsigned)frames_presented);
     if (dump && frames_presented == atoi(dump)) {
         const char *path = getenv("MEMORIES_DUMP_PATH");
-        FILE *file = fopen(path ? path : "tmp/pc/frame.ppm", "wb");
-        int full = getenv("MEMORIES_DUMP_VRAM") != NULL, x, y;
-        int x0 = full ? 0 : disp_env.disp.x, y0 = full ? 0 : disp_env.disp.y;
-        if (full) {
-            w = SOFT_GPU_WIDTH;
-            h = SOFT_GPU_HEIGHT;
-        }
-        if (file) {
-            fprintf(file, "P6\n%d %d\n255\n", w, h);
-            for (y = 0; y < h; y++) {
-                for (x = 0; x < w; x++) {
-                    uint16_t c = SoftGpu_Vram()[((y0 + y) & 511) * SOFT_GPU_WIDTH + ((x0 + x) & 1023)];
-                    if (disp_env.isrgb24 && !full) {
-                        fwrite((const uint8_t *)&SoftGpu_Vram()[((y0 + y) & 511) * SOFT_GPU_WIDTH + x0] + x * 3, 1, 3, file);
-                        continue;
-                    }
-                    fputc((c & 0x1f) << 3, file);
-                    fputc(((c >> 5) & 0x1f) << 3, file);
-                    fputc(((c >> 10) & 0x1f) << 3, file);
-                }
-            }
-            fclose(file);
-        }
+        Memories_DumpFrame(path ? path : "tmp/pc/frame.ppm", getenv("MEMORIES_DUMP_VRAM") != NULL);
         exit(0);
     }
     if (display_enabled) {

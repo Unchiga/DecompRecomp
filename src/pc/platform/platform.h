@@ -10,6 +10,7 @@ int Platform_Open(const char *title);
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24);
 int Platform_ShouldQuit(void);
 int Platform_StateSlot(void);
+void Platform_SetStateSlot(int slot);
 /* Display settings are applied at the next present. The SDL backend supports
  * resizable/window-mode controls; legacy X11 deliberately reports no support. */
 void Platform_ApplyDisplaySettings(void);

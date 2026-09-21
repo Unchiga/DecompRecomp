@@ -19,6 +19,7 @@
 #include "pc/debug/log.h"
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
+#include "pc/sdk/display.h"
 #include <fontconfig/fontconfig.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -62,8 +63,11 @@ enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
 enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, ACT_GIVE_CARDS,
+    ACT_RELOAD_SETTINGS, ACT_PAUSE, ACT_FRAME_STEP, ACT_DUMP_FRAME, ACT_DUMP_VRAM,
     SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, SLIDER_STREAM, CHECK_MUTE,
-    CHECK_MOD = 200    /* + mod */
+    CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT,
+    CHECK_MOD = 200,   /* + mod */
+    CHECK_TRACE = 300  /* value is a LogChannel */
 };
 
 typedef struct {
@@ -77,13 +81,17 @@ typedef struct {
 } Item;
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
-enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_MODS, MENU_DEBUG, MENU_COUNT };
+enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_MODS, MENU_DEBUG, MENU_TRACE, MENU_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
-              {0, 0, ITEM_SEPARATOR, 0, -1},
-              {"Screenshot", "F12", ITEM_ACTION, ACT_SCREENSHOT, -1},
-              {0, 0, ITEM_SEPARATOR, 0, -1}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1}}, 6},
+              {"State slot 1", 0, ITEM_RADIO, RADIO_STATE_SLOT, -1, 1, ITEM_GROUP_BREAK},
+              {"State slot 2", 0, ITEM_RADIO, RADIO_STATE_SLOT, -1, 2},
+              {"State slot 3", 0, ITEM_RADIO, RADIO_STATE_SLOT, -1, 3},
+              {"State slot 4", 0, ITEM_RADIO, RADIO_STATE_SLOT, -1, 4},
+              {"Screenshot", "F12", ITEM_ACTION, ACT_SCREENSHOT, -1, 0, ITEM_GROUP_BREAK},
+              {"Reload settings", 0, ITEM_ACTION, ACT_RELOAD_SETTINGS, -1},
+              {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1, 0, ITEM_GROUP_BREAK}}, 9},
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
@@ -107,7 +115,22 @@ static Menu menus[MENU_COUNT] = {
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
               {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 15},
     {"Mods", {{0}}, 0},
-    {"Debug", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
+    {"Debug", {{"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1},
+               {"Full stats", 0, ITEM_CHECK, CHECK_HUD_FULL, -1},
+               {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},
+               {"Frame step", ".", ITEM_ACTION, ACT_FRAME_STEP, -1},
+               {"Speed 50%", 0, ITEM_RADIO, 0, SET_SPEED, 50, ITEM_GROUP_BREAK},
+               {"Speed 100%", 0, ITEM_RADIO, 0, SET_SPEED, 100},
+               {"Speed 200%", 0, ITEM_RADIO, 0, SET_SPEED, 200},
+               {"Speed uncapped", 0, ITEM_RADIO, 0, SET_SPEED, -1},
+               {"Dump frame (PPM)", 0, ITEM_ACTION, ACT_DUMP_FRAME, -1, 0, ITEM_GROUP_BREAK},
+               {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1},
+               {"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1, 0, ITEM_GROUP_BREAK}}, 11},
+    {"Trace", {{"Frames", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_FRAMES},
+               {"Disc", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_DISC},
+               {"SPU", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_SPU},
+               {"Input", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_INPUT},
+               {"State", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_STATE}}, 5},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;
@@ -561,7 +584,12 @@ static void draw_radio(int x, int middle, int on)
 static int item_state(const Item *item)
 {
     if (item->id == CHECK_MUTE) return Spu_Muted();
-    if (item->id >= CHECK_MOD) return Mods_Enabled(item->id - CHECK_MOD);
+    if (item->id == CHECK_HUD) return Settings_Get(SET_SHOW_HUD) != 0;
+    if (item->id == CHECK_HUD_FULL) return Settings_Get(SET_SHOW_HUD) == 2;
+    if (item->id == ACT_PAUSE) return Platform_ClockRate() == 0;
+    if (item->id == RADIO_STATE_SLOT) return Platform_StateSlot() == item->value;
+    if (item->id == CHECK_TRACE) return Log_Enabled((LogChannel)item->value);
+    if (item->id >= CHECK_MOD && item->id < CHECK_MOD + MODS_COUNT) return Mods_Enabled(item->id - CHECK_MOD);
     if (item->setting >= 0 && item->kind == ITEM_CHECK) return Settings_Get(item->setting) != 0;
     if (item->setting >= 0 && item->kind == ITEM_RADIO) return Settings_Get(item->setting) == item->value;
     return 0;
@@ -680,14 +708,34 @@ static void activate(const Item *item, int *quit)
 {
     if (item->flags & ITEM_DISABLED) return;
     switch (item->id) {
-    case ACT_SAVE_STATE: Memories_StateRequest(1, 0); break;
-    case ACT_LOAD_STATE: Memories_StateRequest(2, 0); break;
+    case ACT_SAVE_STATE: Memories_StateRequest(1, Platform_StateSlot()); break;
+    case ACT_LOAD_STATE: Memories_StateRequest(2, Platform_StateSlot()); break;
     case ACT_SCREENSHOT: Platform_Screenshot(0); break;
     case ACT_EXIT: *quit = 1; break;
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
+    case ACT_RELOAD_SETTINGS:
+        Menu_LoadSettings();
+        Platform_ApplyDisplaySettings();
+        break;
+    case ACT_PAUSE:
+        Platform_SetClockRate(Platform_ClockRate() == 0 ? Settings_Get(SET_SPEED) : 0);
+        break;
+    case ACT_FRAME_STEP: Platform_StepFrame(); break;
+    case ACT_DUMP_FRAME: Memories_DumpFrame("tmp/pc/frame.ppm", 0); break;
+    case ACT_DUMP_VRAM: Memories_DumpFrame("tmp/pc/vram.ppm", 1); break;
     case CHECK_MUTE: Spu_SetMuted(!Spu_Muted()); break;
+    case CHECK_HUD:
+        Settings_Set(SET_SHOW_HUD, Settings_Get(SET_SHOW_HUD) ? 0 : 1);
+        Settings_Save();
+        break;
+    case CHECK_HUD_FULL:
+        Settings_Set(SET_SHOW_HUD, Settings_Get(SET_SHOW_HUD) == 2 ? 1 : 2);
+        Settings_Save();
+        break;
+    case RADIO_STATE_SLOT: Platform_SetStateSlot(item->value); break;
+    case CHECK_TRACE: Log_Enable((LogChannel)item->value, !Log_Enabled((LogChannel)item->value)); break;
     default:
-        if (item->id >= CHECK_MOD) {
+        if (item->id >= CHECK_MOD && item->id < CHECK_MOD + MODS_COUNT) {
             Settings_Set(item->setting, !Mods_Enabled(item->id - CHECK_MOD));
         } else if (item->setting >= 0 && item->kind == ITEM_CHECK) {
             Settings_Set(item->setting, !Settings_Get(item->setting));

@@ -11,4 +11,6 @@ typedef struct FrameStats {
 } FrameStats;
 const FrameStats *Memories_FrameStats(void);
 void Memories_SetDrawStats(unsigned words, unsigned us);
+/* Write the current display rectangle, or the entire 1024x512 VRAM, as PPM. */
+void Memories_DumpFrame(const char *path, int full_vram);
 #endif

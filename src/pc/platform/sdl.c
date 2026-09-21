@@ -643,10 +643,9 @@ static void pump(void)
                     quit = 1;
                 }
             }
-            /* Save states: F1-F4 pick a slot, F5 saves it, F7 loads it. */
+            /* F3 belongs to the HUD; slot 3 remains available from File. */
             if (down && key >= SDLK_F1 && key <= SDLK_F4) {
-                state_slot = (int)(key - SDLK_F1) + 1;
-                update_title();
+                if (key != SDLK_F3) Platform_SetStateSlot((int)(key - SDLK_F1) + 1);
             } else if (down && (key == SDLK_F5 || key == SDLK_F7)) {
                 Memories_StateRequest(key == SDLK_F5 ? 1 : 2, state_slot);
             }
@@ -747,6 +746,12 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
 
 int Platform_ShouldQuit(void) { return quit; }
 int Platform_StateSlot(void) { return state_slot; }
+void Platform_SetStateSlot(int slot)
+{
+    if (slot < 1 || slot > 4) return;
+    state_slot = slot;
+    update_title();
+}
 void Platform_PumpEvents(void) { if (window) pump(); }
 
 uint16_t Platform_Pad(int port)
