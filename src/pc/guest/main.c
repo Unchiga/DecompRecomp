@@ -3,6 +3,7 @@
 #include "pc/platform/platform.h"
 #include "pc/debug/log.h"
 #include "pc/debug/symbols.h"
+#include "pc/debug/crash.h"
 #include <stdio.h>
 
 extern int Main_Init(void);
@@ -17,6 +18,7 @@ int main(int argc, char **argv)
     const char *exe = argc > 1 ? argv[1] : "game/SLUS_014.11";
     Log_Init();
     Symbols_Load();
+    Crash_Init();
     /* Guest globals are linked at fixed addresses: map before touching any. */
     if (Memories_GuestMap() != 0 || Memories_GuestLoadExe(exe) != 0 || Memories_ModulesInit() != 0) {
         return 1;

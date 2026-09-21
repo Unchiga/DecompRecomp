@@ -49,11 +49,13 @@ static ucontext_t service_context, game_context;
 static int (*game_entry)(void);
 static int game_result;
 static volatile int requested, requested_slot = 1;
+static volatile int last_loaded_slot;
 static uint8_t *pending_image;
 static uint32_t build_id; /* from the `buildid` file beside the executable */
 static size_t pending_size;
 
 int Memories_StateLoading(const MemoriesState *state) { return state->loading; }
+int Memories_LastStateSlot(void) { return last_loaded_slot; }
 
 void Memories_StateRequest(int what, int slot)
 {
@@ -574,7 +576,7 @@ void Memories_StatePoint(unsigned presented_frames)
             } else {
                 snprintf(path, sizeof(path), "%s", wanted);
             }
-            load(path);
+            if (!load(path) && strspn(wanted, "0123456789") == strlen(wanted)) last_loaded_slot = atoi(wanted);
         }
     }
     if (scripted_path && !scripted_done && presented_frames >= scripted_frame) {
@@ -587,7 +589,7 @@ void Memories_StatePoint(unsigned presented_frames)
         if (what == 1) {
             save(path);
         } else {
-            load(path);
+            if (!load(path)) last_loaded_slot = requested_slot;
         }
     }
 }

@@ -51,6 +51,7 @@ void Memories_StatePoint(unsigned presented_frames);
 void Memories_StateRequest(int what, int slot);
 /* Locate the running build's symbol table beside the executable. */
 int Memories_SymbolTablePath(char *out, size_t size);
+int Memories_LastStateSlot(void);
 
 /* Each subsystem's chunk. */
 void Spu_State(MemoriesState *state);

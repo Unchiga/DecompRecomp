@@ -812,8 +812,13 @@ static void run_event_script(unsigned frame)
 void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
+    static int crash_tested;
     current_frame = frame;
     Log_Drain();
+    if (!crash_tested && frame >= 60 && getenv("MEMORIES_CRASH_TEST")) {
+        crash_tested = 1;
+        *(volatile int *)(uintptr_t)0 = 1;
+    }
     Gamepad_Poll(frame);
     Cheats_Frame();
     if (window) {
