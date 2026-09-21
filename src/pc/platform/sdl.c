@@ -32,6 +32,7 @@ static MenuCanvas canvas;
 static struct { int win_w, win_h; SDL_FRect dst; } layout;
 static int menu_visible = 1;
 static int display_settings_pending;
+static int menu_reveal_frames;
 /* 4 puts the 320x240 picture on screen at 1280x960. */
 static int scale = 4, pending_scale, quit, state_slot = 1;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
@@ -43,6 +44,8 @@ static int pointer_x, pointer_y, pointer_inside, cursor_hidden;
 static unsigned last_pointer_motion, current_frame;
 
 static void show(void);
+static void repaint_menu(void);
+static void relayout(void);
 
 static void show_cursor(void)
 {
@@ -50,6 +53,17 @@ static void show_cursor(void)
         SDL_ShowCursor();
         cursor_hidden = 0;
     }
+}
+
+static void update_menu_visibility(void)
+{
+    int wanted = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN) ||
+                 (pointer_inside && pointer_y < Menu_Height()) || Menu_IsOpen() || menu_reveal_frames > 0;
+    if (wanted == menu_visible) return;
+    menu_visible = wanted;
+    Menu_SetVisible(wanted);
+    relayout();
+    if (overlay) repaint_menu();
 }
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
@@ -426,12 +440,15 @@ static void pump(void)
             pointer_inside = 1;
             last_pointer_motion = current_frame;
             show_cursor();
+            if (Settings_Get(SET_FULLSCREEN) && pointer_y < Menu_Height()) menu_reveal_frames = 120;
         } else if (event.type == SDL_EVENT_WINDOW_MOUSE_ENTER) {
             pointer_inside = 1;
         } else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
             pointer_inside = 0;
             show_cursor();
         }
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F10) menu_reveal_frames = 120;
+        update_menu_visibility();
         if (menu_event.type != MENU_EVENT_NONE && Menu_Event(&menu_event, &quit)) {
             repaint_menu(); /* the menu answers now, not at the next frame */
             continue;
@@ -556,6 +573,8 @@ int Platform_Open(const char *title)
     }
     Menu_Init();
     apply_display_settings();
+    menu_visible = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
+    Menu_SetVisible(menu_visible);
     return 0;
 }
 
@@ -687,6 +706,8 @@ void Platform_Frame(unsigned frame)
     if (window) {
         run_event_script(frame);
     }
+    if (menu_reveal_frames > 0) menu_reveal_frames--;
+    update_menu_visibility();
     if (window && Settings_Get(SET_HIDE_CURSOR) && pointer_inside && !cursor_hidden &&
         pointer_x >= layout.dst.x && pointer_x < layout.dst.x + layout.dst.w &&
         pointer_y >= layout.dst.y && pointer_y < layout.dst.y + layout.dst.h &&

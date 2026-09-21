@@ -72,6 +72,8 @@ int Menu_Height(void);
 void Menu_Init(void);
 /* Draw the bar and, when open, its menu. */
 void Menu_Draw(MenuCanvas *canvas);
+void Menu_SetVisible(int visible);
+int Menu_IsOpen(void);
 /* The rectangle the menu currently covers (the bar, plus an open menu). */
 void Menu_Bounds(int *x, int *y, int *w, int *h);
 /* Handle one event. Returns 1 when the menu took it (and must be redrawn)

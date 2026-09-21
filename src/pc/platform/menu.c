@@ -100,7 +100,7 @@ static Menu menus[MENU_COUNT] = {
     {"Debug", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
 };
 
-static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready;
+static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;
 static int consumed_press[8];
 
 /* --- text ------------------------------------------------------------ */
@@ -384,6 +384,9 @@ void Menu_SetItemEnabled(int id, int enabled)
     }
 }
 
+void Menu_SetVisible(int wanted) { visible = !!wanted; }
+int Menu_IsOpen(void) { return open_menu >= 0; }
+
 static int item_height(const Item *item)
 {
     return item->kind == ITEM_SEPARATOR ? SEP_H : ITEM_H + (item->flags & ITEM_GROUP_BREAK ? SEP_H : 0);
@@ -422,6 +425,10 @@ static void drop_geometry(int which, int *x, int *y, int *w, int *h)
 
 void Menu_Bounds(int *x, int *y, int *w, int *h)
 {
+    if (!visible) {
+        *x = *y = *w = *h = 0;
+        return;
+    }
     *x = 0;
     *y = 0;
     *w = canvas ? canvas->width : 0;
@@ -537,7 +544,7 @@ void Menu_Draw(MenuCanvas *into)
 {
     int i;
     canvas = into;
-    if (!ready) {
+    if (!ready || !visible) {
         return;
     }
     if (canvas->alpha) {
@@ -682,7 +689,7 @@ static int step_item(int which, int from, int direction)
 
 int Menu_Event(const MenuEvent *event, int *quit)
 {
-    if (!ready) {
+    if (!ready || !visible) {
         return 0;
     }
     switch (event->type) {
