@@ -44,10 +44,26 @@ static int wheel_frames;
 static volatile uint16_t wheel_now;
 static int pointer_x, pointer_y, pointer_inside, cursor_hidden;
 static unsigned last_pointer_motion, current_frame;
+static int focus_clock_rate = 100;
+static char base_title[160];
 
 static void show(void);
 static void repaint_menu(void);
 static void relayout(void);
+static void pump(void);
+
+static void update_title(void)
+{
+    char title[256], suffix[32] = "";
+    int clock_rate = Platform_ClockRate();
+    if (!window) return;
+    if (clock_rate == 0) snprintf(suffix, sizeof(suffix), " [paused]");
+    else if (clock_rate == -1) snprintf(suffix, sizeof(suffix), " [uncapped]");
+    else if (clock_rate != 100) snprintf(suffix, sizeof(suffix), " [%d%%]", clock_rate);
+    snprintf(title, sizeof(title), "%s - state slot %d (F5 save, F7 load)%s",
+             base_title, state_slot, suffix);
+    SDL_SetWindowTitle(window, title);
+}
 
 static void show_cursor(void)
 {
@@ -523,11 +539,18 @@ static void pump(void)
             break;
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) Spu_SetOutputVolume(0);
+            if (Settings_Get(SET_PAUSE_ON_FOCUS_LOSS) && Platform_ClockRate() != 0) {
+                focus_clock_rate = Platform_ClockRate();
+                Platform_SetClockRate(0);
+            }
             show_cursor();
             break;
         case SDL_EVENT_WINDOW_FOCUS_GAINED:
             if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) {
                 Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
+            }
+            if (Settings_Get(SET_PAUSE_ON_FOCUS_LOSS) && Platform_ClockRate() == 0) {
+                Platform_SetClockRate(focus_clock_rate);
             }
             break;
         case SDL_EVENT_GAMEPAD_ADDED: open_gamepad(event.gdevice.which); break;
@@ -562,6 +585,18 @@ static void pump(void)
                 Platform_Screenshot((event.key.mod & SDL_KMOD_SHIFT) != 0);
                 break;
             }
+            if (key == SDLK_TAB) {
+                Platform_SetClockRate(down ? 400 : Settings_Get(SET_SPEED));
+                break;
+            }
+            if (down && key == SDLK_P) {
+                Platform_SetClockRate(Platform_ClockRate() == 0 ? Settings_Get(SET_SPEED) : 0);
+                break;
+            }
+            if (down && key == SDLK_PERIOD && Platform_ClockRate() == 0) {
+                Platform_StepFrame();
+                break;
+            }
             if (down && key == SDLK_ESCAPE) {
                 if (Settings_Get(SET_FULLSCREEN)) {
                     Settings_Set(SET_FULLSCREEN, 0);
@@ -573,10 +608,8 @@ static void pump(void)
             }
             /* Save states: F1-F4 pick a slot, F5 saves it, F7 loads it. */
             if (down && key >= SDLK_F1 && key <= SDLK_F4) {
-                char title[96];
                 state_slot = (int)(key - SDLK_F1) + 1;
-                snprintf(title, sizeof(title), "Yu-Gi-Oh! Forbidden Memories - state slot %d (F5 save, F7 load)", state_slot);
-                SDL_SetWindowTitle(window, title);
+                update_title();
             } else if (down && (key == SDLK_F5 || key == SDLK_F7)) {
                 Memories_StateRequest(key == SDLK_F5 ? 1 : 2, state_slot);
             }
@@ -596,6 +629,7 @@ int Platform_Open(const char *title)
 {
     sigset_t previous;
     Menu_LoadSettings(); /* the volume and scale apply with or without a window */
+    snprintf(base_title, sizeof(base_title), "%s", title);
     if (getenv("MEMORIES_HEADLESS")) {
         return 0;
     }
@@ -636,6 +670,7 @@ int Platform_Open(const char *title)
     apply_display_settings();
     menu_visible = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
     Menu_SetVisible(menu_visible);
+    update_title();
     return 0;
 }
 
@@ -678,6 +713,7 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
 }
 
 int Platform_ShouldQuit(void) { return quit; }
+void Platform_PumpEvents(void) { if (window) pump(); }
 
 uint16_t Platform_Pad(int port)
 {
@@ -723,6 +759,8 @@ static void run_event_script(unsigned frame)
                           : strncmp(name, "left", n) == 0 ? SDLK_LEFT : strncmp(name, "right", n) == 0 ? SDLK_RIGHT
                           : strncmp(name, "up", n) == 0 ? SDLK_UP : strncmp(name, "down", n) == 0 ? SDLK_DOWN
                           : strncmp(name, "return", n) == 0 ? SDLK_RETURN
+                          : strncmp(name, "tab", n) == 0 ? SDLK_TAB : strncmp(name, "p", n) == 0 ? SDLK_P
+                          : strncmp(name, "period", n) == 0 ? SDLK_PERIOD
                           : SDLK_UNKNOWN;
             event.key.windowID = SDL_GetWindowID(window);
             SDL_PushEvent(&event);
@@ -762,6 +800,7 @@ static void run_event_script(unsigned frame)
 
 void Platform_Frame(unsigned frame)
 {
+    static int shown_rate = -2;
     current_frame = frame;
     Gamepad_Poll(frame);
     Cheats_Frame();
@@ -770,6 +809,10 @@ void Platform_Frame(unsigned frame)
     }
     if (menu_reveal_frames > 0) menu_reveal_frames--;
     update_menu_visibility();
+    if (shown_rate != Platform_ClockRate()) {
+        shown_rate = Platform_ClockRate();
+        update_title();
+    }
     if (window && Settings_Get(SET_HIDE_CURSOR) && pointer_inside && !cursor_hidden &&
         pointer_x >= layout.dst.x && pointer_x < layout.dst.x + layout.dst.w &&
         pointer_y >= layout.dst.y && pointer_y < layout.dst.y + layout.dst.h &&

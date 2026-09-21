@@ -333,6 +333,7 @@ void Menu_LoadSettings(void)
     Settings_Load();
     Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
     Platform_SetScale(Settings_Get(SET_SCALE));
+    Platform_SetClockRate(Settings_Get(SET_SPEED));
     Mods_SetEnabled(MODS_FIELD_MODELS, Settings_Get(SET_MOD_3D_MONSTERS));
     Mods_SetEnabled(MODS_HAND_CAMERA, Settings_Get(SET_MOD_HAND_CAMERA));
 }
@@ -342,6 +343,7 @@ static void setting_changed(SettingId id, int value)
     switch (id) {
     case SET_MASTER_VOLUME: Spu_SetOutputVolume(value); break;
     case SET_SCALE: Platform_SetScale(value); break;
+    case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_MOD_3D_MONSTERS: Mods_SetEnabled(MODS_FIELD_MODELS, value); break;
     case SET_MOD_HAND_CAMERA: Mods_SetEnabled(MODS_HAND_CAMERA, value); break;
     default: break;

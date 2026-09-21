@@ -3,6 +3,7 @@
 #include "pc/debug/cheats.h"
 #include "pc/guest/state.h"
 #include "menu.h"
+#include "settings.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/XShm.h>
@@ -39,6 +40,20 @@ static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last paint
 static volatile uint16_t pad_bits, scripted_bits;
 static int state_slot = 1;
 static unsigned current_frame;
+static char base_title[160];
+
+static void update_title(void)
+{
+    char title[256], suffix[32] = "";
+    int clock_rate = Platform_ClockRate();
+    if (!display) return;
+    if (clock_rate == 0) snprintf(suffix, sizeof(suffix), " [paused]");
+    else if (clock_rate == -1) snprintf(suffix, sizeof(suffix), " [uncapped]");
+    else if (clock_rate != 100) snprintf(suffix, sizeof(suffix), " [%d%%]", clock_rate);
+    snprintf(title, sizeof(title), "%s - state slot %d (F5 save, F7 load)%s",
+             base_title, state_slot, suffix);
+    XStoreName(display, window, title);
+}
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
  * L2/R2, T/Y L3/R3; Enter start, right Shift select. */
@@ -256,6 +271,7 @@ int Platform_Open(const char *title)
 {
     XSizeHints hints;
     Menu_LoadSettings(); /* the volume and scale apply with or without a window */
+    snprintf(base_title, sizeof(base_title), "%s", title);
     if (getenv("MEMORIES_HEADLESS")) {
         return 0;
     }
@@ -287,6 +303,7 @@ int Platform_Open(const char *title)
     Menu_SetItemEnabled(MENU_ITEM_ASPECT_SQUARE, 0);
     Menu_SetItemEnabled(MENU_ITEM_FILTER, 0);
     Menu_SetItemEnabled(MENU_ITEM_VSYNC, 0);
+    update_title();
     return 0;
 }
 
@@ -367,12 +384,22 @@ static void pump(void)
             if (key == XK_Escape && event.type == KeyPress) {
                 quit = 1;
             }
+            if (key == XK_Tab) {
+                Platform_SetClockRate(event.type == KeyPress ? 400 : Settings_Get(SET_SPEED));
+                continue;
+            }
+            if (event.type == KeyPress && (key == XK_p || key == XK_P)) {
+                Platform_SetClockRate(Platform_ClockRate() == 0 ? Settings_Get(SET_SPEED) : 0);
+                continue;
+            }
+            if (event.type == KeyPress && key == XK_period && Platform_ClockRate() == 0) {
+                Platform_StepFrame();
+                continue;
+            }
             /* Save states: F1-F4 pick a slot, F5 saves it, F7 loads it. */
             if (event.type == KeyPress && key >= XK_F1 && key <= XK_F4) {
-                char title[96];
                 state_slot = (int)(key - XK_F1) + 1;
-                snprintf(title, sizeof(title), "Yu-Gi-Oh! Forbidden Memories - state slot %d (F5 save, F7 load)", state_slot);
-                XStoreName(display, window, title);
+                update_title();
             } else if (event.type == KeyPress && (key == XK_F5 || key == XK_F7)) {
                 Memories_StateRequest(key == XK_F5 ? 1 : 2, state_slot);
             }
@@ -423,6 +450,8 @@ int Platform_ShouldQuit(void)
     return quit;
 }
 
+void Platform_PumpEvents(void) { if (display) pump(); }
+
 uint16_t Platform_Pad(int port)
 {
     return port == 0 ? (uint16_t)(pad_bits | mouse_bits | wheel_now | scripted_bits | Gamepad_Bits(0))
@@ -433,7 +462,12 @@ int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port
 
 void Platform_Frame(unsigned frame)
 {
+    static int shown_rate = -2;
     current_frame = frame;
+    if (shown_rate != Platform_ClockRate()) {
+        shown_rate = Platform_ClockRate();
+        update_title();
+    }
     Gamepad_Poll(frame);
     Cheats_Frame();
     wheel_now = wheel_frames > 0 && wheel_frames-- ? wheel_bits : 0;

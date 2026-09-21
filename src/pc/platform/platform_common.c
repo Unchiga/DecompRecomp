@@ -152,7 +152,7 @@ void Platform_NotifyPresent(uint64_t real_now_us, int vsynced)
 void Platform_WaitVBlank(unsigned count_at_entry)
 {
     struct timespec nap = {0, 500000};
-    while (vblank_count == count_at_entry) {
+    while (vblank_count == count_at_entry && !Platform_ShouldQuit()) {
         if (rate == -1) {
             sigset_t set, previous;
             uint64_t real_now;
@@ -168,6 +168,7 @@ void Platform_WaitVBlank(unsigned count_at_entry)
             }
             sigprocmask(SIG_SETMASK, &previous, NULL);
         } else {
+            if (rate == 0) Platform_PumpEvents();
             nanosleep(&nap, NULL);
         }
     }

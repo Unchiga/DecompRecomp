@@ -27,6 +27,8 @@ uint16_t Gamepad_Bits(int port);
 int Gamepad_Connected(int port);
 /* Advance scripted test input (MEMORIES_INPUT) to this presented frame. */
 void Platform_Frame(unsigned frame);
+/* Poll only window/input events while a paused VBlank wait owns the main thread. */
+void Platform_PumpEvents(void);
 /* The scripted pad bits in force at a frame (platform_common.c). */
 uint16_t Platform_ScriptedBits(unsigned frame);
 
