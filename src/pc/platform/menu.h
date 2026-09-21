@@ -45,6 +45,24 @@ typedef struct MenuEvent {
     MenuKey key;
 } MenuEvent;
 
+typedef enum {
+    MENU_ITEM_SCALE_1 = 100,
+    MENU_ITEM_SCALE_2,
+    MENU_ITEM_SCALE_3,
+    MENU_ITEM_SCALE_4,
+    MENU_ITEM_SCALE_5,
+    MENU_ITEM_SCALE_6,
+    MENU_ITEM_FULLSCREEN = 120,
+    MENU_ITEM_BORDERLESS,
+    MENU_ITEM_SCALING_INTEGER,
+    MENU_ITEM_SCALING_FIT,
+    MENU_ITEM_SCALING_STRETCH,
+    MENU_ITEM_ASPECT_4_3,
+    MENU_ITEM_ASPECT_SQUARE,
+    MENU_ITEM_FILTER,
+    MENU_ITEM_VSYNC
+} MenuItemId;
+
 /* The stored settings (saves/settings.txt, MEMORIES_SETTINGS elsewhere;
  * MEMORIES_VOLUME and MEMORIES_SCALE override). Applied whether or not a
  * window opens, so headless runs honour them too. */

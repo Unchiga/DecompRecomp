@@ -12,6 +12,7 @@
  * machine without either falls back to the 5x7 bitmap font at the end of
  * the file, drawn at twice its size. */
 #include "menu.h"
+#include "platform.h"
 #include "settings.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
@@ -56,11 +57,10 @@
 #define C_MARK 0x9a9ca3u
 
 typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR } ItemKind;
-enum { ITEM_DISABLED = 1 };
+enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
 enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_EXIT, SLIDER_VOLUME, ACT_GIVE_CARDS,
-    RADIO_SCALE = 100, /* + scale */
     CHECK_MOD = 200    /* + mod */
 };
 
@@ -81,10 +81,21 @@ static Menu menus[MENU_COUNT] = {
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
               {0, 0, ITEM_SEPARATOR, 0, -1}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1}}, 4},
     {"Audio", {{"Volume", 0, ITEM_SLIDER, SLIDER_VOLUME, SET_MASTER_VOLUME}}, 1},
-    {"View", {{"1x", 0, ITEM_RADIO, RADIO_SCALE + 1, SET_SCALE, 1},
-              {"2x", 0, ITEM_RADIO, RADIO_SCALE + 2, SET_SCALE, 2},
-              {"3x", 0, ITEM_RADIO, RADIO_SCALE + 3, SET_SCALE, 3},
-              {"4x", 0, ITEM_RADIO, RADIO_SCALE + 4, SET_SCALE, 4}}, 4},
+    {"View", {{"Window scale: 1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
+              {"Window scale: 2x", 0, ITEM_RADIO, MENU_ITEM_SCALE_2, SET_SCALE, 2},
+              {"Window scale: 3x", 0, ITEM_RADIO, MENU_ITEM_SCALE_3, SET_SCALE, 3},
+              {"Window scale: 4x", 0, ITEM_RADIO, MENU_ITEM_SCALE_4, SET_SCALE, 4},
+              {"Window scale: 5x", 0, ITEM_RADIO, MENU_ITEM_SCALE_5, SET_SCALE, 5},
+              {"Window scale: 6x", 0, ITEM_RADIO, MENU_ITEM_SCALE_6, SET_SCALE, 6},
+              {"Fullscreen", "F11", ITEM_CHECK, MENU_ITEM_FULLSCREEN, SET_FULLSCREEN, 0, ITEM_GROUP_BREAK},
+              {"Borderless window", 0, ITEM_CHECK, MENU_ITEM_BORDERLESS, SET_BORDERLESS},
+              {"Integer scaling", 0, ITEM_RADIO, MENU_ITEM_SCALING_INTEGER, SET_SCALING, 0, ITEM_GROUP_BREAK},
+              {"Fit to window", 0, ITEM_RADIO, MENU_ITEM_SCALING_FIT, SET_SCALING, 1},
+              {"Stretch", 0, ITEM_RADIO, MENU_ITEM_SCALING_STRETCH, SET_SCALING, 2},
+              {"4:3 aspect", 0, ITEM_RADIO, MENU_ITEM_ASPECT_4_3, SET_ASPECT, 0, ITEM_GROUP_BREAK},
+              {"Square pixels", 0, ITEM_RADIO, MENU_ITEM_ASPECT_SQUARE, SET_ASPECT, 1},
+              {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
+              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 15},
     {"Mods", {{0}}, 0},
     {"Debug", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
 };
@@ -373,7 +384,10 @@ void Menu_SetItemEnabled(int id, int enabled)
     }
 }
 
-static int item_height(const Item *item) { return item->kind == ITEM_SEPARATOR ? SEP_H : ITEM_H; }
+static int item_height(const Item *item)
+{
+    return item->kind == ITEM_SEPARATOR ? SEP_H : ITEM_H + (item->flags & ITEM_GROUP_BREAK ? SEP_H : 0);
+}
 
 /* The open menu's box, without its shadow. */
 static void drop_geometry(int which, int *x, int *y, int *w, int *h)
@@ -431,6 +445,7 @@ static int item_top(int which, int index)
     for (i = 0; i < index; i++) {
         y += item_height(&menus[which].items[i]);
     }
+    if (menus[which].items[index].flags & ITEM_GROUP_BREAK) y += SEP_H;
     return y;
 }
 
@@ -446,9 +461,11 @@ static int item_at(int which, int px, int py)
     }
     y += DROP_PAD;
     for (i = 0; i < menus[which].count; i++) {
-        int height = item_height(&menus[which].items[i]);
+        const Item *item = &menus[which].items[i];
+        int height = item_height(item);
+        if ((item->flags & ITEM_GROUP_BREAK) && py < y + SEP_H) return -1;
         if (py < y + height) {
-            return menus[which].items[i].kind == ITEM_SEPARATOR ? -1 : i;
+            return item->kind == ITEM_SEPARATOR ? -1 : i;
         }
         y += height;
     }
@@ -555,7 +572,7 @@ void Menu_Draw(MenuCanvas *into)
         top = y + DROP_PAD;
         for (i = 0; i < menu->count; i++) {
             const Item *item = &menu->items[i];
-            int middle = top + ITEM_H / 2, hot = i == hot_item;
+            int middle, hot = i == hot_item;
             int disabled = item->flags & ITEM_DISABLED;
             uint32_t ink = disabled ? C_TEXT_DIM : hot ? C_TEXT_ON_ACCENT : C_TEXT;
             uint32_t dim = disabled ? C_TEXT_DIM : hot ? C_TEXT_ON_ACCENT : C_TEXT_DIM;
@@ -564,6 +581,11 @@ void Menu_Draw(MenuCanvas *into)
                 top += SEP_H;
                 continue;
             }
+            if (item->flags & ITEM_GROUP_BREAK) {
+                fill(x + ITEM_PAD, top + SEP_H / 2, w - ITEM_PAD * 2, 1, C_SEP, 255);
+                top += SEP_H;
+            }
+            middle = top + ITEM_H / 2;
             if (hot && !disabled) {
                 fill(x + 3, top, w - 6, ITEM_H, C_ACCENT, 255);
             }
@@ -637,6 +659,9 @@ static void activate(const Item *item, int *quit)
             Settings_Set(item->setting, item->value);
         }
         Settings_Save();
+        if (item->id >= MENU_ITEM_SCALE_1 && item->id <= MENU_ITEM_VSYNC) {
+            Platform_ApplyDisplaySettings();
+        }
     }
     close_menu();
 }

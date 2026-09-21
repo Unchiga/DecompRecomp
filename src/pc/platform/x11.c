@@ -237,6 +237,15 @@ int Platform_Open(const char *title)
     XMapWindow(display, window);
     context = XCreateGC(display, window, 0, NULL);
     Menu_Init();
+    Menu_SetItemEnabled(MENU_ITEM_FULLSCREEN, 0);
+    Menu_SetItemEnabled(MENU_ITEM_BORDERLESS, 0);
+    Menu_SetItemEnabled(MENU_ITEM_SCALING_INTEGER, 0);
+    Menu_SetItemEnabled(MENU_ITEM_SCALING_FIT, 0);
+    Menu_SetItemEnabled(MENU_ITEM_SCALING_STRETCH, 0);
+    Menu_SetItemEnabled(MENU_ITEM_ASPECT_4_3, 0);
+    Menu_SetItemEnabled(MENU_ITEM_ASPECT_SQUARE, 0);
+    Menu_SetItemEnabled(MENU_ITEM_FILTER, 0);
+    Menu_SetItemEnabled(MENU_ITEM_VSYNC, 0);
     return 0;
 }
 
