@@ -56,6 +56,7 @@
 #define C_MARK 0x9a9ca3u
 
 typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR } ItemKind;
+enum { ITEM_DISABLED = 1 };
 
 enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_EXIT, SLIDER_VOLUME, ACT_GIVE_CARDS,
@@ -63,18 +64,29 @@ enum {
     CHECK_MOD = 200    /* + mod */
 };
 
-typedef struct { const char *label; const char *shortcut; ItemKind kind; int id; } Item;
-typedef struct { const char *label; Item items[8]; int count; int x, w; } Menu;
+typedef struct {
+    const char *label;
+    const char *shortcut;
+    ItemKind kind;
+    int id;
+    SettingId setting;
+    int value;
+    int flags;
+} Item;
+typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
 enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_MODS, MENU_DEBUG, MENU_COUNT };
 static Menu menus[MENU_COUNT] = {
-    {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE}, {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE},
-              {0, 0, ITEM_SEPARATOR, 0}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT}}, 4},
-    {"Audio", {{"Volume", 0, ITEM_SLIDER, SLIDER_VOLUME}}, 1},
-    {"View", {{"1x", 0, ITEM_RADIO, RADIO_SCALE + 1}, {"2x", 0, ITEM_RADIO, RADIO_SCALE + 2},
-              {"3x", 0, ITEM_RADIO, RADIO_SCALE + 3}, {"4x", 0, ITEM_RADIO, RADIO_SCALE + 4}}, 4},
+    {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
+              {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
+              {0, 0, ITEM_SEPARATOR, 0, -1}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1}}, 4},
+    {"Audio", {{"Volume", 0, ITEM_SLIDER, SLIDER_VOLUME, SET_MASTER_VOLUME}}, 1},
+    {"View", {{"1x", 0, ITEM_RADIO, RADIO_SCALE + 1, SET_SCALE, 1},
+              {"2x", 0, ITEM_RADIO, RADIO_SCALE + 2, SET_SCALE, 2},
+              {"3x", 0, ITEM_RADIO, RADIO_SCALE + 3, SET_SCALE, 3},
+              {"4x", 0, ITEM_RADIO, RADIO_SCALE + 4, SET_SCALE, 4}}, 4},
     {"Mods", {{0}}, 0},
-    {"Debug", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS}}, 1},
+    {"Debug", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready;
@@ -312,6 +324,17 @@ void Menu_LoadSettings(void)
     Mods_SetEnabled(MODS_HAND_CAMERA, Settings_Get(SET_MOD_HAND_CAMERA));
 }
 
+static void setting_changed(SettingId id, int value)
+{
+    switch (id) {
+    case SET_MASTER_VOLUME: Spu_SetOutputVolume(value); break;
+    case SET_SCALE: Platform_SetScale(value); break;
+    case SET_MOD_3D_MONSTERS: Mods_SetEnabled(MODS_FIELD_MODELS, value); break;
+    case SET_MOD_HAND_CAMERA: Mods_SetEnabled(MODS_HAND_CAMERA, value); break;
+    default: break;
+    }
+}
+
 /* --- layout ---------------------------------------------------------- */
 
 int Menu_Height(void) { return MENU_H; }
@@ -325,6 +348,7 @@ void Menu_Init(void)
         mods->items[i].label = Mods_Name(i);
         mods->items[i].kind = ITEM_CHECK;
         mods->items[i].id = CHECK_MOD + i;
+        mods->items[i].setting = i == MODS_FIELD_MODELS ? SET_MOD_3D_MONSTERS : SET_MOD_HAND_CAMERA;
     }
     mods->count = i;
     for (i = 0; i < MENU_COUNT; i++) {
@@ -332,7 +356,21 @@ void Menu_Init(void)
         menus[i].x = at;
         at += menus[i].w;
     }
+    Settings_Observe(setting_changed);
     ready = 1;
+}
+
+void Menu_SetItemEnabled(int id, int enabled)
+{
+    int menu, item;
+    for (menu = 0; menu < MENU_COUNT; menu++) {
+        for (item = 0; item < menus[menu].count; item++) {
+            if (menus[menu].items[item].id == id) {
+                if (enabled) menus[menu].items[item].flags &= ~ITEM_DISABLED;
+                else menus[menu].items[item].flags |= ITEM_DISABLED;
+            }
+        }
+    }
 }
 
 static int item_height(const Item *item) { return item->kind == ITEM_SEPARATOR ? SEP_H : ITEM_H; }
@@ -473,7 +511,8 @@ static void draw_radio(int x, int middle, int on)
 static int item_state(const Item *item)
 {
     if (item->id >= CHECK_MOD) return Mods_Enabled(item->id - CHECK_MOD);
-    if (item->id >= RADIO_SCALE) return Platform_Scale() == item->id - RADIO_SCALE;
+    if (item->setting >= 0 && item->kind == ITEM_CHECK) return Settings_Get(item->setting) != 0;
+    if (item->setting >= 0 && item->kind == ITEM_RADIO) return Settings_Get(item->setting) == item->value;
     return 0;
 }
 
@@ -517,13 +556,15 @@ void Menu_Draw(MenuCanvas *into)
         for (i = 0; i < menu->count; i++) {
             const Item *item = &menu->items[i];
             int middle = top + ITEM_H / 2, hot = i == hot_item;
-            uint32_t ink = hot ? C_TEXT_ON_ACCENT : C_TEXT, dim = hot ? C_TEXT_ON_ACCENT : C_TEXT_DIM;
+            int disabled = item->flags & ITEM_DISABLED;
+            uint32_t ink = disabled ? C_TEXT_DIM : hot ? C_TEXT_ON_ACCENT : C_TEXT;
+            uint32_t dim = disabled ? C_TEXT_DIM : hot ? C_TEXT_ON_ACCENT : C_TEXT_DIM;
             if (item->kind == ITEM_SEPARATOR) {
                 fill(x + ITEM_PAD, top + SEP_H / 2, w - ITEM_PAD * 2, 1, C_SEP, 255);
                 top += SEP_H;
                 continue;
             }
-            if (hot) {
+            if (hot && !disabled) {
                 fill(x + 3, top, w - 6, ITEM_H, C_ACCENT, 255);
             }
             if (item->kind == ITEM_CHECK) {
@@ -538,16 +579,17 @@ void Menu_Draw(MenuCanvas *into)
             if (item->kind == ITEM_SLIDER) {
                 int sx, sm, knob, filled;
                 char value[8];
+                int minimum = Settings_Min(item->setting), maximum = Settings_Max(item->setting);
+                int setting = Settings_Get(item->setting);
                 slider_geometry(open_menu, i, &sx, &sm);
-                int volume = Settings_Get(SET_MASTER_VOLUME);
-                knob = sx + KNOB_R + volume * (SLIDER_W - KNOB_R * 2) / 100;
+                knob = sx + KNOB_R + (setting - minimum) * (SLIDER_W - KNOB_R * 2) / (maximum - minimum);
                 filled = knob - sx;
                 fill(sx, sm - SLIDER_H / 2, SLIDER_W, SLIDER_H, C_TRACK, 255);
                 fill(sx, sm - SLIDER_H / 2, filled, SLIDER_H, hot ? C_TEXT_ON_ACCENT : C_ACCENT, 255);
                 disc(knob, sm, KNOB_R, C_KNOB_EDGE);
                 disc(knob, sm, KNOB_R - 1, C_KNOB);
-                snprintf(value, sizeof(value), "%d", volume);
-                draw_text(sx + SLIDER_W + 12, middle, value, volume ? ink : dim);
+                snprintf(value, sizeof(value), "%d", setting);
+                draw_text(sx + SLIDER_W + 12, middle, value, setting ? ink : dim);
             }
             top += ITEM_H;
         }
@@ -556,17 +598,19 @@ void Menu_Draw(MenuCanvas *into)
 
 /* --- behaviour ------------------------------------------------------- */
 
-static void set_volume(int value)
+static void set_slider(const Item *item, int value)
 {
-    Settings_Set(SET_MASTER_VOLUME, value);
-    Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
+    Settings_Set(item->setting, value);
 }
 
-static void volume_from_pointer(int which, int index, int px)
+static void slider_from_pointer(int which, int index, int px)
 {
+    const Item *item = &menus[which].items[index];
     int sx, middle, span = SLIDER_W - KNOB_R * 2;
+    int minimum = Settings_Min(item->setting), maximum = Settings_Max(item->setting);
     slider_geometry(which, index, &sx, &middle);
-    set_volume(((px - sx - KNOB_R) * 100 + span / 2) / (span > 0 ? span : 1));
+    set_slider(item, minimum + ((px - sx - KNOB_R) * (maximum - minimum) + span / 2) /
+               (span > 0 ? span : 1));
 }
 
 static void close_menu(void)
@@ -578,6 +622,7 @@ static void close_menu(void)
 
 static void activate(const Item *item, int *quit)
 {
+    if (item->flags & ITEM_DISABLED) return;
     switch (item->id) {
     case ACT_SAVE_STATE: Memories_StateRequest(1, 0); break;
     case ACT_LOAD_STATE: Memories_StateRequest(2, 0); break;
@@ -585,9 +630,11 @@ static void activate(const Item *item, int *quit)
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
     default:
         if (item->id >= CHECK_MOD) {
-            Mods_SetEnabled(item->id - CHECK_MOD, !Mods_Enabled(item->id - CHECK_MOD));
-        } else if (item->id >= RADIO_SCALE) {
-            Platform_SetScale(item->id - RADIO_SCALE);
+            Settings_Set(item->setting, !Mods_Enabled(item->id - CHECK_MOD));
+        } else if (item->setting >= 0 && item->kind == ITEM_CHECK) {
+            Settings_Set(item->setting, !Settings_Get(item->setting));
+        } else if (item->setting >= 0 && item->kind == ITEM_RADIO) {
+            Settings_Set(item->setting, item->value);
         }
         Settings_Save();
     }
@@ -601,7 +648,7 @@ static int step_item(int which, int from, int direction)
     int i, index = from;
     for (i = 0; i < menu->count; i++) {
         index = (index + direction + menu->count) % menu->count;
-        if (menu->items[index].kind != ITEM_SEPARATOR) {
+        if (menu->items[index].kind != ITEM_SEPARATOR && !(menu->items[index].flags & ITEM_DISABLED)) {
             return index;
         }
     }
@@ -645,9 +692,9 @@ int Menu_Event(const MenuEvent *event, int *quit)
                 close_menu(); /* a click outside an open menu only closes it */
             } else if (index >= 0 && event->button == 1) {
                 const Item *item = &menus[open_menu].items[index];
-                if (item->kind == ITEM_SLIDER) {
+                if (item->kind == ITEM_SLIDER && !(item->flags & ITEM_DISABLED)) {
                     hot_item = index;
-                    volume_from_pointer(open_menu, index, px);
+                    slider_from_pointer(open_menu, index, px);
                     grabbed = 1;
                 } else {
                     activate(item, quit);
@@ -668,8 +715,11 @@ int Menu_Event(const MenuEvent *event, int *quit)
         }
         return 1;
     case MENU_EVENT_WHEEL:
-        if (open_menu == MENU_AUDIO) {
-            set_volume(Settings_Get(SET_MASTER_VOLUME) + 5 * event->wheel);
+        if (open_menu >= 0 && hot_item >= 0 &&
+            menus[open_menu].items[hot_item].kind == ITEM_SLIDER &&
+            !(menus[open_menu].items[hot_item].flags & ITEM_DISABLED)) {
+            const Item *item = &menus[open_menu].items[hot_item];
+            set_slider(item, Settings_Get(item->setting) + 5 * event->wheel);
             Settings_Save();
             return 1;
         }
@@ -678,7 +728,7 @@ int Menu_Event(const MenuEvent *event, int *quit)
         int px = event->x, py = event->y;
         int bar = bar_item_at(px, py), was_hot = hot_item, was_bar = hover_bar;
         if (grabbed) {
-            volume_from_pointer(open_menu, hot_item, px);
+            slider_from_pointer(open_menu, hot_item, px);
             return 1;
         }
         hover_bar = bar;
@@ -712,7 +762,8 @@ int Menu_Event(const MenuEvent *event, int *quit)
         case MENU_KEY_ESCAPE: close_menu(); return 1;
         case MENU_KEY_LEFT: case MENU_KEY_RIGHT:
             if (hot_item >= 0 && menus[open_menu].items[hot_item].kind == ITEM_SLIDER) {
-                set_volume(Settings_Get(SET_MASTER_VOLUME) + (event->key == MENU_KEY_RIGHT ? 5 : -5));
+                const Item *item = &menus[open_menu].items[hot_item];
+                set_slider(item, Settings_Get(item->setting) + (event->key == MENU_KEY_RIGHT ? 5 : -5));
                 Settings_Save();
             } else {
                 open_menu = (open_menu + (event->key == MENU_KEY_RIGHT ? 1 : MENU_COUNT - 1)) % MENU_COUNT;
