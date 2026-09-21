@@ -23,6 +23,7 @@ static volatile int rate = 100;
 static uint64_t real_prev, virtual_now, next_vblank;
 static volatile unsigned vblank_period = 16683;
 static volatile int step_pending;
+static float present_refresh;
 
 static uint64_t now_us(void)
 {
@@ -128,10 +129,24 @@ void Platform_SetVBlankPeriod(unsigned us)
     sigprocmask(SIG_SETMASK, &previous, NULL);
 }
 
+void Platform_SetPresentRefresh(float hz)
+{
+    present_refresh = hz;
+}
+
 void Platform_NotifyPresent(uint64_t real_now_us, int vsynced)
 {
     (void)real_now_us;
-    (void)vsynced;
+    if (vsynced && present_refresh >= 59.0f && present_refresh <= 61.0f) {
+        sigset_t set, previous;
+        unsigned period = (unsigned)(1000000.0f / present_refresh + 0.5f);
+        sigemptyset(&set);
+        sigaddset(&set, SIGALRM);
+        sigprocmask(SIG_BLOCK, &set, &previous);
+        vblank_period = period;
+        next_vblank = virtual_now + period - 1500;
+        sigprocmask(SIG_SETMASK, &previous, NULL);
+    }
 }
 
 void Platform_WaitVBlank(unsigned count_at_entry)

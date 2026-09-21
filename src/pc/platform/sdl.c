@@ -57,6 +57,20 @@ static void show_cursor(void)
     }
 }
 
+static uint64_t real_now_us(void)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
+}
+
+static void update_display_refresh(void)
+{
+    SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+    const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display);
+    Platform_SetPresentRefresh(mode ? mode->refresh_rate : 0.0f);
+}
+
 static void update_menu_visibility(void)
 {
     int wanted = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN) ||
@@ -347,6 +361,7 @@ static void apply_display_settings(void)
     if (picture) {
         SDL_SetTextureScaleMode(picture, Settings_Get(SET_FILTER) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
     }
+    SDL_SetRenderVSync(renderer, Settings_Get(SET_VSYNC) ? 1 : 0);
     relayout();
     show();
 }
@@ -393,6 +408,7 @@ static void show(void)
     SDL_RenderTexture(renderer, picture, NULL, &layout.dst);
     SDL_RenderTexture(renderer, overlay, NULL, NULL);
     SDL_RenderPresent(renderer);
+    if (Settings_Get(SET_VSYNC)) Platform_NotifyPresent(real_now_us(), 1);
 }
 
 /* The menu changed under a still picture: repaint it where it was and
@@ -502,6 +518,9 @@ static void pump(void)
                 Settings_Save();
             }
             break;
+        case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+            update_display_refresh();
+            break;
         case SDL_EVENT_WINDOW_FOCUS_LOST:
             if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) Spu_SetOutputVolume(0);
             show_cursor();
@@ -585,7 +604,9 @@ int Platform_Open(const char *title)
      * and that refresh beats against the game's own 59.94 Hz clock into a
      * dropped frame every few seconds. SDL_VIDEO_DRIVER in the environment
      * still wins over this default. */
-    SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "x11,wayland", SDL_HINT_DEFAULT);
+    if (!Settings_Get(SET_VSYNC)) {
+        SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "x11,wayland", SDL_HINT_DEFAULT);
+    }
     block_signals(&previous);
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO)) {
         restore_signals(&previous);
@@ -606,6 +627,7 @@ int Platform_Open(const char *title)
         return -1;
     }
     SDL_SetRenderVSync(renderer, 0); /* the game paces itself on its own VBlank */
+    update_display_refresh();
     if (getenv("MEMORIES_TRACE_FRAMES")) {
         fprintf(stderr, "memories-pc: SDL renderer %s, video %s\n", SDL_GetRendererName(renderer),
                 SDL_GetCurrentVideoDriver());
