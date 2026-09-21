@@ -37,6 +37,13 @@ uint16_t Platform_ScriptedBits(unsigned frame);
 int Platform_StartTimers(void (*tick)(uint64_t now_us), void (*vblank)(void));
 void Platform_WaitVBlank(unsigned count_at_entry);
 unsigned Platform_VBlankCount(void);
+/* Virtual interrupt clock. Rate is percent of real time; zero pauses and -1
+ * advances one VBlank whenever the game waits. */
+void Platform_SetClockRate(int percent);
+int Platform_ClockRate(void);
+void Platform_StepFrame(void);
+void Platform_NotifyPresent(uint64_t real_now_us, int vsynced);
+void Platform_SetVBlankPeriod(unsigned us);
 
 /* Start a 44.1 kHz stereo output thread that pulls from `mix`. Failure is not
  * fatal; MEMORIES_NO_AUDIO=1 or headless mode skips it. */
