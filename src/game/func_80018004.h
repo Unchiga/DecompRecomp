@@ -28,7 +28,7 @@
  * DuelCardDisplayObject *. That one is a view, not a fact: duel_draw_resolution.c
  * writes the object's +0x6C, past this struct's last field, so it keeps its raw
  * view and casts. */
-#ifdef FUNC_80018004_AMBIENT_POSITION_ARGS
+#if defined(FUNC_80018004_AMBIENT_POSITION_ARGS) || defined(MEMORIES_PC)
 DuelCardDisplayObject *func_80018004(
     DuelCardRecord *card, s32 x, s32 y
 );

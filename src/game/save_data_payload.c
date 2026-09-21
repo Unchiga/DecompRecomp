@@ -272,7 +272,16 @@ s32 SaveData_MatchesDuelistAndCurrentSequence(
     s32 result;
 
     if (SaveData_HasSameDuelistCode(left, right)) {
+#ifdef MEMORIES_PC
+        /* A save state rewinds RAM but intentionally leaves the external
+         * memory-card file alone. Retail's monotonic anti-copy sequence then
+         * sees the card as coming from the future and refuses to overwrite
+         * it. The duelist-code check above still prevents writing another
+         * profile; only the timeline check is incompatible with save states. */
+        result = 1;
+#else
         result = gSaveDataSequence == right->save_sequence;
+#endif
     } else {
         result = 0;
     }

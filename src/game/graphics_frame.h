@@ -378,7 +378,11 @@ typedef struct GraphicsFrameBuffer GraphicsFrameBuffer;
  * array base while it brings the loader block up. The number of buffers stays
  * unsized because only the two-buffer startup loop establishes it.
  */
+#ifndef MEMORIES_PC
 extern GraphicsFrameBuffer gGraphics_aFrameBuffers[];
+#endif
+/* Host compilers reject an array of incomplete type; the native build declares
+ * it in graphics_frame_buffer.h, after the layout. */
 
 #ifdef GRAPHICS_ACTIVE_FRAME_BUFFER_IS_VOLATILE
 extern GraphicsFrameBuffer *volatile gGraphics_pActiveFrameBuffer;

@@ -9,6 +9,10 @@
  *	All rights reserved.
  */
 
+#ifdef MEMORIES_PC
+#include "../pc/compat/inline_c_native.h"
+#else
+
 /*
  * Type 1 functions
  */
@@ -1448,3 +1452,5 @@
 	:							\
 	:							\
 	: "$12" )
+
+#endif /* MEMORIES_PC */

@@ -18,6 +18,9 @@
 #include "sound.h"
 #include "text_init_decimal_digit_glyph_map.h"
 #include "graphics_frame.h"
+#ifdef MEMORIES_PC
+#include "graphics_frame_buffer.h"
+#endif
 #include "main_frame.h"
 #include "../psyq/libapi.h"
 #include "../psyq/libgte.h"

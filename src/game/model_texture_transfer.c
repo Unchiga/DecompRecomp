@@ -24,6 +24,7 @@
 #define DUEL_PACKAGE_STAGE_RAW_ARENAS
 #include "duel_load_package_stage.h"
 
+
 void func_80056D7C(FileTransferDescriptor *d, s32 stage)
 {
     RECT rect0;

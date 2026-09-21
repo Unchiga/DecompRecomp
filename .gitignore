@@ -1,6 +1,9 @@
 # User-supplied copyrighted game files
 /game/
 
+# Memory card images written by the native port
+/saves/
+
 # Generated and temporary project state
 /tmp/
 

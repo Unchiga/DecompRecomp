@@ -6,10 +6,18 @@
 #include "duel_card_display_state.h"
 #include "func_80018004.h"
 
+#ifdef MEMORIES_PC
+DuelCardDisplayObject *func_80018004(DuelCardRecord *card, s32 x, s32 y)
+#else
 DuelCardDisplayObject *func_80018004(DuelCardRecord *card)
+#endif
 {
     DuelCardDisplayObject *result =
+#ifdef MEMORIES_PC
+        (DuelCardDisplayObject *)func_80017F04((u8 *)card, x, y);
+#else
         (DuelCardDisplayObject *)func_80017F04((u8 *)card);
+#endif
 
     if (D_8009B1C8->card_view_mode != 0) {
         card->flags |= DUEL_CARD_FLAG_DISPLAY_MARKER;

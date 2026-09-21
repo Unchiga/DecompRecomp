@@ -322,7 +322,11 @@ void FreeDuel_UpdateSparkle(void)
             timer = obj->field_60 - 1;
             obj->field_60 = timer;
             if (timer == 0) {
+#ifdef MEMORIES_PC
+                DisplayObject_ReleaseIfPresent(obj); /* retail leaves it in $a0 */
+#else
                 DisplayObject_ReleaseIfPresent();
+#endif
                 gFreeDuel_apSparklePool[i] = 0;
             }
         }

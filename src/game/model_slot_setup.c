@@ -96,7 +96,11 @@ void func_80056250(s32 arg0, u8 *arg1, s32 arg2, s32 arg3) {
     u8 *b2;
     s32 w;
 
+#ifdef MEMORIES_PC
+    func_8004CB0C(arg0, arg1, arg2, arg3);
+#else
     func_8004CB0C();
+#endif
     if (arg1 == (u8 *)0) {
         return;
     }

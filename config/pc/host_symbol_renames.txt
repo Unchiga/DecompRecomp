@@ -1,0 +1,15 @@
+rand Memories_Rand
+srand Memories_Srand
+setjmp Psx_setjmp
+longjmp Psx_longjmp
+__main Psx___main
+open Psx_open
+close Psx_close
+read Psx_read
+write Psx_write
+lseek Psx_lseek
+exit Psx_exit
+ccos Psx_ccos
+csin Psx_csin
+csqrt Psx_csqrt
+catan Psx_catan

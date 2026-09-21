@@ -33,7 +33,7 @@ extern u8 D_8009B1D7;
 
 s32 func_80024060(DuelCursorStatus *object);
 
-#ifdef FUNC_80024088_WIDE_DIRECTION
+#if defined(FUNC_80024088_WIDE_DIRECTION) || defined(MEMORIES_PC)
 s32 func_80024088(DuelFieldCursor *cursor, s8 dir);
 #else
 s32 func_80024088(DuelCursorStatus *object);

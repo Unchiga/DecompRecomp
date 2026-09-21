@@ -38,8 +38,16 @@ s32 func_80024060(DuelCursorStatus *object)
     return object->status;
 }
 
+#ifdef MEMORIES_PC
+s32 func_80024088(DuelFieldCursor *object, s8 dir)
+#else
 s32 func_80024088(DuelCursorStatus *object)
+#endif
 {
+#ifdef MEMORIES_PC
+    func_80023D08((GridCursor *)object, dir);
+#else
     func_80023D08((GridCursor *)object);
-    return object->status;
+#endif
+    return ((DuelCursorStatus *)object)->status;
 }

@@ -22,7 +22,11 @@ void func_80023D08(GridCursor *o, s32 dir) {
         if (D_8009B162 != 0) {
             return;
         }
+#ifdef MEMORIES_PC
+        func_8002348C((DuelFieldDisplaySource *)o); /* the record retail leaves in $a0 */
+#else
         func_8002348C();
+#endif
         o->flags &= 0x3F;
         SD_SEPlayFull(6);
         return;

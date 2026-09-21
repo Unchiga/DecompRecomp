@@ -3,7 +3,10 @@
 
 #include "../types.h"
 
-#ifdef MODEL_SLOT_SETUP_EXPLICIT_TRANSFER_ARGS
+/* The retail caller in model_slot_setup.c forwards its own a0-a3 untouched,
+ * which the matching build writes as a call without arguments. A host ABI
+ * needs them spelled out. */
+#if defined(MODEL_SLOT_SETUP_EXPLICIT_TRANSFER_ARGS) || defined(MEMORIES_PC)
 void func_8004CB0C(s32 slot, u8 *hmd, s32 size, s32 flags);
 #else
 void func_8004CB0C(void);

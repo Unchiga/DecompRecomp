@@ -71,7 +71,7 @@ s32 func_80023090(DuelFieldCursor *cursor_a, DuelFieldCursor *cursor_b);
 
 /* The settling-move caller supplies no expression: it deliberately leaves
  * its GridCursor-backed record in $a0. */
-#ifdef FUNC_8002348C_AMBIENT_SOURCE
+#if defined(FUNC_8002348C_AMBIENT_SOURCE) && !defined(MEMORIES_PC)
 void func_8002348C(void);
 #else
 void func_8002348C(DuelFieldDisplaySource *source);

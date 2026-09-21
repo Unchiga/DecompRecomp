@@ -17,4 +17,8 @@ typedef char GraphicsFrameBuffer_size_must_be_0x5160[
     sizeof(GraphicsFrameBuffer) == 0x5160 ? 1 : -1
 ];
 
+#ifdef MEMORIES_PC
+extern GraphicsFrameBuffer gGraphics_aFrameBuffers[];
+#endif
+
 #endif

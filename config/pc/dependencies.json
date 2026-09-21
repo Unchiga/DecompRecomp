@@ -1,0 +1,8 @@
+{
+  "psyz": {
+    "repository": "https://github.com/Xeeynamo/psyz.git",
+    "revision": "e2d3a84eb4432c0a80b193eb844edc2bdde90c62",
+    "submodules": ["external/SDL"],
+    "status": "evaluation; not yet a validated game runtime"
+  }
+}

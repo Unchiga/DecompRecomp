@@ -1,10 +1,12 @@
-# Yu-Gi-Oh! Forbidden Memories Decompilation
+# DecompRecomp — Yu-Gi-Oh! Forbidden Memories
 
-[![Matching build](https://github.com/krystalgamer/memories-decomp/actions/workflows/matching-build.yml/badge.svg)](https://github.com/krystalgamer/memories-decomp/actions/workflows/matching-build.yml)
+[![Matching build](https://github.com/Unchiga/DecompRecomp/actions/workflows/matching-build.yml/badge.svg)](https://github.com/Unchiga/DecompRecomp/actions/workflows/matching-build.yml)
+[![Native PC](https://github.com/Unchiga/DecompRecomp/actions/workflows/pc-build.yml/badge.svg)](https://github.com/Unchiga/DecompRecomp/actions/workflows/pc-build.yml)
 
-This repository is a byte-matching decompilation of the North American
-PlayStation release of **Yu-Gi-Oh! Forbidden Memories** (`SLUS-01411`).
-Accepted changes must continue to rebuild the complete PS-X executable exactly.
+DecompRecomp combines a byte-matching decompilation of the North American
+PlayStation release of **Yu-Gi-Oh! Forbidden Memories** (`SLUS-01411`) with a
+native PC recompilation frontend. Changes to shared game code must continue to
+rebuild the complete PS-X executable exactly.
 
 > [!IMPORTANT]
 > The repository does not contain game data or proprietary Psy-Q tools. Supply
@@ -145,6 +147,9 @@ inside this working directory.
 
 ## Documentation
 
+- [Native PC foundation and build instructions](notes/pc-build.md)
+- [Native PC port roadmap](notes/pc-port-plan.md)
+- [PSY-Z / PsyCross evaluation](notes/pc-sdk-evaluation.md)
 - [Setup and required inputs](notes/setup.md)
 - [Build and exact-match workflow](notes/build.md)
 - [Compiler and toolchain fingerprint](notes/toolchain.md)

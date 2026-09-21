@@ -1,0 +1,26 @@
+name: Native PC foundation
+on:
+  push:
+  pull_request:
+jobs:
+  core:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: cmake -S . -B tmp/pc -DBUILD_TESTING=ON
+      - run: cmake --build tmp/pc --config Release
+      - run: ctest --test-dir tmp/pc -C Release --output-on-failure
+      - run: cmake --build tmp/pc --target pc_audit
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B tmp/pc -DMEMORIES_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build tmp/pc
+      - run: ctest --test-dir tmp/pc --output-on-failure

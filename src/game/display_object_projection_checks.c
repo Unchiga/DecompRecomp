@@ -125,7 +125,14 @@ s32 func_80041F90(
         {
             s32 cb = obj->field_10;
             if (cb != 0) {
+                /* field_10 holds either a small number or a callback; retail
+                 * tells them apart by the sign, every console address being
+                 * negative. Host code addresses are positive. */
+#ifdef MEMORIES_PC
+                if ((u32)cb >= 0x10000u) {
+#else
                 if (cb < 0) {
+#endif
                     ((void (*)(DisplayObject *, s32))cb)(obj, otz);
                 }
                 if (otz >= 0) {

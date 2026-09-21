@@ -69,7 +69,7 @@ typedef struct {
  * call site does not compute one. The arm below preserves that one-argument
  * call while func_80023FBC, which does compute the argument, gets the real
  * prototype. */
-#ifdef FUNC_80023D08_AMBIENT_DIRECTION_ARG
+#if defined(FUNC_80023D08_AMBIENT_DIRECTION_ARG) && !defined(MEMORIES_PC)
 void func_80023D08(GridCursor *o);
 #else
 void func_80023D08(GridCursor *o, s32 dir);
