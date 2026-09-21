@@ -475,11 +475,17 @@ void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
     static int crash_tested;
+    static int hang_tested;
     current_frame = frame;
     Log_Drain();
     if (!crash_tested && frame >= 60 && getenv("MEMORIES_CRASH_TEST")) {
         crash_tested = 1;
         *(volatile int *)(uintptr_t)0 = 1;
+    }
+    if (!hang_tested && frame >= 60 && getenv("MEMORIES_HANG_TEST")) {
+        volatile unsigned spin = 0;
+        hang_tested = 1;
+        for (;;) spin++;
     }
     if (shown_rate != Platform_ClockRate()) {
         shown_rate = Platform_ClockRate();

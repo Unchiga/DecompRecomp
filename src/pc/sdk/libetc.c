@@ -159,6 +159,7 @@ int VSyncCallback(void (*callback)(void))
 int Memories_VSync(int mode)
 {
     unsigned now = Platform_VBlankCount(), elapsed;
+    Platform_VSyncHeartbeat();
     if (mode < 0) {
         return (int)now;
     }

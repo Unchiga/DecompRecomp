@@ -160,3 +160,19 @@ void Crash_ReportSoft(const char *kind, const char *detail)
     count = Log_Tail(32, tail_lines);
     for (i = 0; i < count; i++) fprintf(stderr, "  %s%s", tail_lines[i], strchr(tail_lines[i], '\n') ? "" : "\n");
 }
+
+void Crash_ReportHang(void *context)
+{
+    ucontext_t *user = context;
+    char path[128];
+    report_fd = -1;
+    snprintf(path, sizeof(path), "tmp/pc/hang-%ld.txt", (long)getpid());
+    report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    {
+        static const char message[] = "memories-pc: no VSync for 5 s\n";
+        output(message, sizeof(message) - 1);
+    }
+    walk((uintptr_t)user->uc_mcontext.gregs[REG_EIP], (uintptr_t)user->uc_mcontext.gregs[REG_EBP]);
+    if (report_fd >= 0) close(report_fd);
+    report_fd = -1;
+}

@@ -47,6 +47,7 @@ void Platform_StepFrame(void);
 void Platform_NotifyPresent(uint64_t real_now_us, int vsynced);
 void Platform_SetVBlankPeriod(unsigned us);
 void Platform_SetPresentRefresh(float hz);
+void Platform_VSyncHeartbeat(void);
 
 /* Start a 44.1 kHz stereo output thread that pulls from `mix`. Failure is not
  * fatal; MEMORIES_NO_AUDIO=1 or headless mode skips it. */

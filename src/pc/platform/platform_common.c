@@ -7,6 +7,8 @@
 #include "platform.h"
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"
+#include "pc/debug/crash.h"
+#include "pc/debug/profile.h"
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -16,6 +18,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
+#include <ucontext.h>
 
 static volatile unsigned vblank_count;
 static void (*vblank_handler)(void);
@@ -25,6 +28,9 @@ static uint64_t real_prev, virtual_now, next_vblank;
 static volatile unsigned vblank_period = 16683;
 static volatile int step_pending;
 static float present_refresh;
+static uint64_t last_vsync_real;
+static unsigned watchdog_seconds = 5;
+static volatile int watchdog_reported;
 
 static uint64_t now_us(void)
 {
@@ -59,10 +65,19 @@ static void advance(uint64_t real_now)
     }
 }
 
-static void on_alarm(int number)
+static void on_alarm(int number, siginfo_t *info, void *context)
 {
+    ucontext_t *user = context;
+    uint64_t real_now = now_us();
     (void)number;
-    advance(now_us());
+    (void)info;
+    Profile_Sample((uintptr_t)user->uc_mcontext.gregs[REG_EIP]);
+    if (watchdog_seconds && rate != 0 && !watchdog_reported &&
+        real_now - last_vsync_real >= (uint64_t)watchdog_seconds * 1000000u) {
+        watchdog_reported = 1;
+        Crash_ReportHang(context);
+    }
+    advance(real_now);
 }
 
 /* The 1 kHz signal is aimed at the main thread itself (SIGEV_THREAD_ID), not
@@ -79,9 +94,15 @@ int Platform_StartTimers(void (*tick)(uint64_t), void (*vblank)(void))
     timer_t timer;
     tick_handler = tick;
     vblank_handler = vblank;
+    last_vsync_real = now_us();
+    {
+        const char *watchdog = getenv("MEMORIES_WATCHDOG");
+        if (watchdog && *watchdog) watchdog_seconds = (unsigned)strtoul(watchdog, NULL, 10);
+    }
+    Profile_Init();
     memset(&action, 0, sizeof(action));
-    action.sa_handler = on_alarm;
-    action.sa_flags = SA_RESTART;
+    action.sa_sigaction = on_alarm;
+    action.sa_flags = SA_RESTART | SA_SIGINFO;
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGALRM, &action, NULL)) {
         return -1;
@@ -118,6 +139,17 @@ void Platform_SetClockRate(int percent)
 
 int Platform_ClockRate(void) { return rate; }
 void Platform_StepFrame(void) { step_pending = 1; }
+
+void Platform_VSyncHeartbeat(void)
+{
+    sigset_t set, previous;
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &set, &previous);
+    last_vsync_real = now_us();
+    watchdog_reported = 0;
+    sigprocmask(SIG_SETMASK, &previous, NULL);
+}
 
 void Platform_SetVBlankPeriod(unsigned us)
 {
