@@ -31,6 +31,7 @@ static float present_refresh;
 static uint64_t last_vsync_real;
 static unsigned watchdog_seconds = 5;
 static volatile int watchdog_reported;
+static int deterministic_dump;
 
 static uint64_t now_us(void)
 {
@@ -50,6 +51,13 @@ static void advance(uint64_t real_now)
     uint64_t elapsed = real_prev ? real_now - real_prev : 0;
     real_prev = real_now;
     if (elapsed > 100000) elapsed = 0;
+    if (deterministic_dump && rate == -1) {
+        /* Timer-driven disc waits still need progress, but a fixed tick keeps
+         * their completion frame independent of host scheduling. */
+        virtual_now += 1000;
+        if (tick_handler) tick_handler(virtual_now);
+        return;
+    }
     if (rate > 0) virtual_now += elapsed * (uint64_t)rate / 100;
     if (rate == -1) virtual_now += elapsed;
     if (tick_handler) tick_handler(virtual_now);
@@ -94,6 +102,7 @@ int Platform_StartTimers(void (*tick)(uint64_t), void (*vblank)(void))
     timer_t timer;
     tick_handler = tick;
     vblank_handler = vblank;
+    deterministic_dump = getenv("MEMORIES_HEADLESS") != NULL && getenv("MEMORIES_DUMP_FRAME") != NULL;
     last_vsync_real = now_us();
     {
         const char *watchdog = getenv("MEMORIES_WATCHDOG");
@@ -186,6 +195,20 @@ void Platform_WaitVBlank(unsigned count_at_entry)
 {
     struct timespec nap = {0, 500000};
     while (vblank_count == count_at_entry && !Platform_ShouldQuit()) {
+        if (rate == -1 && deterministic_dump) {
+            sigset_t set, previous;
+            sigemptyset(&set);
+            sigaddset(&set, SIGALRM);
+            sigprocmask(SIG_BLOCK, &set, &previous);
+            if (!next_vblank) next_vblank = virtual_now + vblank_period;
+            if (virtual_now >= next_vblank) {
+                next_vblank += vblank_period;
+                deliver_vblank();
+            }
+            sigprocmask(SIG_SETMASK, &previous, NULL);
+            if (vblank_count == count_at_entry) nanosleep(&nap, NULL);
+            continue;
+        }
         if (rate == -1) {
             sigset_t set, previous;
             uint64_t real_now;

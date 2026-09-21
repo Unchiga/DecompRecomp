@@ -117,8 +117,9 @@ on port 1.
 | Start | Enter | Menu/Start | |
 | Select | Right Shift | View/Back | |
 
-Esc quits (it closes an open menu first); F1-F4/F5/F7 are the save-state
-keys. Controllers
+Esc quits (it closes an open menu first); F1, F2 and F4 select those state
+slots, F5 saves, and F7 loads. F3 cycles the debug HUD; slot 3 is selectable
+from File. Controllers
 (`platform/gamepad_evdev.c`) are read through evdev, which names controls by
 meaning, so the one table covers Xbox pads on xpad, xone and xpadneo and most
 other pads. `/dev/input` is rescanned about once a second while a port is
@@ -243,11 +244,12 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 
 | Menu | Items |
 |---|---|
-| File | Save state (F5), Load state (F7), Exit |
-| Audio | Volume slider (also the wheel over the menu) |
-| View | Scale 1x-4x, applied on the next frame and kept in `saves/settings.txt` |
+| File | Save/load state, slots 1-4, screenshot, reload settings, exit |
+| Audio | Master/music/SFX/movie sliders, mute and focus-loss mute |
+| View | Window scale and mode, scaling/aspect/filter/VSync choices |
 | Mods | one checked item per entry of `src/pc/mods`: 3D Monsters, Hand camera |
-| Debug | Give 3 of every card: writes 3 into the chest of the live save (`gLibrary_abCardChest`, 0x801D0250); SAVE in the game keeps it. `MEMORIES_DEBUG_CHEST=N` does the same the first time a save is live |
+| Debug | HUD levels, pause/step/speed, frame and VRAM dumps, and Give 3 of every card |
+| Trace | Live frames, disc, SPU, input and state log-channel switches |
 
 `MEMORIES_TRACE_MENU=1` logs menu clicks. The menu never reaches the pad:
 a click on the bar or in an open menu, and the wheel there, are the menu's.
@@ -367,9 +369,25 @@ tiles them): the monster keeps its facing through the swing and ends facing
 the camera on the opponent's turn. A battle presentation with the mod on has
 not been watched yet.
 
+### Deterministic PC checks
+
+`make check-pc` rebuilds the native game and portable C tests, runs every
+`pc_*` CTest, then boots the game headless three times. It compares PPM hashes
+for the title at frame 900, the main menu after one cursor move, and Options.
+Failures retain the differing image beneath `tmp/pc/smoke/`. After an
+intentional rendering change, inspect those images and update the fixtures
+with `python3 tools/pc/smoke.py --record`; immediately run the normal command
+twice before committing new hashes.
+
+The smoke runner clears other `MEMORIES_*` switches (except a caller-supplied
+`MEMORIES_DISC`) and uses isolated settings files, a fixed headless dump clock,
+no gamepad and no audio device. It still requires the private disc image and
+the native build prerequisites described above.
+
 ### Save states
 
-F1-F4 pick a slot (shown in the window title), **F5 saves, F7 loads**. Slots
+F1, F2 and F4 pick those slots (shown in the window title), while slot 3 is
+available from File; **F5 saves and F7 loads**. Slots
 are `tmp/pc/states/slot<N>.state` (`MEMORIES_STATE_DIR` moves them), about
 4 MiB each. `./build-pc.sh load [slot]` or `MEMORIES_LOAD_STATE=<slot or
 path>` starts from a state: the process boots for 30 frames so every

@@ -1,5 +1,19 @@
 # Matching Build Continuous Integration
 
+## Native PC smoke gate
+
+`make check-pc` is the local native-port gate. It builds the 32-bit game and
+the CMake test tree, runs every `pc_*` CTest, and compares three deterministic
+headless frame dumps with `tests/pc/smoke/*.json`. A mismatch exits nonzero
+and leaves the actual PPM beneath `tmp/pc/smoke/` for inspection. Running the
+gate twice checks repeatability; `python3 tools/pc/smoke.py --record` is only
+for accepting an intentional rendering change after reviewing those images.
+
+The game smoke cases need the private raw disc image, so the public
+`.github/workflows/pc-build.yml` job continues to run only the portable CMake
+tests. A private runner with the verified disc can use `make check-pc`
+directly.
+
 `.github/workflows/matching-build.yml` performs a clean hosted Ubuntu build
 for pushes to `master`, pull requests, and manual dispatches. It installs or
 restores the pinned local tools, runs `make clean`, rebuilds the complete

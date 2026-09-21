@@ -24,7 +24,7 @@ export GOMODCACHE := $(ROOT)/tools/environments/go/pkg/mod
 
 .DEFAULT_GOAL := help
 
-.PHONY: help workspace verify-target verify-inputs tools python-tools toolchain toolchain-system compiler compiler-281 compiler-281-prebuilt check-tools check-build-tools info extract map split split-incremental build build-incremental match match-incremental overlays verify-overlays check-metadata check-translation-unit-headers check-matching-source-contracts check-unmatched-contracts check-psyq-declarations check-psyq-signature-resolutions check-declaration-visibility build-overlays match-overlays inventory classify-functions candidates candidate-builds check-candidate-builds candidate-contract-hashes check-notes check-note-links review-deferred siblings adjacent-units external-attempts basic-types global-usage check-global-usage progress check-progress disc-files disc-layout verify-disc runtime-files verify-runtime-files audit clean
+.PHONY: help workspace verify-target verify-inputs tools python-tools toolchain toolchain-system compiler compiler-281 compiler-281-prebuilt check-tools check-build-tools info extract map split split-incremental build build-incremental match match-incremental overlays verify-overlays check-metadata check-translation-unit-headers check-matching-source-contracts check-unmatched-contracts check-psyq-declarations check-psyq-signature-resolutions check-declaration-visibility build-overlays match-overlays inventory classify-functions candidates candidate-builds check-candidate-builds candidate-contract-hashes check-notes check-note-links review-deferred siblings adjacent-units external-attempts basic-types global-usage check-global-usage progress check-progress disc-files disc-layout verify-disc runtime-files verify-runtime-files check-pc audit clean
 
 help:
 	@printf '%s\n' \
@@ -72,6 +72,7 @@ help:
 		'  verify-disc    Verify BIN/CUE layout and extracted file contents' \
 		'  runtime-files  Regenerate executable file-index/LBA metadata' \
 		'  verify-runtime-files  Verify runtime file order against disc LBAs' \
+		'  check-pc       Build and run native PC unit and deterministic smoke tests' \
 		'  audit          Verify exact output, metadata, and repository policy' \
 		'  clean          Remove known generated project output under tmp/' \
 		'  verify-target  Validate only the SLUS executable needed to build' \
@@ -262,6 +263,12 @@ runtime-files: verify-disc
 
 verify-runtime-files: verify-disc
 	@$(PYTHON) tools/project/runtime_files.py verify
+
+check-pc:
+	@./build-pc.sh
+	@cmake -S . -B tmp/pc/cmake-test -DBUILD_TESTING=ON
+	@cmake --build tmp/pc/cmake-test
+	@$(PYTHON) tools/pc/smoke.py
 
 audit: match verify-runtime-files
 	@$(PYTHON) tools/project/function_inventory.py
