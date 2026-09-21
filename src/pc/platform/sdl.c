@@ -246,17 +246,25 @@ int Gamepad_Connected(int port) { return port >= 0 && port < 2 && pads[port] != 
 
 static void (*mixer)(int16_t *, size_t);
 static SDL_AudioStream *stream;
+static volatile unsigned audio_underruns;
 
 static void SDLCALL feed(void *userdata, SDL_AudioStream *to, int additional, int total)
 {
     static int16_t buffer[256 * 2];
     (void)userdata;
     (void)total;
+    if (SDL_GetAudioStreamQueued(to) == 0) audio_underruns++;
     while (additional > 0) {
         mixer(buffer, 256);
         SDL_PutAudioStreamData(to, buffer, (int)sizeof(buffer));
         additional -= (int)sizeof(buffer);
     }
+}
+
+void Platform_AudioStats(int *queued_frames, unsigned *underruns)
+{
+    if (queued_frames) *queued_frames = stream ? SDL_GetAudioStreamQueued(stream) / (int)(sizeof(int16_t) * 2) : 0;
+    if (underruns) *underruns = audio_underruns;
 }
 
 int Platform_StartAudio(void (*mix)(int16_t *, size_t))

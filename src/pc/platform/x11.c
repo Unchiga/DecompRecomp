@@ -75,6 +75,11 @@ static volatile uint16_t wheel_now;
 int Platform_Scale(void) { return scale; }
 void Platform_ApplyDisplaySettings(void) {}
 int Platform_HasWindowModes(void) { return 0; }
+void Platform_AudioStats(int *queued_frames, unsigned *underruns)
+{
+    if (queued_frames) *queued_frames = 0;
+    if (underruns) *underruns = 0;
+}
 
 void Platform_Screenshot(int window_image)
 {

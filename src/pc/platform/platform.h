@@ -56,4 +56,5 @@ int Platform_StartAudio(void (*mix)(int16_t *frames, size_t count));
  * file. Backends use it for MEMORIES_NO_AUDIO, MEMORIES_DUMP_AUDIO and when
  * no device opens. */
 int Platform_StartSilentAudio(void (*mix)(int16_t *frames, size_t count), const char *dump_path);
+void Platform_AudioStats(int *queued_frames, unsigned *underruns);
 #endif
