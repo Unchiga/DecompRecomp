@@ -30,6 +30,7 @@ static uint32_t *picture_pixels, *overlay_pixels;
 static MenuCanvas canvas;
 static struct { int win_w, win_h; SDL_FRect dst; } layout;
 static int menu_visible = 1;
+static int display_settings_pending;
 /* 4 puts the 320x240 picture on screen at 1280x960. */
 static int scale = 4, pending_scale, quit, state_slot = 1;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
@@ -37,6 +38,8 @@ static volatile uint16_t pad_bits, scripted_bits, mouse_bits;
 static uint16_t wheel_bits;
 static int wheel_frames;
 static volatile uint16_t wheel_now;
+
+static void show(void);
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
  * L2/R2, T/Y L3/R3; Enter start, right Shift select. */
@@ -62,7 +65,7 @@ int Platform_HasWindowModes(void) { return 1; }
 
 void Platform_ApplyDisplaySettings(void)
 {
-    pending_scale = Settings_Get(SET_SCALE);
+    display_settings_pending = 1;
 }
 
 void Platform_SetScale(int wanted)
@@ -245,6 +248,49 @@ static void relayout(void)
     }
 }
 
+static void display_picture_size(int *w, int *h)
+{
+    *h = picture_h > 0 ? picture_h : 240;
+    *w = Settings_Get(SET_ASPECT) ? (picture_w > 0 ? picture_w : 320) : *h * 4 / 3;
+}
+
+static void apply_display_settings(void)
+{
+    int fullscreen = Settings_Get(SET_FULLSCREEN), pw, ph;
+    display_picture_size(&pw, &ph);
+    if (fullscreen == 2) {
+        SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+        const SDL_DisplayMode *current = SDL_GetCurrentDisplayMode(display);
+        SDL_DisplayMode closest;
+        float refresh = current ? current->refresh_rate : 0.0f;
+        if (SDL_GetClosestFullscreenDisplayMode(display, pw * scale, ph * scale, refresh, true, &closest)) {
+            SDL_SetWindowFullscreenMode(window, &closest);
+            SDL_SetWindowFullscreen(window, true);
+        } else {
+            fprintf(stderr, "memories-pc: no exclusive fullscreen mode; using desktop fullscreen\n");
+            Settings_Set(SET_FULLSCREEN, 1);
+            Settings_Save();
+            SDL_SetWindowFullscreenMode(window, NULL);
+            SDL_SetWindowFullscreen(window, true);
+        }
+    } else if (fullscreen == 1) {
+        SDL_SetWindowFullscreenMode(window, NULL);
+        SDL_SetWindowFullscreen(window, true);
+    } else {
+        int x = Settings_Get(SET_WINDOW_X), y = Settings_Get(SET_WINDOW_Y);
+        SDL_SetWindowFullscreen(window, false);
+        SDL_SetWindowBordered(window, !Settings_Get(SET_BORDERLESS));
+        SDL_SetWindowSize(window, pw * scale, ph * scale + Menu_Height());
+        SDL_SetWindowPosition(window, x == -1 ? SDL_WINDOWPOS_CENTERED : x,
+                              y == -1 ? SDL_WINDOWPOS_CENTERED : y);
+    }
+    if (picture) {
+        SDL_SetTextureScaleMode(picture, Settings_Get(SET_FILTER) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+    }
+    relayout();
+    show();
+}
+
 static void resize(int w, int h)
 {
     if (picture && (picture_w != w || picture_h != h)) {
@@ -253,7 +299,7 @@ static void resize(int w, int h)
     }
     if (!picture) {
         picture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-        SDL_SetTextureScaleMode(picture, SDL_SCALEMODE_NEAREST);
+        SDL_SetTextureScaleMode(picture, Settings_Get(SET_FILTER) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
         picture_pixels = realloc(picture_pixels, (size_t)w * (size_t)h * 4);
         picture_w = w;
         picture_h = h;
@@ -374,6 +420,13 @@ static void pump(void)
             relayout();
             repaint_menu();
             break;
+        case SDL_EVENT_WINDOW_MOVED:
+            if (!Settings_Get(SET_FULLSCREEN)) {
+                Settings_Set(SET_WINDOW_X, event.window.data1);
+                Settings_Set(SET_WINDOW_Y, event.window.data2);
+                Settings_Save();
+            }
+            break;
         case SDL_EVENT_GAMEPAD_ADDED: open_gamepad(event.gdevice.which); break;
         case SDL_EVENT_GAMEPAD_REMOVED: close_gamepad(event.gdevice.which); break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -396,8 +449,20 @@ static void pump(void)
             if (event.key.repeat) {
                 break;
             }
+            if (down && (key == SDLK_F11 || (key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT)))) {
+                Settings_Set(SET_FULLSCREEN, Settings_Get(SET_FULLSCREEN) ? 0 : 1);
+                Settings_Save();
+                Platform_ApplyDisplaySettings();
+                break;
+            }
             if (down && key == SDLK_ESCAPE) {
-                quit = 1;
+                if (Settings_Get(SET_FULLSCREEN)) {
+                    Settings_Set(SET_FULLSCREEN, 0);
+                    Settings_Save();
+                    Platform_ApplyDisplaySettings();
+                } else {
+                    quit = 1;
+                }
             }
             /* Save states: F1-F4 pick a slot, F5 saves it, F7 loads it. */
             if (down && key >= SDLK_F1 && key <= SDLK_F4) {
@@ -441,6 +506,11 @@ int Platform_Open(const char *title)
     }
     window = SDL_CreateWindow(title, 320 * scale, 240 * scale + Menu_Height(),
                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (window) {
+        int x = Settings_Get(SET_WINDOW_X), y = Settings_Get(SET_WINDOW_Y);
+        SDL_SetWindowPosition(window, x == -1 ? SDL_WINDOWPOS_CENTERED : x,
+                              y == -1 ? SDL_WINDOWPOS_CENTERED : y);
+    }
     renderer = window ? SDL_CreateRenderer(window, NULL) : NULL;
     restore_signals(&previous);
     if (!renderer) {
@@ -453,6 +523,7 @@ int Platform_Open(const char *title)
                 SDL_GetCurrentVideoDriver());
     }
     Menu_Init();
+    apply_display_settings();
     return 0;
 }
 
@@ -465,8 +536,11 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
     if (pending_scale) {
         scale = pending_scale;
         pending_scale = 0;
-        SDL_SetWindowSize(window, (picture_h ? picture_h * 4 / 3 : 320) * scale,
-                          (picture_h ? picture_h : 240) * scale + Menu_Height());
+        display_settings_pending = 1;
+    }
+    if (display_settings_pending) {
+        display_settings_pending = 0;
+        apply_display_settings();
     }
     resize(w, h);
     for (j = 0; j < h; j++) {
@@ -532,6 +606,7 @@ static void run_event_script(unsigned frame)
             event.type = SDL_EVENT_KEY_DOWN;
             event.key.down = true;
             event.key.key = strncmp(name, "escape", n) == 0 ? SDLK_ESCAPE : strncmp(name, "f10", n) == 0 ? SDLK_F10
+                          : strncmp(name, "f11", n) == 0 ? SDLK_F11
                           : strncmp(name, "left", n) == 0 ? SDLK_LEFT : strncmp(name, "right", n) == 0 ? SDLK_RIGHT
                           : strncmp(name, "up", n) == 0 ? SDLK_UP : strncmp(name, "down", n) == 0 ? SDLK_DOWN
                           : strncmp(name, "return", n) == 0 ? SDLK_RETURN
