@@ -13,6 +13,7 @@
 #define _GNU_SOURCE
 #include "platform.h"
 #include "menu.h"
+#include "settings.h"
 #include "pc/debug/cheats.h"
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
@@ -24,9 +25,11 @@
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *picture, *overlay;
-static int picture_w, picture_h, window_w, window_h;
+static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
 static MenuCanvas canvas;
+static struct { int win_w, win_h; SDL_FRect dst; } layout;
+static int menu_visible = 1;
 /* 4 puts the 320x240 picture on screen at 1280x960. */
 static int scale = 4, pending_scale, quit, state_slot = 1;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
@@ -55,6 +58,12 @@ static void block_signals(sigset_t *previous)
 static void restore_signals(const sigset_t *previous) { pthread_sigmask(SIG_SETMASK, previous, NULL); }
 
 int Platform_Scale(void) { return scale; }
+int Platform_HasWindowModes(void) { return 1; }
+
+void Platform_ApplyDisplaySettings(void)
+{
+    pending_scale = Settings_Get(SET_SCALE);
+}
 
 void Platform_SetScale(int wanted)
 {
@@ -182,9 +191,62 @@ int Platform_StartAudio(void (*mix)(int16_t *, size_t))
 
 /* --- window ----------------------------------------------------------- */
 
+static void relayout(void)
+{
+    int output_w, output_h, menu = menu_visible ? Menu_Height() : 0;
+    int pw = Settings_Get(SET_ASPECT) ? picture_w : picture_h * 4 / 3;
+    int ph = picture_h, area_h, mode = Settings_Get(SET_SCALING);
+    float factor;
+    if (!renderer || picture_w <= 0 || picture_h <= 0 ||
+        !SDL_GetRenderOutputSize(renderer, &output_w, &output_h)) {
+        return;
+    }
+    area_h = output_h - menu;
+    if (area_h < 1) area_h = 1;
+    layout.win_w = output_w;
+    layout.win_h = output_h;
+    if (mode == 2) {
+        layout.dst.x = 0;
+        layout.dst.y = (float)menu;
+        layout.dst.w = (float)output_w;
+        layout.dst.h = (float)area_h;
+    } else if (mode == 1) {
+        factor = SDL_min((float)output_w / (float)pw, (float)area_h / (float)ph);
+        layout.dst.w = (float)pw * factor;
+        layout.dst.h = (float)ph * factor;
+        layout.dst.x = ((float)output_w - layout.dst.w) * 0.5f;
+        layout.dst.y = (float)menu + ((float)area_h - layout.dst.h) * 0.5f;
+    } else {
+        int k = SDL_min(output_w / pw, area_h / ph);
+        if (k < 1) k = 1;
+        layout.dst.w = (float)(pw * k);
+        layout.dst.h = (float)(ph * k);
+        layout.dst.x = (float)(output_w - pw * k) * 0.5f;
+        layout.dst.y = (float)menu + (float)(area_h - ph * k) * 0.5f;
+    }
+    if (overlay && (canvas.width != output_w || canvas.height != output_h)) {
+        SDL_DestroyTexture(overlay);
+        overlay = NULL;
+    }
+    if (!overlay) {
+        overlay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                    output_w, output_h);
+        SDL_SetTextureBlendMode(overlay, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(overlay, SDL_SCALEMODE_NEAREST);
+        overlay_pixels = realloc(overlay_pixels, (size_t)output_w * (size_t)output_h * 4);
+        memset(overlay_pixels, 0, (size_t)output_w * (size_t)output_h * 4);
+        canvas.pixels = overlay_pixels;
+        canvas.stride = output_w;
+        canvas.width = output_w;
+        canvas.height = output_h;
+        canvas.alpha = 1;
+        Menu_Draw(&canvas);
+        SDL_UpdateTexture(overlay, NULL, overlay_pixels, output_w * 4);
+    }
+}
+
 static void resize(int w, int h)
 {
-    int menu = Menu_Height();
     if (picture && (picture_w != w || picture_h != h)) {
         SDL_DestroyTexture(picture);
         picture = NULL;
@@ -196,26 +258,7 @@ static void resize(int w, int h)
         picture_w = w;
         picture_h = h;
     }
-    if (overlay && (window_w != w * scale || window_h != h * scale + menu)) {
-        SDL_DestroyTexture(overlay);
-        overlay = NULL;
-    }
-    if (!overlay) {
-        window_w = w * scale;
-        window_h = h * scale + menu;
-        overlay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, window_w, window_h);
-        SDL_SetTextureBlendMode(overlay, SDL_BLENDMODE_BLEND);
-        SDL_SetTextureScaleMode(overlay, SDL_SCALEMODE_NEAREST);
-        overlay_pixels = realloc(overlay_pixels, (size_t)window_w * (size_t)window_h * 4);
-        memset(overlay_pixels, 0, (size_t)window_w * (size_t)window_h * 4);
-        canvas.pixels = overlay_pixels;
-        canvas.stride = window_w;
-        canvas.width = window_w;
-        canvas.height = window_h;
-        canvas.alpha = 1;
-        SDL_SetWindowSize(window, window_w, window_h);
-        SDL_UpdateTexture(overlay, NULL, overlay_pixels, window_w * 4);
-    }
+    relayout();
 }
 
 static void upload_overlay(int x, int y, int w, int h)
@@ -223,8 +266,8 @@ static void upload_overlay(int x, int y, int w, int h)
     SDL_Rect rect;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
-    if (x + w > window_w) { w = window_w - x; }
-    if (y + h > window_h) { h = window_h - y; }
+    if (x + w > layout.win_w) { w = layout.win_w - x; }
+    if (y + h > layout.win_h) { h = layout.win_h - y; }
     if (w <= 0 || h <= 0) {
         return;
     }
@@ -232,19 +275,16 @@ static void upload_overlay(int x, int y, int w, int h)
     rect.y = y;
     rect.w = w;
     rect.h = h;
-    SDL_UpdateTexture(overlay, &rect, overlay_pixels + (size_t)y * (size_t)window_w + (size_t)x, window_w * 4);
+    SDL_UpdateTexture(overlay, &rect, overlay_pixels + (size_t)y * (size_t)layout.win_w + (size_t)x,
+                      layout.win_w * 4);
 }
 
 static void show(void)
 {
-    SDL_FRect dst;
-    dst.x = 0;
-    dst.y = (float)Menu_Height();
-    dst.w = (float)(picture_w * scale);
-    dst.h = (float)(picture_h * scale);
+    if (!renderer || !picture || !overlay) return;
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-    SDL_RenderTexture(renderer, picture, NULL, &dst);
+    SDL_RenderTexture(renderer, picture, NULL, &layout.dst);
     SDL_RenderTexture(renderer, overlay, NULL, NULL);
     SDL_RenderPresent(renderer);
 }
@@ -254,8 +294,8 @@ static void show(void)
 static void repaint_menu(void)
 {
     int x, y, w, h, x0, y0, x1, y1, row;
-    for (row = shown_menu.y; row < shown_menu.y + shown_menu.h && row < window_h; row++) {
-        memset(overlay_pixels + (size_t)row * (size_t)window_w, 0, (size_t)window_w * 4);
+    for (row = shown_menu.y; row < shown_menu.y + shown_menu.h && row < layout.win_h; row++) {
+        memset(overlay_pixels + (size_t)row * (size_t)layout.win_w, 0, (size_t)layout.win_w * 4);
     }
     Menu_Draw(&canvas);
     Menu_Bounds(&x, &y, &w, &h);
@@ -321,6 +361,7 @@ static void pump(void)
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         MenuEvent menu_event;
+        SDL_ConvertEventToRenderCoordinates(renderer, &event);
         translate(&event, &menu_event);
         if (menu_event.type != MENU_EVENT_NONE && Menu_Event(&menu_event, &quit)) {
             repaint_menu(); /* the menu answers now, not at the next frame */
@@ -329,6 +370,10 @@ static void pump(void)
         switch (event.type) {
         case SDL_EVENT_QUIT: quit = 1; break;
         case SDL_EVENT_WINDOW_EXPOSED: show(); break;
+        case SDL_EVENT_WINDOW_RESIZED: case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            relayout();
+            repaint_menu();
+            break;
         case SDL_EVENT_GAMEPAD_ADDED: open_gamepad(event.gdevice.which); break;
         case SDL_EVENT_GAMEPAD_REMOVED: close_gamepad(event.gdevice.which); break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -394,7 +439,8 @@ int Platform_Open(const char *title)
         fprintf(stderr, "memories-pc: SDL: %s; set MEMORIES_HEADLESS=1 to run without a window\n", SDL_GetError());
         return -1;
     }
-    window = SDL_CreateWindow(title, 320 * scale, 240 * scale + Menu_Height(), 0);
+    window = SDL_CreateWindow(title, 320 * scale, 240 * scale + Menu_Height(),
+                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     renderer = window ? SDL_CreateRenderer(window, NULL) : NULL;
     restore_signals(&previous);
     if (!renderer) {
@@ -419,10 +465,8 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
     if (pending_scale) {
         scale = pending_scale;
         pending_scale = 0;
-        if (overlay) {
-            SDL_DestroyTexture(overlay);
-            overlay = NULL;
-        }
+        SDL_SetWindowSize(window, (picture_h ? picture_h * 4 / 3 : 320) * scale,
+                          (picture_h ? picture_h : 240) * scale + Menu_Height());
     }
     resize(w, h);
     for (j = 0; j < h; j++) {
