@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pc/guest/state.h"
+#include "pc/debug/log.h"
 #include "pc/mods/mods.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
@@ -147,7 +148,6 @@ void Memories_PresentDisplay(void)
  * at DrawSync, or before anything else that reads or writes VRAM. */
 static void flush_drawing(void)
 {
-    static int trace = -1;
     static unsigned draws, total_us, total_words;
     struct timespec t0, t1;
     size_t count = pending_words;
@@ -155,10 +155,7 @@ static void flush_drawing(void)
     if (!count) {
         return;
     }
-    if (trace < 0) {
-        trace = getenv("MEMORIES_TRACE_FRAMES") != NULL;
-    }
-    if (!trace) {
+    if (!Log_Enabled(LOG_FRAMES)) {
         SoftGpu_Gp0(frame_words, count);
         return;
     }
@@ -168,7 +165,7 @@ static void flush_drawing(void)
     total_us += (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
     total_words += (unsigned)count;
     if (++draws == 120) {
-        fprintf(stderr, "draws: %u us, %u words per DrawOTag\n", total_us / 120, total_words / 120);
+        LOG(LOG_FRAMES, "draws: %u us, %u words per DrawOTag", total_us / 120, total_words / 120);
         draws = total_us = total_words = 0;
     }
 }

@@ -16,6 +16,7 @@
 #include "settings.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
+#include "pc/debug/log.h"
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
 #include <fontconfig/fontconfig.h>
@@ -715,9 +716,7 @@ int Menu_Event(const MenuEvent *event, int *quit)
     switch (event->type) {
     case MENU_EVENT_BUTTON_DOWN: {
         int px = event->x, py = event->y, bar = bar_item_at(px, py);
-        if (getenv("MEMORIES_TRACE_MENU")) {
-            fprintf(stderr, "menu: press b%d at %d,%d open=%d\n", event->button, px, py, open_menu);
-        }
+        LOG(LOG_MENU, "press b%d at %d,%d open=%d", event->button, px, py, open_menu);
         if (event->button < 1 || event->button > 3) {
             return 0;
         }

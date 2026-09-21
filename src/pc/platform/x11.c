@@ -2,6 +2,7 @@
 #include "platform.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
+#include "pc/debug/log.h"
 #include "pc/guest/state.h"
 #include "menu.h"
 #include "settings.h"
@@ -474,6 +475,7 @@ void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
     current_frame = frame;
+    Log_Drain();
     if (shown_rate != Platform_ClockRate()) {
         shown_rate = Platform_ClockRate();
         update_title();

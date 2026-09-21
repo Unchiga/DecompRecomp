@@ -6,6 +6,7 @@
 #define _GNU_SOURCE
 #include "platform.h"
 #include "pc/guest/state.h"
+#include "pc/debug/log.h"
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -199,9 +200,7 @@ uint16_t Platform_ScriptedBits(unsigned frame)
             break;
         }
         bits = (uint16_t)strtoul(end + 1, &end, 16);
-        if (getenv("MEMORIES_TRACE_INPUT")) {
-            fprintf(stderr, "input: frame %u vblank %u pad %04x\n", frame, vblank_count, bits);
-        }
+        LOG(LOG_INPUT, "script frame %u pad %04x", frame, bits);
         script = *end == ',' ? end + 1 : end;
     }
     return bits;

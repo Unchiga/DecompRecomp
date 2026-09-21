@@ -16,6 +16,7 @@
 #include "settings.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
+#include "pc/debug/log.h"
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
 #include <signal.h>
@@ -674,10 +675,7 @@ int Platform_Open(const char *title)
     }
     SDL_SetRenderVSync(renderer, 0); /* the game paces itself on its own VBlank */
     update_display_refresh();
-    if (getenv("MEMORIES_TRACE_FRAMES")) {
-        fprintf(stderr, "memories-pc: SDL renderer %s, video %s\n", SDL_GetRendererName(renderer),
-                SDL_GetCurrentVideoDriver());
-    }
+    LOG(LOG_WINDOW, "SDL renderer %s, video %s", SDL_GetRendererName(renderer), SDL_GetCurrentVideoDriver());
     Menu_Init();
     apply_display_settings();
     menu_visible = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
@@ -815,6 +813,7 @@ void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
     current_frame = frame;
+    Log_Drain();
     Gamepad_Poll(frame);
     Cheats_Frame();
     if (window) {
