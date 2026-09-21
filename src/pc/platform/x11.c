@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -37,6 +38,7 @@ static struct { const uint16_t *vram; int stride, x, y, w, h, rgb24; } last;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
 static volatile uint16_t pad_bits, scripted_bits;
 static int state_slot = 1;
+static unsigned current_frame;
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
  * L2/R2, T/Y L3/R3; Enter start, right Shift select. */
@@ -57,6 +59,45 @@ static volatile uint16_t wheel_now;
 int Platform_Scale(void) { return scale; }
 void Platform_ApplyDisplaySettings(void) {}
 int Platform_HasWindowModes(void) { return 0; }
+
+void Platform_Screenshot(int window_image)
+{
+    const char *directory = getenv("MEMORIES_SCREENSHOT_DIR");
+    char path[1024], stamp[32];
+    struct tm local;
+    time_t now;
+    FILE *file;
+    int i, j;
+    (void)window_image;
+    if (!last.vram || last.w <= 0 || last.h <= 0) return;
+    if (!directory || !*directory) {
+        mkdir("saves", 0777);
+        directory = "saves/screenshots";
+    }
+    mkdir(directory, 0777);
+    now = time(NULL);
+    localtime_r(&now, &local);
+    strftime(stamp, sizeof(stamp), "%Y-%m-%d-%H%M%S", &local);
+    if (snprintf(path, sizeof(path), "%s/%s-%u.ppm", directory, stamp, current_frame) >= (int)sizeof(path)) return;
+    file = fopen(path, "wb");
+    if (!file) return;
+    fprintf(file, "P6\n%d %d\n255\n", last.w, last.h);
+    for (j = 0; j < last.h; j++) {
+        const uint16_t *row = last.vram + ((last.y + j) & 511) * last.stride;
+        for (i = 0; i < last.w; i++) {
+            if (last.rgb24) {
+                fwrite((const uint8_t *)(row + last.x) + i * 3, 1, 3, file);
+            } else {
+                uint16_t c = row[(last.x + i) & 1023];
+                fputc((c & 0x1f) << 3, file);
+                fputc(((c >> 5) & 0x1f) << 3, file);
+                fputc(((c >> 10) & 0x1f) << 3, file);
+            }
+        }
+    }
+    fclose(file);
+    fprintf(stderr, "memories-pc: screenshot: %s\n", path);
+}
 
 void Platform_SetScale(int wanted)
 {
@@ -392,6 +433,7 @@ int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port
 
 void Platform_Frame(unsigned frame)
 {
+    current_frame = frame;
     Gamepad_Poll(frame);
     Cheats_Frame();
     wheel_now = wheel_frames > 0 && wheel_frames-- ? wheel_bits : 0;

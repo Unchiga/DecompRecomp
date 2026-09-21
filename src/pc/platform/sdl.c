@@ -22,6 +22,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 
 static SDL_Window *window;
 static SDL_Renderer *renderer;
@@ -64,6 +66,39 @@ static void update_menu_visibility(void)
     Menu_SetVisible(wanted);
     relayout();
     if (overlay) repaint_menu();
+}
+
+static int screenshot_path(char *path, size_t size, const char *extension)
+{
+    const char *directory = getenv("MEMORIES_SCREENSHOT_DIR");
+    time_t now = time(NULL);
+    struct tm local;
+    char stamp[32];
+    if (!directory || !*directory) {
+        mkdir("saves", 0777);
+        directory = "saves/screenshots";
+    }
+    mkdir(directory, 0777);
+    localtime_r(&now, &local);
+    strftime(stamp, sizeof(stamp), "%Y-%m-%d-%H%M%S", &local);
+    return snprintf(path, size, "%s/%s-%u.%s", directory, stamp, current_frame, extension) < (int)size;
+}
+
+void Platform_Screenshot(int window_image)
+{
+    SDL_Surface *surface;
+    char path[1024];
+    if (!renderer || !picture_pixels || !screenshot_path(path, sizeof(path), "bmp")) return;
+    surface = window_image ? SDL_RenderReadPixels(renderer, NULL) :
+              SDL_CreateSurfaceFrom(picture_w, picture_h, SDL_PIXELFORMAT_XRGB8888,
+                                    picture_pixels, picture_w * 4);
+    if (!surface) {
+        fprintf(stderr, "memories-pc: screenshot failed: %s\n", SDL_GetError());
+        return;
+    }
+    if (SDL_SaveBMP(surface, path)) fprintf(stderr, "memories-pc: screenshot: %s\n", path);
+    else fprintf(stderr, "memories-pc: screenshot failed: %s\n", SDL_GetError());
+    SDL_DestroySurface(surface);
 }
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
@@ -504,6 +539,10 @@ static void pump(void)
                 Platform_ApplyDisplaySettings();
                 break;
             }
+            if (down && key == SDLK_F12) {
+                Platform_Screenshot((event.key.mod & SDL_KMOD_SHIFT) != 0);
+                break;
+            }
             if (down && key == SDLK_ESCAPE) {
                 if (Settings_Get(SET_FULLSCREEN)) {
                     Settings_Set(SET_FULLSCREEN, 0);
@@ -658,6 +697,7 @@ static void run_event_script(unsigned frame)
             event.key.down = true;
             event.key.key = strncmp(name, "escape", n) == 0 ? SDLK_ESCAPE : strncmp(name, "f10", n) == 0 ? SDLK_F10
                           : strncmp(name, "f11", n) == 0 ? SDLK_F11
+                          : strncmp(name, "f12", n) == 0 ? SDLK_F12
                           : strncmp(name, "left", n) == 0 ? SDLK_LEFT : strncmp(name, "right", n) == 0 ? SDLK_RIGHT
                           : strncmp(name, "up", n) == 0 ? SDLK_UP : strncmp(name, "down", n) == 0 ? SDLK_DOWN
                           : strncmp(name, "return", n) == 0 ? SDLK_RETURN

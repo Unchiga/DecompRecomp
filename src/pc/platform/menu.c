@@ -60,7 +60,7 @@ typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR 
 enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
 enum {
-    ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_EXIT, SLIDER_VOLUME, ACT_GIVE_CARDS,
+    ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, SLIDER_VOLUME, ACT_GIVE_CARDS,
     CHECK_MOD = 200    /* + mod */
 };
 
@@ -79,7 +79,9 @@ enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_MODS, MENU_DEBUG, MENU_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
-              {0, 0, ITEM_SEPARATOR, 0, -1}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1}}, 4},
+              {0, 0, ITEM_SEPARATOR, 0, -1},
+              {"Screenshot", "F12", ITEM_ACTION, ACT_SCREENSHOT, -1},
+              {0, 0, ITEM_SEPARATOR, 0, -1}, {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1}}, 6},
     {"Audio", {{"Volume", 0, ITEM_SLIDER, SLIDER_VOLUME, SET_MASTER_VOLUME}}, 1},
     {"View", {{"Window scale: 1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
               {"Window scale: 2x", 0, ITEM_RADIO, MENU_ITEM_SCALE_2, SET_SCALE, 2},
@@ -655,6 +657,7 @@ static void activate(const Item *item, int *quit)
     switch (item->id) {
     case ACT_SAVE_STATE: Memories_StateRequest(1, 0); break;
     case ACT_LOAD_STATE: Memories_StateRequest(2, 0); break;
+    case ACT_SCREENSHOT: Platform_Screenshot(0); break;
     case ACT_EXIT: *quit = 1; break;
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
     default:

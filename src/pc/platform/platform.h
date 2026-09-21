@@ -13,6 +13,8 @@ int Platform_ShouldQuit(void);
  * resizable/window-mode controls; legacy X11 deliberately reports no support. */
 void Platform_ApplyDisplaySettings(void);
 int Platform_HasWindowModes(void);
+/* Save the source picture, or the composed window when `window_image` is set. */
+void Platform_Screenshot(int window_image);
 /* PS1 digital pad bits, active high (Select 0x0001 ... Square 0x8000).
  * Async-signal-safe: it only reads a word written by Platform_Present. */
 uint16_t Platform_Pad(int port);
