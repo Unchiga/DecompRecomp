@@ -1,0 +1,14 @@
+#ifndef MEMORIES_PC_SDK_DISPLAY_H
+#define MEMORIES_PC_SDK_DISPLAY_H
+/* Show the area selected by the last PutDispEnv. Main thread only. */
+void Memories_PresentDisplay(void);
+unsigned Memories_PresentedFrames(void);
+typedef struct FrameStats {
+    unsigned fps_tenths;
+    unsigned game_us, present_us, game_max_us, present_max_us;
+    unsigned missed_vblanks;
+    unsigned draw_words, draw_us;
+} FrameStats;
+const FrameStats *Memories_FrameStats(void);
+void Memories_SetDrawStats(unsigned words, unsigned us);
+#endif

@@ -336,6 +336,14 @@ static void draw_text(int x, int middle, const char *text, uint32_t colour)
     }
 }
 
+void Menu_DrawText(MenuCanvas *into, int x, int y, const char *text, uint32_t colour)
+{
+    canvas = into;
+    draw_text(x, y, text, colour);
+}
+
+int Menu_TextWidth(const char *text) { return text_width(text); }
+
 void Menu_LoadSettings(void)
 {
     Settings_Load();

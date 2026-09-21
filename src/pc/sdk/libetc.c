@@ -20,6 +20,14 @@ static volatile uint64_t counter_period_us, counter_next_us, last_now_us;
 static unsigned char *pad_buffer[2];
 static unsigned last_vsync;
 static volatile unsigned counter_calls; /* MEMORIES_TRACE_FRAMES: sequencer ticks delivered */
+static FrameStats frame_stats;
+
+const FrameStats *Memories_FrameStats(void) { return &frame_stats; }
+void Memories_SetDrawStats(unsigned words, unsigned us)
+{
+    frame_stats.draw_words = words;
+    frame_stats.draw_us = us;
+}
 
 static void run_tick(uint64_t now)
 {
@@ -166,32 +174,36 @@ int Memories_VSync(int mode)
     if (mode == 0) {
         struct timespec t0, t1;
         static struct timespec left;
+        static struct timespec since;
         static unsigned frames, game_us, present_us, late, game_max, present_max;
-        if (Log_Enabled(LOG_FRAMES)) {
-            clock_gettime(CLOCK_MONOTONIC, &t0);
-        }
+        static unsigned ticks_then, vblanks_then;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
         Memories_PresentDisplay();
-        if (Log_Enabled(LOG_FRAMES)) {
-            clock_gettime(CLOCK_MONOTONIC, &t1);
-            {
-                unsigned p = (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000), g = 0;
-                present_us += p;
-                present_max = p > present_max ? p : present_max;
-                if (left.tv_sec) {
-                    g = (unsigned)((t0.tv_sec - left.tv_sec) * 1000000 + (t0.tv_nsec - left.tv_nsec) / 1000);
-                    game_us += g;
-                    game_max = g > game_max ? g : game_max;
-                }
-                if (g > 20000 || p > 20000) {
-                    LOG(LOG_FRAMES, "spike at frame %u: game %u us, present %u us",
-                        Memories_PresentedFrames(), g, p);
-                }
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        {
+            unsigned p = (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000), g = 0;
+            present_us += p;
+            present_max = p > present_max ? p : present_max;
+            if (left.tv_sec) {
+                g = (unsigned)((t0.tv_sec - left.tv_sec) * 1000000 + (t0.tv_nsec - left.tv_nsec) / 1000);
+                game_us += g;
+                game_max = g > game_max ? g : game_max;
             }
-            late += Platform_VBlankCount() - last_vsync > 1;
-            if (++frames == 120) {
-                static struct timespec since;
-                static unsigned ticks_then, vblanks_then;
-                double seconds = since.tv_sec ? (double)(t1.tv_sec - since.tv_sec) + (t1.tv_nsec - since.tv_nsec) / 1e9 : 0;
+            if (g > 20000 || p > 20000) {
+                LOG(LOG_FRAMES, "spike at frame %u: game %u us, present %u us",
+                    Memories_PresentedFrames(), g, p);
+            }
+        }
+        late += Platform_VBlankCount() - last_vsync > 1;
+        if (++frames == 120) {
+            double seconds = since.tv_sec ? (double)(t1.tv_sec - since.tv_sec) + (t1.tv_nsec - since.tv_nsec) / 1e9 : 0;
+            frame_stats.game_us = game_us / 120;
+            frame_stats.present_us = present_us / 120;
+            frame_stats.game_max_us = game_max;
+            frame_stats.present_max_us = present_max;
+            frame_stats.missed_vblanks = late;
+            frame_stats.fps_tenths = seconds > 0 ? (unsigned)(1200.0 / seconds + 0.5) : 0;
+            if (Log_Enabled(LOG_FRAMES)) {
                 LOG(LOG_FRAMES, "game %u us, present %u us per frame (max %u, %u); %u of 120 missed a VBlank",
                     game_us / 120, present_us / 120, game_max, present_max, late);
                 if (seconds > 0) {
@@ -199,16 +211,14 @@ int Memories_VSync(int mode)
                         (counter_calls - ticks_then) / seconds, (unsigned long long)counter_period_us,
                         (Platform_VBlankCount() - vblanks_then) / seconds);
                 }
-                since = t1;
-                ticks_then = counter_calls;
-                vblanks_then = Platform_VBlankCount();
-                frames = game_us = present_us = late = game_max = present_max = 0;
             }
+            since = t1;
+            ticks_then = counter_calls;
+            vblanks_then = Platform_VBlankCount();
+            frames = game_us = present_us = late = game_max = present_max = 0;
         }
         Platform_WaitVBlank(now);
-        if (Log_Enabled(LOG_FRAMES)) {
-            clock_gettime(CLOCK_MONOTONIC, &left);
-        }
+        clock_gettime(CLOCK_MONOTONIC, &left);
         Memories_StatePoint(Memories_PresentedFrames());
     } else if (mode > 1) {
         while (Platform_VBlankCount() - last_vsync < (unsigned)mode) {

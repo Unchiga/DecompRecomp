@@ -3,6 +3,7 @@
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/debug/log.h"
+#include "pc/debug/hud.h"
 #include "pc/guest/state.h"
 #include "menu.h"
 #include "settings.h"
@@ -249,9 +250,21 @@ static void show(int x, int y, int w, int h)
 /* A new game frame: everything is repainted and shown. */
 static void present_frame(void)
 {
+    int hx, hy, hw, hh;
     scale_game(0, image_h);
     Menu_Draw(&canvas);
+    Hud_Draw(&canvas);
     Menu_Bounds(&shown_menu.x, &shown_menu.y, &shown_menu.w, &shown_menu.h);
+    Hud_Bounds(&hx, &hy, &hw, &hh);
+    if (hw && hh && (!shown_menu.w || !shown_menu.h)) {
+        shown_menu.x = hx; shown_menu.y = hy; shown_menu.w = hw; shown_menu.h = hh;
+    } else if (hw && hh) {
+        int x1 = shown_menu.x + shown_menu.w > hx + hw ? shown_menu.x + shown_menu.w : hx + hw;
+        int y1 = shown_menu.y + shown_menu.h > hy + hh ? shown_menu.y + shown_menu.h : hy + hh;
+        shown_menu.x = shown_menu.x < hx ? shown_menu.x : hx;
+        shown_menu.y = shown_menu.y < hy ? shown_menu.y : hy;
+        shown_menu.w = x1 - shown_menu.x; shown_menu.h = y1 - shown_menu.y;
+    }
     show(0, 0, image_w, image_h);
 }
 
@@ -259,14 +272,25 @@ static void present_frame(void)
  * it was and where it is, the menu over that, and show just that much. */
 static void repaint_menu(void)
 {
-    int x, y, w, h, x0, y0, x1, y1;
-    Menu_Bounds(&x, &y, &w, &h);
-    x0 = x < shown_menu.x ? x : shown_menu.x;
-    y0 = y < shown_menu.y ? y : shown_menu.y;
-    x1 = x + w > shown_menu.x + shown_menu.w ? x + w : shown_menu.x + shown_menu.w;
-    y1 = y + h > shown_menu.y + shown_menu.h ? y + h : shown_menu.y + shown_menu.h;
-    scale_game(y0, y1);
+    int old_x = shown_menu.x, old_y = shown_menu.y;
+    int old_w = shown_menu.w, old_h = shown_menu.h;
+    int x, y, w, h, hx, hy, hw, hh, x0, y0, x1, y1;
+    if (old_w && old_h) {
+        scale_game(old_y, old_y + old_h);
+    }
     Menu_Draw(&canvas);
+    Hud_Draw(&canvas);
+    Menu_Bounds(&x, &y, &w, &h);
+    Hud_Bounds(&hx, &hy, &hw, &hh);
+    if (hw && hh && (!w || !h)) { x = hx; y = hy; w = hw; h = hh; }
+    else if (hw && hh) {
+        int right = x + w > hx + hw ? x + w : hx + hw, bottom = y + h > hy + hh ? y + h : hy + hh;
+        x = x < hx ? x : hx; y = y < hy ? y : hy; w = right - x; h = bottom - y;
+    }
+    x0 = !old_w || x < old_x ? x : old_x;
+    y0 = !old_h || y < old_y ? y : old_y;
+    x1 = x + w > old_x + old_w ? x + w : old_x + old_w;
+    y1 = y + h > old_y + old_h ? y + h : old_y + old_h;
     shown_menu.x = x;
     shown_menu.y = y;
     shown_menu.w = w;
@@ -395,6 +419,12 @@ static void pump(void)
                 Platform_SetClockRate(event.type == KeyPress ? 400 : Settings_Get(SET_SPEED));
                 continue;
             }
+            if (event.type == KeyPress && key == XK_F3) {
+                Settings_Set(SET_SHOW_HUD, (Settings_Get(SET_SHOW_HUD) + 1) % 3);
+                Settings_Save();
+                repaint_menu();
+                continue;
+            }
             if (event.type == KeyPress && (key == XK_p || key == XK_P)) {
                 Platform_SetClockRate(Platform_ClockRate() == 0 ? Settings_Get(SET_SPEED) : 0);
                 continue;
@@ -460,6 +490,7 @@ int Platform_ShouldQuit(void)
 {
     return quit;
 }
+int Platform_StateSlot(void) { return state_slot; }
 
 void Platform_PumpEvents(void) { if (display) pump(); }
 

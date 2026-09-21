@@ -17,6 +17,7 @@
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/debug/log.h"
+#include "pc/debug/hud.h"
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
 #include <signal.h>
@@ -425,6 +426,24 @@ static void upload_overlay(int x, int y, int w, int h)
                       layout.win_w * 4);
 }
 
+static void draw_overlay(int *x, int *y, int *w, int *h)
+{
+    int hx, hy, hw, hh;
+    Menu_Draw(&canvas);
+    Hud_Draw(&canvas);
+    Menu_Bounds(x, y, w, h);
+    Hud_Bounds(&hx, &hy, &hw, &hh);
+    if (!*w || !*h) { *x = hx; *y = hy; *w = hw; *h = hh; return; }
+    if (hw && hh) {
+        int x1 = *x + *w > hx + hw ? *x + *w : hx + hw;
+        int y1 = *y + *h > hy + hh ? *y + *h : hy + hh;
+        *x = *x < hx ? *x : hx;
+        *y = *y < hy ? *y : hy;
+        *w = x1 - *x;
+        *h = y1 - *y;
+    }
+}
+
 static void show(void)
 {
     if (!renderer || !picture || !overlay) return;
@@ -444,8 +463,7 @@ static void repaint_menu(void)
     for (row = shown_menu.y; row < shown_menu.y + shown_menu.h && row < layout.win_h; row++) {
         memset(overlay_pixels + (size_t)row * (size_t)layout.win_w, 0, (size_t)layout.win_w * 4);
     }
-    Menu_Draw(&canvas);
-    Menu_Bounds(&x, &y, &w, &h);
+    draw_overlay(&x, &y, &w, &h);
     x0 = x < shown_menu.x ? x : shown_menu.x;
     y0 = y < shown_menu.y ? y : shown_menu.y;
     x1 = x + w > shown_menu.x + shown_menu.w ? x + w : shown_menu.x + shown_menu.w;
@@ -594,6 +612,12 @@ static void pump(void)
                 Platform_Screenshot((event.key.mod & SDL_KMOD_SHIFT) != 0);
                 break;
             }
+            if (down && key == SDLK_F3) {
+                Settings_Set(SET_SHOW_HUD, (Settings_Get(SET_SHOW_HUD) + 1) % 3);
+                Settings_Save();
+                repaint_menu();
+                break;
+            }
             if (key == SDLK_TAB) {
                 Platform_SetClockRate(down ? 400 : Settings_Get(SET_SPEED));
                 break;
@@ -715,14 +739,14 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
         }
     }
     SDL_UpdateTexture(picture, NULL, picture_pixels, w * 4);
-    Menu_Draw(&canvas);
-    Menu_Bounds(&shown_menu.x, &shown_menu.y, &shown_menu.w, &shown_menu.h);
+    draw_overlay(&shown_menu.x, &shown_menu.y, &shown_menu.w, &shown_menu.h);
     upload_overlay(shown_menu.x, shown_menu.y, shown_menu.w, shown_menu.h);
     show();
     pump();
 }
 
 int Platform_ShouldQuit(void) { return quit; }
+int Platform_StateSlot(void) { return state_slot; }
 void Platform_PumpEvents(void) { if (window) pump(); }
 
 uint16_t Platform_Pad(int port)
@@ -764,6 +788,7 @@ static void run_event_script(unsigned frame)
             event.type = SDL_EVENT_KEY_DOWN;
             event.key.down = true;
             event.key.key = strncmp(name, "escape", n) == 0 ? SDLK_ESCAPE : strncmp(name, "f10", n) == 0 ? SDLK_F10
+                          : strncmp(name, "f3", n) == 0 ? SDLK_F3
                           : strncmp(name, "f11", n) == 0 ? SDLK_F11
                           : strncmp(name, "f12", n) == 0 ? SDLK_F12
                           : strncmp(name, "left", n) == 0 ? SDLK_LEFT : strncmp(name, "right", n) == 0 ? SDLK_RIGHT

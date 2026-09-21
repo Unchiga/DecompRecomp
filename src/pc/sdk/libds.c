@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <time.h>
 #include <unistd.h>
 
 #define RAW_SECTOR 2352
@@ -40,6 +42,7 @@ static u8 sector[RAW_SECTOR];
 static unsigned sector_cursor;
 static uint64_t stream_next_us;
 static int xa_history[2][2];
+static volatile unsigned disc_bytes_total;
 
 static u8 to_bcd(int value) { return (u8)(((value / 10) << 4) | (value % 10)); }
 static int from_bcd(u8 value) { return (value >> 4) * 10 + (value & 15); }
@@ -68,7 +71,36 @@ int CdPosToInt(DslLOC *loc) { return loc_to_lba(loc); }
 
 static int read_raw(int lba, u8 *out)
 {
-    return disc >= 0 && pread(disc, out, RAW_SECTOR, (off_t)lba * RAW_SECTOR) == RAW_SECTOR;
+    int ok = disc >= 0 && pread(disc, out, RAW_SECTOR, (off_t)lba * RAW_SECTOR) == RAW_SECTOR;
+    if (ok) disc_bytes_total += RAW_SECTOR;
+    return ok;
+}
+
+void Memories_DiscStats(int *lba, unsigned *bytes_per_second)
+{
+    static unsigned previous_bytes, rate;
+    static uint64_t previous_us;
+    struct timespec now;
+    sigset_t set, old;
+    unsigned bytes;
+    uint64_t us;
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &set, &old);
+    bytes = disc_bytes_total;
+    if (lba) *lba = head_lba;
+    sigprocmask(SIG_SETMASK, &old, NULL);
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    us = (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
+    if (previous_us && us - previous_us >= 500000) {
+        rate = (unsigned)((uint64_t)(bytes - previous_bytes) * 1000000u / (us - previous_us));
+        previous_bytes = bytes;
+        previous_us = us;
+    } else if (!previous_us) {
+        previous_bytes = bytes;
+        previous_us = us;
+    }
+    if (bytes_per_second) *bytes_per_second = rate;
 }
 
 int DsInit(void)

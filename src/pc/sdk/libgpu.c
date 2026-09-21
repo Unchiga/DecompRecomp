@@ -156,18 +156,18 @@ static void flush_drawing(void)
     if (!count) {
         return;
     }
-    if (!Log_Enabled(LOG_FRAMES)) {
-        SoftGpu_Gp0(frame_words, count);
-        return;
-    }
     clock_gettime(CLOCK_MONOTONIC, &t0);
     SoftGpu_Gp0(frame_words, count);
     clock_gettime(CLOCK_MONOTONIC, &t1);
-    total_us += (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
-    total_words += (unsigned)count;
-    if (++draws == 120) {
-        LOG(LOG_FRAMES, "draws: %u us, %u words per DrawOTag", total_us / 120, total_words / 120);
-        draws = total_us = total_words = 0;
+    {
+        unsigned elapsed = (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000);
+        Memories_SetDrawStats((unsigned)count, elapsed);
+        total_us += elapsed;
+        total_words += (unsigned)count;
+        if (++draws == 120) {
+            LOG(LOG_FRAMES, "draws: %u us, %u words per DrawOTag", total_us / 120, total_words / 120);
+            draws = total_us = total_words = 0;
+        }
     }
 }
 
