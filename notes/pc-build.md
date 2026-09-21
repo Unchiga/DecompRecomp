@@ -214,7 +214,12 @@ ports) and audio (`SDL_AudioStream`, 256-frame periods) through the one
 library that exists for Linux, Windows and macOS. The picture is a 320x240
 streaming texture the GPU scales with nearest filtering, and the menu is a
 transparent ARGB texture blended over it, uploaded only where it changed; so
-the CPU never scales a frame. On this machine (renderer `opengl` under X11)
+the CPU never scales a frame. Window layout, the menu/HUD and pointer input
+use SDL logical coordinates; SDL scales the complete composition to the
+physical render target on high-DPI displays. SDL selects the native desktop
+backend, avoiding XWayland cursor and DPI mismatches on Wayland; set
+`SDL_VIDEODRIVER` only to override that choice for diagnostics. On this
+machine (renderer `opengl` under X11)
 the present path is about 0.25 ms a frame, down from 1.6 ms for the software
 scaling below. Signals are blocked while SDL creates threads so the SIGALRM
 clock stays on the main thread; Windows will still need the clock replaced

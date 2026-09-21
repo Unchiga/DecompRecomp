@@ -33,7 +33,9 @@ static SDL_Texture *picture, *overlay;
 static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
 static MenuCanvas canvas;
-static struct { int win_w, win_h; SDL_FRect dst; } layout;
+/* Menu/input geometry is in SDL window coordinates (logical pixels). The
+ * renderer target may have more physical pixels on a high-DPI display. */
+static struct { int win_w, win_h; float pixel_x, pixel_y; SDL_FRect dst; } layout;
 static int menu_visible = 1;
 static int display_settings_pending;
 static int menu_reveal_frames;
@@ -296,55 +298,66 @@ int Platform_StartAudio(void (*mix)(int16_t *, size_t))
 
 static void relayout(void)
 {
-    int output_w, output_h, menu = menu_visible ? Menu_Height() : 0;
+    static int logged_window_w, logged_window_h, logged_output_w, logged_output_h;
+    int output_w, output_h, window_w, window_h, menu = menu_visible ? Menu_Height() : 0;
     int pw = Settings_Get(SET_ASPECT) ? picture_w : picture_h * 4 / 3;
     int ph = picture_h, area_h, mode = Settings_Get(SET_SCALING);
     float factor;
     if (!renderer || picture_w <= 0 || picture_h <= 0 ||
-        !SDL_GetRenderOutputSize(renderer, &output_w, &output_h)) {
+        !SDL_GetWindowSize(window, &window_w, &window_h) ||
+        !SDL_GetRenderOutputSize(renderer, &output_w, &output_h) || window_w <= 0 || window_h <= 0) {
         return;
     }
-    area_h = output_h - menu;
+    area_h = window_h - menu;
     if (area_h < 1) area_h = 1;
-    layout.win_w = output_w;
-    layout.win_h = output_h;
+    layout.win_w = window_w;
+    layout.win_h = window_h;
+    layout.pixel_x = (float)output_w / (float)window_w;
+    layout.pixel_y = (float)output_h / (float)window_h;
+    if (window_w != logged_window_w || window_h != logged_window_h ||
+        output_w != logged_output_w || output_h != logged_output_h) {
+        LOG(LOG_WINDOW, "layout %dx%d logical -> %dx%d pixels (%.2fx, %.2fy)",
+            window_w, window_h, output_w, output_h, layout.pixel_x, layout.pixel_y);
+        logged_window_w = window_w; logged_window_h = window_h;
+        logged_output_w = output_w; logged_output_h = output_h;
+    }
     if (mode == 2) {
         layout.dst.x = 0;
         layout.dst.y = (float)menu;
-        layout.dst.w = (float)output_w;
+        layout.dst.w = (float)window_w;
         layout.dst.h = (float)area_h;
     } else if (mode == 1) {
-        factor = SDL_min((float)output_w / (float)pw, (float)area_h / (float)ph);
+        factor = SDL_min((float)window_w / (float)pw, (float)area_h / (float)ph);
         layout.dst.w = (float)pw * factor;
         layout.dst.h = (float)ph * factor;
-        layout.dst.x = ((float)output_w - layout.dst.w) * 0.5f;
+        layout.dst.x = ((float)window_w - layout.dst.w) * 0.5f;
         layout.dst.y = (float)menu + ((float)area_h - layout.dst.h) * 0.5f;
     } else {
-        int k = SDL_min(output_w / pw, area_h / ph);
+        int k = SDL_min(window_w / pw, area_h / ph);
         if (k < 1) k = 1;
         layout.dst.w = (float)(pw * k);
         layout.dst.h = (float)(ph * k);
-        layout.dst.x = (float)(output_w - pw * k) * 0.5f;
+        layout.dst.x = (float)(window_w - pw * k) * 0.5f;
         layout.dst.y = (float)menu + (float)(area_h - ph * k) * 0.5f;
     }
-    if (overlay && (canvas.width != output_w || canvas.height != output_h)) {
+    if (overlay && (canvas.width != window_w || canvas.height != window_h)) {
         SDL_DestroyTexture(overlay);
         overlay = NULL;
     }
     if (!overlay) {
         overlay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                    output_w, output_h);
+                                    window_w, window_h);
         SDL_SetTextureBlendMode(overlay, SDL_BLENDMODE_BLEND);
-        SDL_SetTextureScaleMode(overlay, SDL_SCALEMODE_NEAREST);
-        overlay_pixels = realloc(overlay_pixels, (size_t)output_w * (size_t)output_h * 4);
-        memset(overlay_pixels, 0, (size_t)output_w * (size_t)output_h * 4);
+        SDL_SetTextureScaleMode(overlay, SDL_SCALEMODE_LINEAR);
+        overlay_pixels = realloc(overlay_pixels, (size_t)window_w * (size_t)window_h * 4);
+        memset(overlay_pixels, 0, (size_t)window_w * (size_t)window_h * 4);
         canvas.pixels = overlay_pixels;
-        canvas.stride = output_w;
-        canvas.width = output_w;
-        canvas.height = output_h;
+        canvas.stride = window_w;
+        canvas.width = window_w;
+        canvas.height = window_h;
         canvas.alpha = 1;
         Menu_Draw(&canvas);
-        SDL_UpdateTexture(overlay, NULL, overlay_pixels, output_w * 4);
+        SDL_UpdateTexture(overlay, NULL, overlay_pixels, window_w * 4);
     }
 }
 
@@ -446,10 +459,15 @@ static void draw_overlay(int *x, int *y, int *w, int *h)
 
 static void show(void)
 {
+    SDL_FRect physical;
     if (!renderer || !picture || !overlay) return;
+    physical.x = layout.dst.x * layout.pixel_x;
+    physical.y = layout.dst.y * layout.pixel_y;
+    physical.w = layout.dst.w * layout.pixel_x;
+    physical.h = layout.dst.h * layout.pixel_y;
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-    SDL_RenderTexture(renderer, picture, NULL, &layout.dst);
+    SDL_RenderTexture(renderer, picture, NULL, &physical);
     SDL_RenderTexture(renderer, overlay, NULL, NULL);
     SDL_RenderPresent(renderer);
     if (Settings_Get(SET_VSYNC)) Platform_NotifyPresent(real_now_us(), 1);
@@ -526,7 +544,6 @@ static void pump(void)
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         MenuEvent menu_event;
-        SDL_ConvertEventToRenderCoordinates(renderer, &event);
         translate(&event, &menu_event);
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
             pointer_x = menu_event.x;
@@ -669,14 +686,10 @@ int Platform_Open(const char *title)
     if (getenv("MEMORIES_HEADLESS")) {
         return 0;
     }
-    /* X11 (Xwayland under a Wayland session): presents there return at once,
-     * while SDL's Wayland path waits for the compositor's frame callback,
-     * and that refresh beats against the game's own 59.94 Hz clock into a
-     * dropped frame every few seconds. SDL_VIDEO_DRIVER in the environment
-     * still wins over this default. */
-    if (!Settings_Get(SET_VSYNC)) {
-        SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "x11,wayland", SDL_HINT_DEFAULT);
-    }
+    /* Let SDL select the native backend. In particular, do not force an
+     * XWayland window on a Wayland desktop: that gives the window a separate
+     * cursor/DPI scale from the rest of the desktop. SDL_VIDEODRIVER remains
+     * available for diagnostics and compatibility overrides. */
     block_signals(&previous);
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO)) {
         restore_signals(&previous);
