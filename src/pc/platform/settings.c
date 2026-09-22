@@ -49,6 +49,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_WINDOW_Y] = {"window_y", NULL, "MEMORIES_WINDOW_Y", NULL, -1, -16384, 16384},
     /* 0 the console's Gaussian filter, 1 a sharper cubic (SpuInterpolation). */
     [SET_AUDIO_INTERPOLATION] = {"audio_interpolation", NULL, "MEMORIES_AUDIO_INTERPOLATION", NULL, 0, 0, 1},
+    /* Pixels drawn per VRAM word each way (soft_gpu.h, SoftGpu_SetScale): 1 is the console's. */
+    [SET_INTERNAL_SCALE] = {"internal_scale", NULL, "MEMORIES_INTERNAL_SCALE", NULL, 1, 1, 8},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

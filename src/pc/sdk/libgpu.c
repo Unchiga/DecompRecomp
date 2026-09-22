@@ -30,10 +30,6 @@ static void flush_drawing(void);
 
 int ResetGraph(int mode)
 {
-    const char *internal = getenv("MEMORIES_INTERNAL_SCALE");
-    if (internal && atoi(internal) > 1 && !SoftGpu_SetScale(atoi(internal))) {
-        fprintf(stderr, "memories-pc: internal scale %s is not available\n", internal);
-    }
     flush_drawing();
     if (mode == 0 || mode == 3) {
         SoftGpu_Reset();
