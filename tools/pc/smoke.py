@@ -70,7 +70,7 @@ def run_smoke(executable: Path, record: bool) -> bool:
                 [str(executable)],
                 cwd=ROOT,
                 env=smoke_environment(case, image, settings),
-                timeout=120,
+                timeout=float(os.environ.get("MEMORIES_SMOKE_TIMEOUT", "120")),
                 check=False,
             )
         except subprocess.TimeoutExpired:

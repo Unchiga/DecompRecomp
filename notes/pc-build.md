@@ -506,6 +506,23 @@ tiles them): the monster keeps its facing through the swing and ends facing
 the camera on the opponent's turn. A battle presentation with the mod on has
 not been watched yet.
 
+### Texture dump (what is on screen)
+
+`MEMORIES_DUMP_TEXTURES=<directory>` writes every texture the software GPU
+draws as a PNG named by its hash (`src/pc/render/texture_dump.c`), a
+discovery tool: what a screen is made of, at what size and depth, through
+which palette. A texture is the rectangle of texels one textured primitive
+covers, decoded through its palette, so a sprite comes out at its own size
+and colours and the same one drawn again is the same file; the hash covers
+the texel indices and the palette entries, so a palette swap is another
+image. `textures.txt` in the directory lists each hash with its size, depth,
+page and palette coordinates. Dumping costs a hash per primitive, so it is
+for a capture session, not play; a duel dumps about 1,900 images. It is not
+the basis for texture packs: those name images by where they come from on
+the disc (the archives stream raw VRAM blocks, `notes/mrg-files.md`; the
+loader call sites are the asset table), the way a decompiled port can and an
+emulator cannot.
+
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every
@@ -519,7 +536,9 @@ twice before committing new hashes.
 The smoke runner clears other `MEMORIES_*` switches (except a caller-supplied
 `MEMORIES_DISC`) and uses isolated settings files, a fixed headless dump clock,
 no gamepad and no audio device. It still requires the private disc image and
-the native build prerequisites described above.
+the native build prerequisites described above. Each boot gets 120 s;
+`MEMORIES_SMOKE_TIMEOUT=<seconds>` raises it where the headless game runs
+slower (the Windows build reaches frame 1100 in about four minutes).
 
 ### Save states
 
