@@ -548,8 +548,11 @@ palettes (the campaign's 25 and Free Duel's 40, `0x980`-byte records).
 `--names cards.tsv` (card_number, name) puts the card's name in the file
 name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
 (below), under `assets/`, named by archive, offset, size, depth and palette:
-the way to cover screens no family describes yet. Next: monster textures
-(`MODEL.MRG`) as a family, and aliases for the screens.
+the way to cover screens no family describes yet. A mod with `"textures"`
+in its manifest replaces the images at draw time from such a directory
+(`notes/modding.md`, "Texture packs"). Next: monster textures (`MODEL.MRG`)
+as a family, aliases for the screens, and drawing at a higher internal
+resolution so that bigger pack images show.
 
 ### Texture dump (what is on screen)
 
