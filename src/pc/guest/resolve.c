@@ -14,6 +14,10 @@ void *Memories_Resolve(MemoriesMemory *memory, uint32_t address,
         return NULL;
     }
     if (physical >= UINT32_C(0x10000) && physical < MEMORIES_GUEST_RAM_SIZE) {
+#ifdef _WIN32
+        /* Windows holds most of the low mirror (image.c): use guest RAM. */
+        if (address < UINT32_C(0x20000000)) address |= MEMORIES_GUEST_RAM;
+#endif
         return length <= MEMORIES_GUEST_RAM_SIZE - physical ? (void *)(uintptr_t)address : NULL;
     }
     if (physical >= UINT32_C(0x1f800000) && physical < UINT32_C(0x1f800400) &&

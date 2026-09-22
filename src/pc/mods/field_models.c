@@ -83,7 +83,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <sys/mman.h>
+#include "pc/compat/mman.h"
 
 extern u8 D_8009B1D5;          /* the side the view belongs to */
 extern void *D_800E9D98[];     /* D_800E9D90[2]: func_800540B4's table */

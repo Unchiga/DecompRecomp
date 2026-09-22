@@ -1,0 +1,248 @@
+/* Windows stand-ins for SIGALRM and the fatal-signal handlers (win32.h).
+ *
+ * The clock. Linux aims a 1 kHz SIGALRM at the main thread; its handler runs
+ * between two instructions of the game, on the game's stack, which is what
+ * the game's busy-waits need (they poll variables the VBlank handler
+ * updates). Here a timer thread suspends the main thread every millisecond
+ * and, when it is executing code of this executable and does not hold
+ * SIGALRM, pushes its instruction pointer and redirects it to
+ * Win32_InterruptEntry, which saves every register and the FPU/SSE state,
+ * runs the tick and returns to the interrupted instruction. Code outside the
+ * executable (the C runtime, SDL, drivers) is never interrupted, which also
+ * keeps the tick away from their locks; a tick missed there is taken by
+ * Win32_ServiceInterrupt from the next wait, and the clock itself catches up
+ * from elapsed time. */
+#ifdef _WIN32
+#define _WIN32_WINNT 0x0A00 /* GetCurrentThreadStackLimits, high-resolution timers */
+#include "win32.h"
+#include "pc/compat/signal.h"
+#include <stdio.h>
+#include <string.h>
+#include <windows.h>
+
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+static DWORD main_id;
+static HANDLE main_thread;
+static volatile LONG held;       /* the main thread holds SIGALRM */
+static volatile LONG in_tick;    /* a tick is running on the main thread */
+static volatile LONG pending;    /* a tick could not be delivered */
+static void (*tick_handler)(uintptr_t, void *);
+static CONTEXT interrupted;      /* the registers a delivered tick interrupted */
+static uintptr_t image_low, image_high;
+static Win32CrashReport crash_report;
+
+void Win32_InterruptEntry(void);
+void Win32_InterruptBody(void);
+
+/* Every register and the FPU/SSE state around the tick; the direction flag
+ * is cleared for the C code. The interrupted EIP is the return address. */
+__asm__(".text\n"
+        ".globl _Win32_InterruptEntry\n"
+        "_Win32_InterruptEntry:\n"
+        "    pushfl\n"
+        "    pushal\n"
+        "    cld\n"
+        "    movl %esp, %ebp\n"
+        "    subl $512, %esp\n"
+        "    andl $-16, %esp\n"
+        "    fxsave (%esp)\n"
+        "    call _Win32_InterruptBody\n"
+        "    fxrstor (%esp)\n"
+        "    movl %ebp, %esp\n"
+        "    popal\n"
+        "    popfl\n"
+        "    ret\n");
+
+void Win32_InterruptBody(void)
+{
+    tick_handler(interrupted.Eip, &interrupted);
+    in_tick = 0;
+}
+
+/* The game calls the BSD bzero, which the Windows C runtime lacks. */
+void bzero(void *address, size_t size)
+{
+    memset(address, 0, size);
+}
+
+int Memories_SigProcMask(int how, const sigset_t *set, sigset_t *previous)
+{
+    unsigned long bit = 1ul << SIGALRM;
+    if (GetCurrentThreadId() != main_id) {
+        if (previous) *previous = 0;
+        return 0;
+    }
+    if (previous) *previous = held ? bit : 0;
+    if (set) {
+        if (how == SIG_SETMASK) held = (*set & bit) != 0;
+        else if (*set & bit) held = how == SIG_BLOCK;
+    }
+    return 0;
+}
+
+static DWORD WINAPI run_clock(void *unused)
+{
+    HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    LARGE_INTEGER due;
+    (void)unused;
+    if (!timer) timer = CreateWaitableTimerW(NULL, FALSE, NULL);
+    due.QuadPart = -10000; /* 1 ms, in 100 ns units */
+    if (!timer || !SetWaitableTimer(timer, &due, 1, NULL, NULL, FALSE)) {
+        fprintf(stderr, "memories-pc: game clock timer failed (error %lu)\n", GetLastError());
+        return 1;
+    }
+    for (;;) {
+        CONTEXT context;
+        WaitForSingleObject(timer, INFINITE);
+        if (SuspendThread(main_thread) == (DWORD)-1) continue;
+        context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS;
+        if (GetThreadContext(main_thread, &context)) {
+            if (!held && !in_tick && !(context.EFlags & 0x100) && context.Eip >= image_low && context.Eip < image_high) {
+                interrupted = context;
+                in_tick = 1;
+                pending = 0;
+                context.Esp -= 4;
+                *(DWORD *)(uintptr_t)context.Esp = context.Eip;
+                context.Eip = (DWORD)(uintptr_t)Win32_InterruptEntry;
+                SetThreadContext(main_thread, &context);
+            } else {
+                pending = 1;
+            }
+        }
+        ResumeThread(main_thread);
+    }
+}
+
+void Win32_ServiceInterrupt(void)
+{
+    if (!pending || held || GetCurrentThreadId() != main_id) return;
+    if (InterlockedCompareExchange(&in_tick, 1, 0) != 0) return;
+    pending = 0;
+    memset(&interrupted, 0, sizeof(interrupted));
+    interrupted.Eip = (DWORD)(uintptr_t)__builtin_return_address(0);
+    interrupted.Ebp = (DWORD)(uintptr_t)__builtin_frame_address(0);
+    tick_handler(interrupted.Eip, &interrupted);
+    in_tick = 0;
+}
+
+int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context))
+{
+    HANDLE thread;
+    tick_handler = tick;
+    main_id = GetCurrentThreadId();
+    if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main_thread,
+                         THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, FALSE, 0)) {
+        return -1;
+    }
+    Win32_ImageRange(&image_low, &image_high);
+    thread = CreateThread(NULL, 0, run_clock, NULL, 0, NULL);
+    if (!thread) return -1;
+    SetThreadPriority(thread, THREAD_PRIORITY_TIME_CRITICAL);
+    CloseHandle(thread);
+    return 0;
+}
+
+void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp)
+{
+    const CONTEXT *registers = context;
+    *eip = registers->Eip;
+    *esp = registers->Esp;
+    *ebp = registers->Ebp;
+}
+
+void Win32_ImageRange(uintptr_t *low, uintptr_t *high)
+{
+    const unsigned char *base = (const unsigned char *)GetModuleHandleW(NULL);
+    const IMAGE_NT_HEADERS *headers = (const IMAGE_NT_HEADERS *)(base + ((const IMAGE_DOS_HEADER *)base)->e_lfanew);
+    *low = (uintptr_t)base;
+    *high = (uintptr_t)base + headers->OptionalHeader.SizeOfImage;
+}
+
+int Win32_Restart(void)
+{
+    STARTUPINFOW startup;
+    PROCESS_INFORMATION process;
+    wchar_t path[MAX_PATH];
+    DWORD length = GetModuleFileNameW(NULL, path, MAX_PATH);
+    if (!length || length >= MAX_PATH) return -1;
+    SetEnvironmentVariableW(L"MEMORIES_LOAD_STATE", NULL);
+    memset(&startup, 0, sizeof(startup));
+    startup.cb = sizeof(startup);
+    if (!CreateProcessW(path, GetCommandLineW(), NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) {
+        fprintf(stderr, "memories-pc: restart failed (error %lu)\n", GetLastError());
+        return -1;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    fflush(NULL);
+    TerminateProcess(GetCurrentProcess(), 0); /* not exit(): atexit handlers could re-enter game code */
+    return -1;
+}
+
+const char *Win32_FontPath(int japanese)
+{
+    static const char *const sans[] = {"segoeui.ttf", "arial.ttf", "tahoma.ttf", NULL};
+    static const char *const cjk[] = {"msgothic.ttc", "YuGothM.ttc", "meiryo.ttc", "segoeui.ttf", "arial.ttf", NULL};
+    static char path[MAX_PATH];
+    const char *const *name;
+    char directory[MAX_PATH];
+    UINT length = GetWindowsDirectoryA(directory, sizeof(directory));
+    if (!length || length >= sizeof(directory)) return NULL;
+    for (name = japanese ? cjk : sans; *name; name++) {
+        snprintf(path, sizeof(path), "%s\\Fonts\\%s", directory, *name);
+        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) return path;
+    }
+    return NULL;
+}
+
+void Win32_StackRange(uintptr_t *low, uintptr_t *high)
+{
+    ULONG_PTR bottom, top;
+    GetCurrentThreadStackLimits(&bottom, &top);
+    *low = bottom;
+    *high = top;
+}
+
+/* Code in the executable installs no exception handlers of its own, so an
+ * exception raised there that the guest fault handler (image.c) did not take
+ * is fatal. Other modules' exceptions are theirs to handle. */
+static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
+{
+    const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
+    const CONTEXT *context = pointers->ContextRecord;
+    uintptr_t fault = 0, address;
+    switch (record->ExceptionCode) {
+    case EXCEPTION_ACCESS_VIOLATION:
+    case EXCEPTION_IN_PAGE_ERROR:
+        fault = record->NumberParameters >= 2 ? record->ExceptionInformation[1] : 0;
+        break;
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+    case EXCEPTION_PRIV_INSTRUCTION:
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:
+    case EXCEPTION_STACK_OVERFLOW:
+    case EXCEPTION_BREAKPOINT:
+        break;
+    default:
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    address = (uintptr_t)record->ExceptionAddress;
+    /* The executable, or a call into guest RAM that nothing resolved. */
+    if ((address < image_low || address >= image_high) && !(address >= 0x80000000u && address < 0x80200000u) &&
+        !(address >= 0xa0000000u && address < 0xa0200000u) && address >= 0x00200000u) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (crash_report) crash_report(record->ExceptionCode, fault, context->Eip, context->Esp, context->Ebp);
+    TerminateProcess(GetCurrentProcess(), 3);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void Win32_SetCrashReporter(Win32CrashReport report)
+{
+    crash_report = report;
+    Win32_ImageRange(&image_low, &image_high);
+    AddVectoredExceptionHandler(0, on_exception);
+}
+#endif

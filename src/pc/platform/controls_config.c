@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "pc/compat/posix.h"
 
 static int path(char *out, size_t size)
 {

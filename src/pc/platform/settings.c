@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "pc/compat/posix.h"
 
 #define MAX_UNKNOWN 64
 #define MAX_LINE 256

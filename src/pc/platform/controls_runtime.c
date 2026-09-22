@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "controls_runtime.h"
 #include "controls_config.h"
-#include <signal.h>
+#include "pc/compat/signal.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>

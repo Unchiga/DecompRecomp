@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
+#include "pc/compat/mman.h"
 
 #define STACK_BASE 0x9FF00000u
 #define STACK_SIZE 0x40000u

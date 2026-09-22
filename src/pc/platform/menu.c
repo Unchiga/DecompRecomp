@@ -20,7 +20,11 @@
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
 #include "pc/sdk/display.h"
+#ifdef _WIN32
+#include "win32.h"
+#else
 #include <fontconfig/fontconfig.h>
+#endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <stdio.h>
@@ -220,15 +224,27 @@ static void load_font(void)
 {
     FT_Library library;
     FT_Face face;
+#ifdef _WIN32
+    const char *file = Win32_FontPath(0);
+#else
     FcPattern *pattern, *match;
     FcResult result;
     FcChar8 *file = NULL;
+#endif
     int c;
     for (c = 0; c < 96; c++) {
         free(glyphs[c].coverage);
         memset(&glyphs[c], 0, sizeof(glyphs[c]));
     }
     font_loaded = 0;
+#ifdef _WIN32
+    if (!file || FT_Init_FreeType(&library)) {
+        return;
+    }
+    if (FT_New_Face(library, file, 0, &face) || FT_Set_Pixel_Sizes(face, 0, FONT_PX)) {
+        return;
+    }
+#else
     if (!FcInit() || FT_Init_FreeType(&library)) {
         return;
     }
@@ -240,6 +256,7 @@ static void load_font(void)
         FT_New_Face(library, (const char *)file, 0, &face) || FT_Set_Pixel_Sizes(face, 0, FONT_PX)) {
         return;
     }
+#endif
     for (c = 32; c < 127; c++) {
         Glyph *g = &glyphs[c - 32];
         FT_Bitmap *b;
@@ -263,8 +280,10 @@ static void load_font(void)
     font_ascent = (int)(face->size->metrics.ascender >> 6);
     font_descent = (int)(-face->size->metrics.descender >> 6);
     font_loaded = 1;
+#ifndef _WIN32
     FcPatternDestroy(pattern);
     FcPatternDestroy(match);
+#endif
     FT_Done_Face(face);
     FT_Done_FreeType(library);
 }

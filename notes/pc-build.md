@@ -644,6 +644,68 @@ macros). The build also defines `_LANGUAGE_C`/`LANGUAGE_C`, which the MIPS
 front end predefined, and uses `-fpermissive` for GCC 2.8.1-era pointer
 conversions.
 
+## Windows
+
+The same driver builds `tmp/pc/game32/memories-pc.exe` on Windows 10/11 with
+the SDL backend. Status (2026-09-22, Windows 11, i686 on x64): headless and
+in the SDL/OpenGL window at 59.94 fps, with the menu bar, through the Konami
+logo, movie, title, main menu, name entry and the opening story into the
+deck (CHEST) screen. Audio output and the rest of the game are not checked
+yet on Windows.
+
+Setup, from a Git Bash or PowerShell with Python 3:
+
+```sh
+# llvm-mingw (https://github.com/mstorsjo/llvm-mingw), cmake and ninja on PATH
+python tools/pc/build_win32_deps.py   # zlib, libpng, FreeType, SDL3 into tmp/pc/win32-deps
+python tools/pc/build_game32.py
+tmp/pc/game32/memories-pc.exe game/SLUS_014.11
+```
+
+`make match` / `make match-overlays` (for the symbol addresses) still run on
+Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
+`tmp/overlays/*/build/*.elf` into the Windows checkout. `SDL3.dll` is copied
+beside the executable. Everything Windows-specific is behind `_WIN32`; the
+Linux build is unchanged.
+
+What differs from Linux, and why:
+
+- **Clock.** No signals: `platform/win32.c` runs a 1 kHz timer thread that
+  suspends the main thread and, if it is executing code of the executable
+  and does not hold SIGALRM, redirects it through an assembly trampoline
+  that saves every register and the FPU/SSE state, runs the tick and returns
+  to the interrupted instruction. Code outside the executable (C runtime,
+  SDL, drivers) is never interrupted; a tick missed there is taken by
+  `Win32_ServiceInterrupt` from `Platform_WaitVBlank`. `pc/compat/signal.h`
+  maps `sigprocmask`/`pthread_sigmask` on SIGALRM to that hold flag.
+- **Faults.** A vectored exception handler in `image.c` does what the
+  SIGSEGV/SIGTRAP handlers do (guest-call redirect, low-address fixup);
+  32-bit processes on 64-bit Windows can report the single step as
+  `STATUS_WX86_SINGLE_STEP`. Fatal exceptions raised in the executable are
+  reported by `crash.c` through `Win32_SetCrashReporter`.
+- **Physical RAM mirror.** Windows already occupies `0x10000..0x200000` when
+  the program starts (process parameters, locale tables, the WoW64 stack),
+  so the mirror cannot be mapped; `Memories_Resolve` returns the
+  `0x80000000` alias for physical RAM addresses, and the fault handler sends
+  any other access there through guest RAM (each site reported once).
+- **Stacks.** The game stack is at `0x90000000` (32-bit Windows loads system
+  DLLs around `0x70000000`). `state.c` switches stacks with
+  `Memories_ContextSwitch` (`state_i386.S`) and moves the TEB's stack bounds
+  and exception chain with it, as fibers do.
+- **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`
+  labels are renamed to match. No GNU linker script: pins are absolute
+  symbols from `guest_symbols.s`, and the game units' COMMON symbols for
+  pinned names are turned into references, since lld would prefer the
+  COMMON. Section renames edit the COFF headers (`rename_coff_sections`) and
+  `__start_`/`__stop_` come from `$a`/`$z` marker sections. Overrides win by
+  link order (`--allow-multiple-definition`, native objects first); any
+  other duplicate definition is still an error. PE cannot place sections at
+  chosen addresses, so the fixed game sections are not there: save states
+  work within one build but are not carried across rebuilds.
+- **Libraries.** fontconfig is replaced by fonts from `%WINDIR%\Fonts`
+  (`Win32_FontPath`), iconv by code page 932, and the few POSIX calls by
+  `pc/compat/posix.h` and `pc/compat/mman.h`.
+
 ## Launch the local graphics preview
 
 ```sh

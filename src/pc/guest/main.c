@@ -7,11 +7,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include "pc/platform/win32.h"
+#include <fcntl.h>
+
+int Platform_RestartGame(void)
+{
+    return Win32_Restart();
+}
+#else
 #include <signal.h>
 #include <sys/time.h>
+#endif
 
 static char **launch_argv;
 
+#ifndef _WIN32
 int Platform_RestartGame(void)
 {
     struct itimerval stopped = {0}, previous;
@@ -28,6 +39,7 @@ int Platform_RestartGame(void)
     setitimer(ITIMER_REAL, &previous, NULL);
     return -1;
 }
+#endif
 
 extern int Main_Init(void);
 
@@ -40,6 +52,9 @@ int main(int argc, char **argv)
 {
     const char *exe = argc > 1 ? argv[1] : "game/SLUS_014.11";
     launch_argv = argv;
+#ifdef _WIN32
+    _set_fmode(_O_BINARY); /* disc images and states: no newline translation */
+#endif
     Log_Init();
     Symbols_Load();
     Crash_Init();

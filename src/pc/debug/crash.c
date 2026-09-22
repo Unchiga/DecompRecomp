@@ -11,11 +11,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
-#include <ucontext.h>
 #include <unistd.h>
+#ifdef _WIN32
+#include "pc/platform/win32.h"
+#else
+#include <ucontext.h>
+#endif
 
+#ifdef _WIN32
+#define GAME_STACK_LOW 0x90000000u /* state.c */
+#define GAME_STACK_HIGH 0x90800000u
+#else
 #define GAME_STACK_LOW 0x70000000u
 #define GAME_STACK_HIGH 0x70800000u
+#endif
 
 static unsigned char alternate_stack[64 * 1024];
 static uintptr_t main_stack_low, main_stack_high;
@@ -39,13 +48,19 @@ static void line(const char *format, uintptr_t a, uintptr_t b, uintptr_t c)
 
 static const char *region(uintptr_t address)
 {
+#ifdef _WIN32
+    uintptr_t image_low, image_high;
+    Win32_ImageRange(&image_low, &image_high);
+#else
     extern char __executable_start[], etext[];
+    uintptr_t image_low = (uintptr_t)__executable_start, image_high = (uintptr_t)etext;
+#endif
     if ((address >= 0x80000000u && address < 0x80200000u) ||
         (address >= 0xa0000000u && address < 0xa0200000u) || address < 0x00200000u) return "guest RAM";
     if (address >= 0x1f800000u && address < 0x1f801000u) return "scratchpad";
     if (address >= 0x01000000u && address < 0x0a000000u) return "game section";
     if (address >= GAME_STACK_LOW && address < GAME_STACK_HIGH) return "game stack";
-    if (address >= (uintptr_t)__executable_start && address < (uintptr_t)etext) return "native text";
+    if (address >= image_low && address < image_high) return "native text";
     return "native/unmapped";
 }
 
@@ -88,19 +103,16 @@ static void open_report(void)
     report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 }
 
-void Crash_HandleSignal(int number, siginfo_t *info, void *context)
+/* `what` names the kind of number: a signal, or a Windows exception code. */
+static void report_fatal(const char *what, unsigned long number, uintptr_t fault, uintptr_t eip, uintptr_t esp,
+                         uintptr_t ebp)
 {
-    ucontext_t *user = context;
-    uintptr_t eip = (uintptr_t)user->uc_mcontext.gregs[REG_EIP];
-    uintptr_t esp = (uintptr_t)user->uc_mcontext.gregs[REG_ESP];
-    uintptr_t ebp = (uintptr_t)user->uc_mcontext.gregs[REG_EBP];
-    uintptr_t fault = info ? (uintptr_t)info->si_addr : 0;
     const char *tail_lines[32];
     int count, i;
-    struct sigaction action;
-    if (reporting++) _exit(128 + number);
+    char text[128];
     open_report();
-    line("memories-pc: fatal signal %lu at 0x%08lx (%s)\n", (uintptr_t)number, fault, (uintptr_t)region(fault));
+    snprintf(text, sizeof(text), strcmp(what, "signal") ? "fatal %s 0x%08lx" : "fatal %s %lu", what, number);
+    line("memories-pc: %s at 0x%08lx (%s)\n", (uintptr_t)text, fault, (uintptr_t)region(fault));
     line("registers: EIP=0x%08lx ESP=0x%08lx EBP=0x%08lx\n", eip, esp, ebp);
     walk(eip, ebp);
     line("frame=%lu vblank=%lu clock=%ld%%\n", Memories_PresentedFrames(), Platform_VBlankCount(),
@@ -113,6 +125,29 @@ void Crash_HandleSignal(int number, siginfo_t *info, void *context)
         if (!strchr(tail_lines[i], '\n')) output("\n", 1);
     }
     if (report_fd >= 0) close(report_fd);
+}
+
+#ifdef _WIN32
+static void report_exception(unsigned long code, uintptr_t fault, uintptr_t eip, uintptr_t esp, uintptr_t ebp)
+{
+    if (reporting++) return;
+    report_fatal("exception", code, fault, eip, esp, ebp);
+}
+
+void Crash_Init(void)
+{
+    Win32_StackRange(&main_stack_low, &main_stack_high);
+    Win32_SetCrashReporter(report_exception);
+}
+#else
+void Crash_HandleSignal(int number, siginfo_t *info, void *context)
+{
+    ucontext_t *user = context;
+    struct sigaction action;
+    if (reporting++) _exit(128 + number);
+    report_fatal("signal", (unsigned long)number, info ? (uintptr_t)info->si_addr : 0,
+                 (uintptr_t)user->uc_mcontext.gregs[REG_EIP], (uintptr_t)user->uc_mcontext.gregs[REG_ESP],
+                 (uintptr_t)user->uc_mcontext.gregs[REG_EBP]);
     memset(&action, 0, sizeof(action));
     action.sa_handler = SIG_DFL;
     sigemptyset(&action.sa_mask);
@@ -151,6 +186,7 @@ void Crash_Init(void)
     sigemptyset(&action.sa_mask);
     for (i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) sigaction(signals[i], &action, NULL);
 }
+#endif
 
 void Crash_ReportSoft(const char *kind, const char *detail)
 {
@@ -166,8 +202,17 @@ void Crash_ReportSoft(const char *kind, const char *detail)
 
 void Crash_ReportHang(void *context)
 {
-    ucontext_t *user = context;
     char path[128];
+    uintptr_t eip, esp, ebp;
+#ifdef _WIN32
+    Win32_ContextRegisters(context, &eip, &esp, &ebp);
+#else
+    ucontext_t *user = context;
+    eip = (uintptr_t)user->uc_mcontext.gregs[REG_EIP];
+    esp = (uintptr_t)user->uc_mcontext.gregs[REG_ESP];
+    ebp = (uintptr_t)user->uc_mcontext.gregs[REG_EBP];
+#endif
+    (void)esp;
     report_fd = -1;
     snprintf(path, sizeof(path), "tmp/pc/hang-%ld.txt", (long)getpid());
     report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -175,7 +220,7 @@ void Crash_ReportHang(void *context)
         static const char message[] = "memories-pc: no VSync for 5 s\n";
         output(message, sizeof(message) - 1);
     }
-    walk((uintptr_t)user->uc_mcontext.gregs[REG_EIP], (uintptr_t)user->uc_mcontext.gregs[REG_EBP]);
+    walk(eip, ebp);
     if (report_fd >= 0) close(report_fd);
     report_fd = -1;
 }
