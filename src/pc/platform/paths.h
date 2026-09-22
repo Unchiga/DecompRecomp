@@ -7,8 +7,8 @@
  *  - the user directory, which holds everything the player owns: settings,
  *    controls, memory cards, save states, screenshots, their own mods and
  *    whatever a mod stores. On Windows that is
- *    Documents\My Games\YFM ReDecomp; elsewhere $XDG_DATA_HOME/YFM ReDecomp
- *    (~/.local/share/YFM ReDecomp). MEMORIES_USER_DIR names another.
+ *    Documents\My Games\YFM Re-Decomp; elsewhere $XDG_DATA_HOME/YFM Re-Decomp
+ *    (~/.local/share/YFM Re-Decomp). MEMORIES_USER_DIR names another.
  */
 #include <stddef.h>
 

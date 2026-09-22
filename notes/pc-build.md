@@ -238,8 +238,8 @@ address. Checked from a state at the ending's last dialogue, mashing Cross
 ### Where the player's files go
 
 Nothing the player owns lives beside the game any more. `platform/paths.c`
-resolves one user directory -- `Documents\My Games\YFM ReDecomp` on Windows,
-`$XDG_DATA_HOME/YFM ReDecomp` (`~/.local/share/YFM ReDecomp`) elsewhere,
+resolves one user directory -- `Documents\My Games\YFM Re-Decomp` on Windows,
+`$XDG_DATA_HOME/YFM Re-Decomp` (`~/.local/share/YFM Re-Decomp`) elsewhere,
 `MEMORIES_USER_DIR` instead of either -- and everything the port writes goes
 under it:
 

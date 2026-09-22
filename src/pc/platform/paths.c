@@ -6,11 +6,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <shlobj.h> /* SHGetFolderPathA; ahead of posix.h, which then skips its own declarations */
+#endif
 #include "pc/compat/posix.h" /* mkdir, and readlink of /proc/self/exe, on Windows */
 #include <sys/stat.h>
 
 #define PATH_MAX_ 1024
-#define APP_NAME "YFM ReDecomp"
+#define APP_NAME "YFM Re-Decomp"
+#define OLD_APP_NAME "YFM ReDecomp" /* what builds before 2026-09-22 called it */
 
 static char user_dir[PATH_MAX_];
 static char program_dir[PATH_MAX_];
@@ -60,19 +64,33 @@ const char *Paths_UserDir(void)
     if (named && *named) {
         snprintf(user_dir, sizeof(user_dir), "%s", named);
     } else {
+        char root[PATH_MAX_ - 32] = ""; /* room for the folder name after it */
 #ifdef _WIN32
         /* Documents\My Games is where Windows games have put their files
          * since the Games for Windows era; the player can find and back it
-         * up without being told where to look. */
+         * up without being told where to look. Ask the shell where Documents
+         * is, since OneDrive and the folder's Location tab both move it. */
+        char documents[MAX_PATH];
         const char *profile = getenv("USERPROFILE");
-        snprintf(user_dir, sizeof(user_dir), "%s/Documents/My Games/" APP_NAME,
-                 profile && *profile ? profile : ".");
+        if (SHGetFolderPathA(NULL, CSIDL_PERSONAL, NULL, 0, documents) == S_OK)
+            snprintf(root, sizeof(root), "%s/My Games", documents);
+        else
+            snprintf(root, sizeof(root), "%s/Documents/My Games", profile && *profile ? profile : ".");
 #else
         const char *home = getenv("HOME"), *xdg = getenv("XDG_DATA_HOME");
-        if (xdg && *xdg == '/') snprintf(user_dir, sizeof(user_dir), "%s/" APP_NAME, xdg);
-        else if (home && *home) snprintf(user_dir, sizeof(user_dir), "%s/.local/share/" APP_NAME, home);
-        else snprintf(user_dir, sizeof(user_dir), "saves");
+        if (xdg && *xdg == '/') snprintf(root, sizeof(root), "%s", xdg);
+        else if (home && *home) snprintf(root, sizeof(root), "%s/.local/share", home);
 #endif
+        if (root[0]) {
+            char old[PATH_MAX_];
+            snprintf(user_dir, sizeof(user_dir), "%s/" APP_NAME, root);
+            snprintf(old, sizeof(old), "%s/" OLD_APP_NAME, root);
+            /* Bring the old folder along under the new name, once. */
+            if (access(user_dir, F_OK) && !access(old, F_OK) && !rename(old, user_dir))
+                fprintf(stderr, "memories-pc: moved %s to %s\n", old, user_dir);
+        } else {
+            snprintf(user_dir, sizeof(user_dir), "saves");
+        }
     }
     /* A root that cannot be made is not worth carrying: fall back beside the
      * game, which is where the port kept everything before. */

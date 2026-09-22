@@ -13,8 +13,8 @@ directory in, restart, apply it in **Game > Mods**.
 
 The user directory is where everything the player owns lives: settings,
 controls, memory cards, save states, screenshots, their mods and whatever a
-mod stores. It is `Documents\My Games\YFM ReDecomp` on Windows and
-`$XDG_DATA_HOME/YFM ReDecomp` (`~/.local/share/YFM ReDecomp`) elsewhere; see
+mod stores. It is `Documents\My Games\YFM Re-Decomp` on Windows and
+`$XDG_DATA_HOME/YFM Re-Decomp` (`~/.local/share/YFM Re-Decomp`) elsewhere; see
 [`src/pc/platform/paths.h`](../src/pc/platform/paths.h). A mod in the user
 directory replaces one the release ships with the same `id`.
 
