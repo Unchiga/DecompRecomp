@@ -4,7 +4,9 @@
  * differently or lacks. Elsewhere this is the system's own headers. */
 #include <sys/stat.h>
 #include <time.h>
+#ifndef _MSC_VER /* the CMake core tests also build with MSVC, which has no unistd.h */
 #include <unistd.h>
+#endif
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
