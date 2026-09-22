@@ -9,6 +9,7 @@
 #include "pc/audio/spu.h"
 #include "pc/sdk/disc.h"
 #include "pc/platform/game_files.h"
+#include "pc/render/texture_dump.h"
 #include "pc/guest/image.h"
 #include "pc/debug/log.h"
 #include "pc/mods/mods.h"
@@ -120,6 +121,7 @@ int DsInit(void)
             _exit(1);
         }
     }
+    TextureDump_SetDiscFiles(Memories_DiscFileInfo);
     queue_head = queue_tail = 0;
     reading = 0;
     return 1;
@@ -291,6 +293,7 @@ int CdGetSector(void *destination, int words)
         bytes = RAW_SECTOR - sector_cursor;
     }
     memcpy(destination, sector + sector_cursor, bytes);
+    TextureDump_Delivered(destination, bytes, head_lba - 1, sector_cursor - USER_DATA);
     sector_cursor += bytes;
     Memories_GuestWritten(destination, bytes);
     Log_Signal(LOG_DISC, "lba %ld -> 0x%lx, %ld bytes", head_lba - 1,
@@ -552,6 +555,7 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out)
             break;
         }
         memcpy((u8 *)out + (size_t)i * 2048, raw + USER_DATA, 2048);
+        TextureDump_Delivered((u8 *)out + (size_t)i * 2048, 2048, lba + i, 0);
     }
     return i;
 }

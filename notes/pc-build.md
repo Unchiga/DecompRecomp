@@ -546,7 +546,10 @@ sector `(n-1)*7 + 722`, seven sectors: the 102x96 8-bit picture, its
 files, and `portraits`, the 48x48 dialogue portraits through their 64-entry
 palettes (the campaign's 25 and Free Duel's 40, `0x980`-byte records).
 `--names cards.tsv` (card_number, name) puts the card's name in the file
-name. Next: monster textures (`MODEL.MRG`) and the screens' packages.
+name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
+(below), under `assets/`, named by archive, offset, size, depth and palette:
+the way to cover screens no family describes yet. Next: monster textures
+(`MODEL.MRG`) as a family, and aliases for the screens.
 
 ### Texture dump (what is on screen)
 
@@ -559,11 +562,23 @@ and colours and the same one drawn again is the same file; the hash covers
 the texel indices and the palette entries, so a palette swap is another
 image. `textures.txt` in the directory lists each hash with its size, depth,
 page and palette coordinates. Dumping costs a hash per primitive, so it is
-for a capture session, not play; a duel dumps about 1,900 images. It is not
-the basis for texture packs: those name images by where they come from on
-the disc (the archives stream raw VRAM blocks, `notes/mrg-files.md`; the
-loader call sites are the asset table), the way a decompiled port can and an
-emulator cannot.
+for a capture session, not play; a duel dumps about 1,900 images. The hash
+is not what a texture pack goes by: images are named by where they come
+from on the disc (the archives stream raw VRAM blocks, `notes/mrg-files.md`;
+the loader call sites are the asset table), the way a decompiled port can
+and an emulator cannot. So the same run also traces provenance: the disc
+layer reports every copy of sector data into game memory
+(`TextureDump_Delivered`), an upload looks its pixels up in those and tags
+each VRAM word with its disc byte offset, moves carry the tags, fills and
+drawing clear them, and a primitive whose texels and palette are all tagged
+adds a line to `assets.txt`: offset, row layout (a stride, or each row's
+offset when the streamer laid the blocks side by side), size, depth,
+palette offset, the pixel crop within the first word, and the hash of the
+PNG it was drawn as. `extract_images.py --assets <dir>/assets.txt` then
+writes those images from the archives, and every one comes out identical
+to the PNG the game drew (76 of 76 through the title and main menu), which
+is the proof of the provenance. A state load restores VRAM without
+deliveries, so a capture that should trace assets starts from a cold boot.
 
 ### Deterministic PC checks
 

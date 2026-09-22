@@ -221,6 +221,7 @@ int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *
 void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
 {
     int i, j;
+    if (TextureDump_Tags) TextureDump_Loaded(x, y, w, h, pixels);
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             uint16_t *target = vram_pixel(x + i, y + j);
@@ -245,6 +246,7 @@ void SoftGpu_Store(int x, int y, int w, int h, uint16_t *pixels)
 void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
 {
     int i, j;
+    if (TextureDump_Tags) TextureDump_Moved(sx, sy, dx, dy, w, h);
     for (j = 0; j < h; j++) {
         /* Overlapping copies read each row forwards, as the hardware does. */
         for (i = 0; i < w; i++) {
@@ -267,6 +269,7 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
 {
     int i, j;
     uint16_t colour = pack(rgb24);
+    if (TextureDump_Tags) TextureDump_Cleared(x, y, w, h);
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             *vram_pixel(x + i, y + j) = colour;
@@ -311,6 +314,7 @@ static inline __attribute__((always_inline)) void plot(int x, int y, int r, int 
     if (gpu.mask_check && (*target & 0x8000)) {
         return;
     }
+    if (TextureDump_Tags) TextureDump_Tags[target - vram] = 0; /* drawn, not from the disc */
     if (flags & 4) {
         source = texel(u, v);
         if (!source) {
