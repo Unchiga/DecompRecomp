@@ -392,6 +392,7 @@ def main():
     # A native definition replaces the game's: weaken the original so the
     # linker prefers src/pc/overrides (calls are symbol-relative at -O0).
     overridden = sorted(game_defined & native_defined)
+    set_overridden = set(overridden)
     if WINDOWS:
         # No weak COFF definitions from objcopy: the native objects come
         # first in the link and lld keeps the first definition. Anything else
@@ -401,9 +402,19 @@ def main():
         if twice:
             sys.exit("defined more than once: " + ", ".join(twice[:20]))
     elif overridden:
+        # One listing of every game object rather than one `nm` for each:
+        # spawning 546 of them cost five seconds of every build, which is
+        # most of what `./play.sh` spends before the game appears. -A puts
+        # the file each symbol came from at the head of its line.
+        weaken, objects = {}, {obj(s) for s in game}
+        for line in run([NM, "-A", "-g", "--defined-only", *sorted(objects)]).splitlines():
+            path, _, rest = line.partition(":")
+            if path not in objects:
+                sys.exit(f"{NM} -A named an object the build does not know: {line}")
+            if rest.split() and c_name(rest.split()[-1]) in set_overridden:
+                weaken.setdefault(path, []).append(c_name(rest.split()[-1]))
         for source in game:
-            names = set(run([NM, "-g", "--defined-only", obj(source)]).split())
-            hits = [name for name in overridden if name in names]
+            hits = weaken.get(obj(source))
             if hits:
                 run([OBJCOPY, *[f"--weaken-symbol={name}" for name in hits], obj(source)])
     wanted = (undefined | tentative) - game_defined - native_defined - HOST_LIBC
