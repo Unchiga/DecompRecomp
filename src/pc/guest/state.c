@@ -58,37 +58,30 @@ static unsigned region_count;
  * Memories_ContextSwitch (state_i386.S), which keeps the callee-saved
  * registers on that stack. The thread's stack bounds and exception-handler
  * chain live in its TEB and must follow the stack, as fibers do: exceptions
- * raised on a stack outside those bounds cannot be dispatched. */
-typedef struct {
-    uint32_t esp;
-} StackContext;
-typedef struct {
-    uint32_t handlers, base, limit;
-} StackBounds;
-void Memories_ContextSwitch(StackContext *from, const StackContext *to);
-static StackContext service_context, game_context;
-static StackBounds process_bounds;
-static const StackBounds game_bounds = {0xffffffffu, STACK_TOP, STACK_BASE}; /* no handlers yet */
+ * raised on a stack outside those bounds cannot be dispatched. Bounds are
+ * the TEB's first three words: handler chain, stack base, stack limit. */
+void Memories_ContextSwitch(uint32_t *from_esp, const uint32_t *to_esp);
+static uint32_t service_context, game_context;
+static uint32_t process_bounds[3];
+static const uint32_t game_bounds[3] = {0xffffffffu, STACK_TOP, STACK_BASE}; /* no handlers yet */
 
-static StackBounds stack_bounds(void)
+static void save_stack_bounds(uint32_t *bounds)
 {
-    StackBounds bounds;
     __asm__ volatile("movl %%fs:0, %0\n\tmovl %%fs:4, %1\n\tmovl %%fs:8, %2"
-                     : "=r"(bounds.handlers), "=r"(bounds.base), "=r"(bounds.limit));
-    return bounds;
+                     : "=r"(bounds[0]), "=r"(bounds[1]), "=r"(bounds[2]));
 }
 
-static void set_stack_bounds(const StackBounds *bounds)
+static void set_stack_bounds(const uint32_t *bounds)
 {
     __asm__ volatile("movl %0, %%fs:0\n\tmovl %1, %%fs:4\n\tmovl %2, %%fs:8"
                      :
-                     : "r"(bounds->handlers), "r"(bounds->base), "r"(bounds->limit)
+                     : "r"(bounds[0]), "r"(bounds[1]), "r"(bounds[2])
                      : "memory");
 }
 
 static void leave_game_stack(void)
 {
-    set_stack_bounds(&process_bounds);
+    set_stack_bounds(process_bounds);
     Memories_ContextSwitch(&game_context, &service_context);
 }
 #else
@@ -312,7 +305,7 @@ static void apply(void)
     fprintf(stderr, "memories-pc: state loaded\n");
     hold_signals(0);
 #ifdef _WIN32
-    set_stack_bounds(&game_bounds);
+    set_stack_bounds(game_bounds);
 #endif
     Memories_StateReturn(&entry, 263); /* one field, as VSync(0) reports it */
 }
@@ -707,9 +700,9 @@ int Memories_StateRunGame(int (*entry)(void))
         top[0] = top[1] = top[2] = top[3] = 0;
         top[4] = (uint32_t)(uintptr_t)run_game;
         top[5] = 0;
-        game_context.esp = (uint32_t)(uintptr_t)top;
-        process_bounds = stack_bounds();
-        set_stack_bounds(&game_bounds);
+        game_context = (uint32_t)(uintptr_t)top;
+        save_stack_bounds(process_bounds);
+        set_stack_bounds(game_bounds);
         /* Every load request re-enters here, on the process stack. */
         Memories_ContextSwitch(&service_context, &game_context);
     }

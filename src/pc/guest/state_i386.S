@@ -38,9 +38,9 @@ SYMBOL(Memories_StateReturn):
     END(Memories_StateReturn)
 
 #ifdef _WIN32
-/* void Memories_ContextSwitch(StackContext *from, const StackContext *to):
+/* void Memories_ContextSwitch(uint32_t *from_esp, const uint32_t *to_esp):
  * the ucontext stand-in (state.c). Keeps the callee-saved registers on the
- * stack being left and resumes the one `to` describes. */
+ * stack being left and resumes the one whose stack pointer `to_esp` holds. */
     .globl SYMBOL(Memories_ContextSwitch)
 SYMBOL(Memories_ContextSwitch):
     movl 4(%esp), %eax
