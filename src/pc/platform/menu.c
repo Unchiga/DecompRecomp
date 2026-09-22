@@ -88,8 +88,8 @@ typedef struct {
 } Item;
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
-enum { MENU_FILE, MENU_VIEW, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_TRACE, MENU_COUNT };
-enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_COUNT };
+enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -100,7 +100,7 @@ static Menu menus[MENU_COUNT] = {
               {"Screenshot", "F12", ITEM_ACTION, ACT_SCREENSHOT, -1, 0, ITEM_GROUP_BREAK},
               {"Reload settings", 0, ITEM_ACTION, ACT_RELOAD_SETTINGS, -1},
               {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1, 0, ITEM_GROUP_BREAK}}, 9},
-    {"View", {{"Window scale", 0, ITEM_SUBMENU, 0, -1, SUB_SCALE},
+    {"Video", {{"Window scale", 0, ITEM_SUBMENU, 0, -1, SUB_SCALE},
               {"Menu size", 0, ITEM_SUBMENU, 0, -1, SUB_MENU_SIZE},
               {"Fullscreen", "F11", ITEM_CHECK, MENU_ITEM_FULLSCREEN, SET_FULLSCREEN, 0, ITEM_GROUP_BREAK},
               {"Borderless window", 0, ITEM_CHECK, MENU_ITEM_BORDERLESS, SET_BORDERLESS},
@@ -132,12 +132,8 @@ static Menu menus[MENU_COUNT] = {
                {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},
                {"Frame step", ".", ITEM_ACTION, ACT_FRAME_STEP, -1},
                {"Dump frame (PPM)", 0, ITEM_ACTION, ACT_DUMP_FRAME, -1, 0, ITEM_GROUP_BREAK},
-               {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1}}, 6},
-    {"Trace", {{"Frames", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_FRAMES},
-               {"Disc", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_DISC},
-               {"SPU", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_SPU},
-               {"Input", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_INPUT},
-               {"State", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_STATE}}, 5},
+               {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1},
+               {"Trace", 0, ITEM_SUBMENU, 0, -1, SUB_TRACE, ITEM_GROUP_BREAK}}, 7},
 };
 static Menu submenus[SUB_COUNT] = {
     {"Window scale", {{"1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
@@ -166,6 +162,11 @@ static Menu submenus[SUB_COUNT] = {
                     {"240", 0, ITEM_RADIO, 0, SET_FPS, 240},
                     {"Every game frame", 0, ITEM_RADIO, 0, SET_FPS, -1}}, 7},
     {"Cheats", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
+    {"Trace", {{"Frames", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_FRAMES},
+               {"Disc", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_DISC},
+               {"SPU", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_SPU},
+               {"Input", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_INPUT},
+               {"State", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_STATE}}, 5},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;
