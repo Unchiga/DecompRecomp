@@ -63,14 +63,52 @@ if(BUILD_TESTING)
         target_compile_options(memories_json_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_json COMMAND memories_json_test)
+    # The mod C library reads the monotonic clock, which on Windows comes
+    # from the threads library.
+    find_package(Threads REQUIRED)
     add_executable(memories_mods_test tests/pc/mods_test.c src/pc/mods/mods.c src/pc/mods/json.c
-        src/pc/platform/paths.c src/pc/platform/settings.c)
+        src/pc/mods/modload.c src/pc/mods/modlibc.c src/pc/platform/paths.c src/pc/platform/settings.c)
     target_include_directories(memories_mods_test PRIVATE src)
-    target_link_libraries(memories_mods_test PRIVATE ${CMAKE_DL_LIBS})
+    target_link_libraries(memories_mods_test PRIVATE Threads::Threads)
     if(NOT MSVC)
         target_compile_options(memories_mods_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_mods COMMAND memories_mods_test)
+    # The mod loader against libraries built the way a player builds one
+    # (tools/pc/build_mod.py), which takes clang with ld.lld, or GCC with
+    # -m32 on Linux. Without either the fixtures cannot be made.
+    find_package(Python3 COMPONENTS Interpreter)
+    find_program(MEMORIES_MOD_CLANG clang)
+    find_program(MEMORIES_MOD_LLD ld.lld)
+    find_program(MEMORIES_MOD_GCC gcc)
+    # The libraries are 32-bit x86 code, so only a 32-bit x86 test can run them.
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(i.86|x86|X86|AMD64|x86_64)$" AND
+       Python3_Interpreter_FOUND AND
+       ((MEMORIES_MOD_CLANG AND MEMORIES_MOD_LLD) OR (MEMORIES_MOD_GCC AND NOT WIN32)))
+        set(memories_mod_fixtures "${CMAKE_BINARY_DIR}/mod_fixtures")
+        set(memories_mod_fixture_files "")
+        foreach(fixture good forbidden)
+            add_custom_command(OUTPUT "${memories_mod_fixtures}/${fixture}.mod"
+                COMMAND "${Python3_EXECUTABLE}" tools/pc/build_mod.py tests/pc/mod_fixtures/${fixture}
+                    --out "${memories_mod_fixtures}"
+                WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                DEPENDS tests/pc/mod_fixtures/${fixture}/${fixture}.c tools/pc/build_mod.py
+                COMMENT "Building the ${fixture} mod fixture")
+            list(APPEND memories_mod_fixture_files "${memories_mod_fixtures}/${fixture}.mod")
+        endforeach()
+        add_custom_target(memories_mod_fixtures DEPENDS ${memories_mod_fixture_files})
+        add_executable(memories_modload_test tests/pc/modload_test.c src/pc/mods/modload.c
+            src/pc/mods/modlibc.c)
+        add_dependencies(memories_modload_test memories_mod_fixtures)
+        target_include_directories(memories_modload_test PRIVATE src)
+        target_link_libraries(memories_modload_test PRIVATE Threads::Threads)
+        if(NOT MSVC)
+            target_compile_options(memories_modload_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        add_test(NAME pc_modload COMMAND memories_modload_test "${memories_mod_fixtures}")
+    else()
+        message(STATUS "pc_modload skipped: it needs a 32-bit x86 build and clang with ld.lld (or GCC -m32)")
+    endif()
     add_executable(memories_mods_window_test tests/pc/mods_window_test.c src/pc/platform/mods_window.c)
     target_include_directories(memories_mods_window_test PRIVATE src)
     if(NOT MSVC)

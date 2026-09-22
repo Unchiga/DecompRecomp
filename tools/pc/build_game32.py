@@ -17,12 +17,13 @@ fixed game sections (save states across rebuilds) are not available; the
 section renames edit the COFF headers directly (rename_coff_sections) and
 __start_/__stop_ come from grouped marker sections; overrides win by link order instead of weakened symbols."""
 import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struct, subprocess, sys, tempfile
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import build_mod
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ELF = "tmp/project-build/SLUS_014.11.elf"
 WINDOWS = sys.platform == "win32"
 WIN32_DEPS = "tmp/pc/win32-deps"  # tools/pc/build_win32_deps.py
-MOD_IMPLIB = "libmemories-pc.a"  # Windows: the executable's import library, which mod DLLs link against
 CC, OBJCOPY, NM, READELF, OBJDUMP = (("i686-w64-mingw32-clang", "llvm-objcopy", "llvm-nm", "llvm-readelf", "llvm-objdump")
                                      if WINDOWS else ("gcc", "objcopy", "nm", "readelf", "objdump"))
 PREFIX = "_" if WINDOWS else ""  # C symbol names in the object files
@@ -209,11 +210,10 @@ def definitions(objects):
 def build_mods(build):
     """Each directory under mods/ becomes a mod directory beside the game.
 
-    A mod is its manifest and whatever it ships; if it has C, that is linked
-    into one shared library named after the directory, which the game dlopens
-    when the mod is applied (src/pc/mods/mods.c). Mods resolve the game's and
-    the port's symbols out of the executable at load time, so they are built
-    against the same headers and nothing else."""
+    A mod is its manifest and whatever it ships; if it has C, that becomes
+    one `.mod` library (tools/pc/build_mod.py), the same file on Linux and
+    on Windows, which the game's own loader reads when the mod is applied
+    (src/pc/mods/modload.c)."""
     out_root = f"{build}/mods"
     os.makedirs(out_root, exist_ok=True)
     # The header a mod author builds against, beside the game rather than
@@ -237,33 +237,37 @@ def build_mods(build):
             if not os.path.exists(destination) or os.path.getmtime(destination) < os.path.getmtime(path):
                 with open(path, "rb") as source, open(destination, "wb") as copy:
                     copy.write(source.read())
-        sources = sorted(glob.glob(f"{source_dir}/*.c"))
-        if not sources:
-            built.append(f"{name} (data)")
-            continue
-        library = f"{out_dir}/{name}" + (".dll" if WINDOWS else ".so")
-        objects = []
-        for source in sources:
-            obj = f"{build}/obj/{source.replace('/', '_')}.o"
-            objects.append(obj)
-            compile_unit((source, obj, NATIVE_CFLAGS + ([] if WINDOWS else ["-fPIC"]), None))
-        if not os.path.exists(library) or max(os.path.getmtime(o) for o in objects) > os.path.getmtime(library):
-            if WINDOWS:
-                # A DLL's references to the game and the port resolve through
-                # the executable's import library (the link step above); the
-                # loader binds them when mods.c loads the DLL. Pinned guest
-                # variables are absolute symbols, which an import library
-                # cannot carry; guest RAM sits at the same addresses in every
-                # module, so the DLL takes the same definitions directly.
-                # winpthreads is linked in as for the executable.
-                run([CC, "-shared", "-o", library, *objects, f"{build}/{MOD_IMPLIB}",
-                     f"{build}/guest_symbols.o", "-lm", "-static", "-lpthread"])
-            else:
-                run(["gcc", "-m32", "-shared", "-o", library, *objects, "-lm"])
-        built.append(name)
+        # Libraries in the formats mods had before .mod: the game no longer
+        # reads them. One the running game still holds stays until it exits.
+        for stale in glob.glob(f"{out_dir}/*.dll") + glob.glob(f"{out_dir}/*.so"):
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+        library = build_mod.build(source_dir, out_dir, f"{build}/obj/mod_{name}", NEWEST_HEADER)
+        built.append(name if library else f"{name} (data)")
     if built:
         print(f"{out_root}: " + ", ".join(built))
 
+# What a mod may link to from the port, besides the game itself: its SDK,
+# renderer, sound and overrides. Left out is the layer that reaches the
+# operating system -- files and paths, settings, the window, logs and crash
+# reports, and the mod loader itself (src/pc/mods/modload.h).
+MOD_VISIBLE = ("src/pc/sdk/", "src/pc/render/", "src/pc/overrides/", "src/pc/overlays/", "src/pc/audio/",
+               "src/pc/guest/", "src/pc/rng.c", "src/pc/compat/gte.c", "src/pc/compat/libgs_ot.c")
+
+def write_mod_symbols(path, names, targets):
+    """The table modload.c resolves a mod's names from: every name in
+    `names`, pointing at `targets[name]` (itself unless it is an alias)."""
+    ordered = sorted(names)
+    with open(path, "w") as handle:
+        handle.write("/* Generated by tools/pc/build_game32.py: what a mod may link to from the game and\n"
+                     " * the port (src/pc/mods/modload.h). */\n#include \"pc/mods/modload.h\"\n")
+        for index, name in enumerate(ordered):
+            handle.write(f'extern char m{index}[] __asm__("{PREFIX}{targets.get(name, name)}");\n')
+        handle.write("const ModSymbol Memories_ModSymbols[] = {\n")
+        handle.writelines(f'    {{"{name}", m{index}}},\n' for index, name in enumerate(ordered))
+        handle.write(f"}};\nconst unsigned Memories_ModSymbolCount = {len(ordered)};\n")
 
 def main():
     global NEWEST_HEADER
@@ -507,6 +511,12 @@ def main():
             handle.write(f'    {{"{name}", 0x{bank:08X}u, 0x{identifier:X}u, {", ".join(ranges)}}},\n')
         handle.write(f"}};\nconst unsigned Memories_ModuleCount = {len(shared)};\n")
     run([CC, *NATIVE_CFLAGS, "-c", f"{options.build}/stubs.c", "-o", f"{options.build}/stubs.o"])
+    visible = [obj(s) for s in NATIVE if s.startswith(MOD_VISIBLE)]
+    mod_defined, mod_tentative, _ = symbols(visible)
+    write_mod_symbols(f"{options.build}/mod_symbols.c",
+                      (game_defined | tentative | mod_defined | mod_tentative | set(pinned) | set(aliases)) -
+                      set(stubs) - set(unknown), aliases)
+    run([CC, *NATIVE_CFLAGS, "-c", f"{options.build}/mod_symbols.c", "-o", f"{options.build}/mod_symbols.o"])
     output = f"{options.build}/memories-pc"
     if WINDOWS:
         output += ".exe"
@@ -518,24 +528,18 @@ def main():
         # native objects, which win over the game definitions they override.
         # Large-address-aware for guest RAM at 0x80000000, fixed base (like
         # -no-pie) for the symbol table, NX for the guest-call trap.
-        # --export-all-symbols and the import library are what -rdynamic is
-        # on Linux: a mod's DLL (build_mods) links against the import library
-        # and binds to the game's and the port's symbols at load time.
         run([CC, "-o", output, "-Wl,--large-address-aware", "-Wl,--disable-dynamicbase", "-Wl,--nxcompat",
-             "-Wl,--allow-multiple-definition", "-Wl,--export-all-symbols",
-             f"-Wl,--out-implib={options.build}/{MOD_IMPLIB}", f"{options.build}/guest_symbols.o",
-             *[obj(s) for s in NATIVE + game], f"{options.build}/stubs.o", f"{options.build}/section_markers.o",
+             "-Wl,--allow-multiple-definition", f"{options.build}/guest_symbols.o",
+             *[obj(s) for s in NATIVE + game], f"{options.build}/stubs.o", f"{options.build}/mod_symbols.o",
+             f"{options.build}/section_markers.o",
              f"{WIN32_DEPS}/sdl/lib/libSDL3.dll.a", "-lopengl32", f"{WIN32_DEPS}/lib/libfreetype.a",
              f"{WIN32_DEPS}/lib/libpng16.a", f"{WIN32_DEPS}/lib/libzs.a", "-ldbghelp", "-static", "-lpthread"])
         shutil.copy(f"{WIN32_DEPS}/sdl/bin/SDL3.dll", options.build)
     else:
-        # -rdynamic puts the executable's symbols in its dynamic table, which is
-        # what lets a mod's library (build_mods) bind to the game and the port
-        # the way the resident code does. Nothing else needs it.
-        run(["gcc", "-m32", "-no-pie", "-rdynamic", "-o", output,
+        run(["gcc", "-m32", "-no-pie", "-o", output,
              *[f"-Wl,--section-start={name}=0x{address:08X}" for name, address in sorted(fixed.items())],
              *[obj(s) for s in game + NATIVE],
-             f"{options.build}/stubs.o", f"{options.build}/guest_symbols.ld", *(["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig", "-lpng16"] if options.backend == "sdl"
+             f"{options.build}/stubs.o", f"{options.build}/mod_symbols.o", f"{options.build}/guest_symbols.ld", *(["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig", "-lpng16"] if options.backend == "sdl"
                else ["-lm", "-lX11", "-lXext", "-lfreetype", "-lfontconfig", "-lpng16", "-lasound", "-lpthread", "-ldl"])])
     build_mods(options.build)
     # Save states are carried between builds with these tables

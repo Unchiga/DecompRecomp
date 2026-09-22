@@ -11,7 +11,9 @@
  *
  * which fills `mod` in and returns nonzero to accept the load. It is called
  * when the mod is applied, never before, and the library then stays in the
- * process until the game exits.
+ * process until the game exits. The library is one `.mod` file that runs on
+ * every platform, built with tools/pc/build_mod.py against the headers in
+ * src/pc/mods/libc (modload.h says what it may link to).
  *
  * What the host offers here is what a mod can reach safely. There is no
  * network call and no way to name a file outside the mod's own directories:

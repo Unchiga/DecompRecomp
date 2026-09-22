@@ -4,6 +4,7 @@
  * sector arithmetic. */
 #define _POSIX_C_SOURCE 200809L
 #include "pc/mods/mods.h"
+#include "pc/mods/modload.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include <assert.h>
@@ -41,6 +42,11 @@ int Memories_DiscFileStart(const char *path)
     int lba = -1;
     return Memories_DiscFileInfo(path, &lba, NULL) ? -1 : lba;
 }
+
+/* The game's names a mod library could link to: none here
+ * (tests/pc/modload_test.c loads real libraries). */
+const ModSymbol Memories_ModSymbols[] = {{"", NULL}};
+const unsigned Memories_ModSymbolCount = 0;
 
 /* --- fixtures -------------------------------------------------------- */
 

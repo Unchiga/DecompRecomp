@@ -601,7 +601,7 @@ Native pieces (all under `src/pc/`):
 | Area | File | Notes |
 |---|---|---|
 | GPU | `render/soft_gpu.c` | Software rasterizer: flat/Gouraud/textured polygons, sprites, lines, fills, VRAM transfers, 4/8/15-bit textures, texture window, four blend modes, mask bits, dithering. `pc_soft_gpu` checks the fill rule, CLUT path, clipping and wraparound. Replaces PSY-Z for the 32-bit build (no 32-bit SDL installed here) |
-| Mods | `src/pc/mods/mods.c`, `mods/3d-monsters/field_models.c` | The mod system (`notes/modding.md`) and **3D Monsters**, described above: the duel field's face-up monsters as animated models, on their own arenas and software-GPU texture banks. Off by default; nothing in it runs while it is off |
+| Mods | `src/pc/mods/mods.c`, `src/pc/mods/modload.c`, `mods/3d-monsters/field_models.c` | The mod system (`notes/modding.md`; one `.mod` library per mod for every platform, loaded by the game itself) and **3D Monsters**, described above: the duel field's face-up monsters as animated models, on their own arenas and software-GPU texture banks. Off by default; nothing in it runs while it is off |
 | Menu bar | `platform/menu_x11.c` | **File > Exit**, **Audio > Volume** and **Mods**, one checked item per extra (a 0-100 slider: drag it, click the track, or use the wheel over it). Drawn with plain Xlib, since the port has no toolkit; the window is `Menu_Height()` (22 px) taller than the picture and the picture sits below it. Labels use an X core font, falling back to a small built-in glyph table because a server started under Wayland often has no core fonts. The volume is kept in `settings.txt` in the user directory (see `MEMORIES_SETTINGS`) and applied through `Spu_SetOutputVolume`, which is the port's own control and deliberately outside save states. While a menu is open it owns every mouse event, including the wheel: otherwise the wheel stepped the game's cursor behind the menu and played its sound |
 | Window/input | `platform/x11.c` | Plain Xlib. The 59.94 Hz VBlank is a `SIGALRM` tick on the main thread, standing in for the interrupt, so the game's busy-waits on VBlank counters work unchanged. Game units are built `-O0` so those non-volatile polls are not hoisted. The frame and the menu bar are composed in an offscreen pixmap and reach the window in one `XCopyArea`: an open menu hangs over the picture, so drawing both straight to the window made the menu flash once a frame |
 | LIBETC/pads | `sdk/libetc.c` | Callbacks, `VSync` (presents, then waits), critical sections that defer the tick, BIOS pad buffers |
@@ -769,16 +769,16 @@ What differs from Linux, and why:
   the trap for `movl 0x4c(%eax),%eax` (destination = base register) in
   `func_800540B4` under the 3D Monsters mod, and the process died in the
   exception dispatcher.
-- **Mods.** The executable exports its symbols (`--export-all-symbols`) and
-  the link leaves an import library, `libmemories-pc.a`, beside it; a mod's
-  DLL links against that, which is what `-rdynamic` does for a `.so` on
-  Linux. `mods.c` reads a replacement file into memory instead of mapping
-  it, and loads the DLL with `LoadLibrary` (`pc/compat/dlfcn.h`). Pinned
-  guest names are absolute symbols, which a PE export table cannot carry, so
-  a mod DLL also links `guest_symbols.o`, and `-static -lpthread` as the
-  executable does. Both shipped mods load on Windows (2026-09-22, headless
-  to the title screen with `MEMORIES_TRACE=mods`); in-game behaviour is not
-  checked yet.
+- **Mods.** A mod's library is one `.mod` file for both platforms, loaded by
+  the game's own loader (`src/pc/mods/modload.c`) rather than `LoadLibrary`
+  or `dlopen`, and linked only to a generated table of the game's and the
+  port's symbols and to the mod C library (`notes/modding.md`, "Native
+  mods"). That replaced DLLs linked against an import library, where a game
+  function's name inside the DLL was a local import thunk: comparisons such
+  as `D_800E9DB0[3] == Duel_DrawFieldCards` were never true, so 3D Monsters
+  and the hand camera silently did nothing on Windows. `mods.c` reads a
+  replacement file into memory instead of mapping it. Checked 2026-09-22 from
+  `slot1.state`: Meteor B. Dragon stands on its card.
 - **Tests.** On MinGW every CMake test links `-static`: otherwise a 32-bit
   test loads whichever `libwinpthread-1.dll` PATH finds first, often a
   64-bit one, and fails to start with 0xc000007b. Run them with a native

@@ -48,7 +48,7 @@ Every mod has a `mod.json`:
 |---|---|
 | `id` | the name the settings and the user directory use; the directory's name when it is left out |
 | `name` | what the Mods window shows |
-| `library` | the mod's shared library, relative to its directory. Without a suffix the platform's is added (`.so`, `.dll`). Leave it out for a mod that is only data |
+| `library` | the mod's library, relative to its directory; without a suffix `.mod` is added (one file for every platform, below). Leave it out for a mod that is only data |
 | `enabled` | whether the mod is applied the first time the game sees it |
 | `restart` | whether changing it needs a fresh process. Data overrides default to `true`, because the game reads most of what they change while it starts; code mods default to `false` |
 | `legacy_setting` | an older settings key to read the player's choice from, once |
@@ -88,7 +88,7 @@ as it was.
 
 ## Native mods
 
-A native mod is a shared library with one exported symbol, described in
+A native mod is a library with one exported symbol, described in
 [`src/pc/mods/modapi.h`](../src/pc/mods/modapi.h):
 
 ```c
@@ -118,31 +118,62 @@ the only place it may write), `setting`/`set_setting` (whole numbers kept in
 the player's settings file as `mod.<id>.<key>`), `disc_file_start`/
 `disc_read`, and `pad`.
 
-Beyond that, a mod is native code in the game's process and reaches the game
-directly: the executable is linked with `-rdynamic`, so a mod's undefined
-symbols bind to the game's and the port's own at load time. That is what
-makes something like 3D Monsters possible -- it borrows the model loader, the
-software GPU's texture banks and the duel's ordering table -- and it is why a
-native mod is trusted code. Build against the repository's headers:
+### One file for Linux and Windows
+
+A mod's library is one `.mod` file, and the same file runs on Linux and on
+Windows. The game loads it with its own loader
+([`src/pc/mods/modload.c`](../src/pc/mods/modload.c)), not with the
+operating system's, so there is no `.so` or `.dll` to build twice and nothing
+in a mod differs between platforms. (It is a 32-bit x86 ELF shared object;
+both games are 32-bit x86 with the same calling convention and the guest RAM
+at the same addresses, which is what makes one file enough.)
+
+Build it with
+[`tools/pc/build_mod.py`](../tools/pc/build_mod.py), from a checkout of this
+repository, on either platform:
 
 ```sh
-gcc -m32 -std=gnu11 -O2 -fPIC -shared -Isrc \
-    -DMEMORIES_PC -D_LANGUAGE_C -DLANGUAGE_C \
-    -o my-mod/my-mod.so my-mod/*.c -lm
+python3 tools/pc/build_mod.py path/to/my-mod     # writes path/to/my-mod/my-mod.mod
 ```
 
-On Windows the executable exports its symbols instead, and the build leaves
-its import library beside it; a mod is a DLL linked against that:
+It needs clang with `ld.lld` -- llvm-mingw has both, so the Windows toolchain
+in `notes/pc-build.md` already does -- or GCC with `-m32` on Linux. The file
+is named after the manifest's `"library"` (`"library": "my-mod"` loads
+`my-mod.mod`). `tools/pc/build_game32.py` builds every directory under
+`mods/` the same way and copies it next to the executable, so a mod developed
+in this repository needs no build wiring of its own.
 
-```sh
-i686-w64-mingw32-clang -std=gnu11 -O2 -shared -Isrc -mno-ms-bitfields \
-    -DMEMORIES_PC -D_LANGUAGE_C -DLANGUAGE_C \
-    -o my-mod/my-mod.dll my-mod/*.c tmp/pc/game32/libmemories-pc.a -lm
-```
+### What a mod links to
 
-`tools/pc/build_game32.py` does exactly this for every directory under
-`mods/` and copies the manifest and the mod's files next to the executable,
-so a mod developed in this repository needs no build wiring of its own.
+A mod is compiled against the game's headers (`src/`) and against
+[`src/pc/mods/libc`](../src/pc/mods/libc), the C library the game gives
+mods, never against its system's. When the mod is applied, every name it
+uses is looked up in exactly two places:
+
+* **the game and the port**: every function and variable of the game, and
+  the port's SDK, renderer, sound, overrides and GTE -- what 3D Monsters
+  uses to borrow the model loader, the software GPU's texture banks and the
+  duel's ordering table. A mod naming a game function gets the game's own
+  address, so comparing it with a pointer the game stored works;
+* **the mod C library**: memory, strings, maths, `printf`-style formatting,
+  `qsort`, `getenv`, clocks, anonymous `mmap`, and reading and writing the
+  `FILE`s the host opens for it. `time_t` is 32 bits, `CLOCKS_PER_SEC` is a
+  million, `RAND_MAX` is `0x7fffffff` and `rand()` is one sequence -- the
+  same on both platforms, where the systems' own differ.
+
+A name in neither refuses the load, and the Mods window shows which:
+`it uses fopen, remove, socket, which are not available to mods`. So a mod
+has no `fopen`, `remove` or `rename`, no sockets or network, no `system` or
+`exec`, and no way to load another library; the platform layer (files,
+paths, settings, the window, logs) is not in the game's table either. The
+loader also refuses a library that names another library it needs, uses
+thread-local storage, or is not a 32-bit x86 shared object.
+
+Two things a mod must not rely on, because the two hosts differ there: a
+function returning a structure by value (the Linux and Windows 32-bit
+conventions return small ones differently), and a `long long` or `double`
+inside a structure it shares with the game, whose alignment differs too.
+Neither occurs in the game's structures or the host table.
 
 ## What a mod may and may not do
 
@@ -150,11 +181,13 @@ The host table has no network call in it, and no way to name a file outside
 the mod's own directory and its data directory: relative paths only, and
 `..`, absolute paths and drive letters are refused (`Paths_Contained`). Data
 overrides only reach the disc image through the port's own reader and never
-write to it.
+write to it. A native mod is linked to nothing else the operating system
+offers (above), so a mod built from its source with these tools cannot reach
+the network or delete or overwrite the player's files.
 
-A native library, though, is native code: nothing stops one from calling the
-C library itself. The confinement above is what the mod system offers, not a
-sandbox around the process, so installing a native mod is trusting its
+That is a boundary around what a mod can link to, not a sandbox around the
+process: a library is still native code in the game, and one written to get
+round the loader deliberately could. Installing a native mod is trusting its
 author, as with any plugin. A data-only mod carries no code and is safe to
 install on that ground alone. The Mods window shows every mod it found, and
 the reason beside any that failed to load.
@@ -177,4 +210,7 @@ examples of a native mod that reaches deep into the game.
   renders one frame without a window.
 * `tests/pc/mods_test.c` (ctest `pc_mods`) covers discovery, manifests, the
   settings keys and what data overrides do to a sector;
-  `tests/pc/json_test.c` (`pc_json`) covers the manifest reader.
+  `tests/pc/json_test.c` (`pc_json`) covers the manifest reader;
+  `tests/pc/modload_test.c` (`pc_modload`, in 32-bit x86 builds) loads the
+  libraries in `tests/pc/mod_fixtures`, built with `build_mod.py`: the
+  relocations, the mod C library, the game's addresses, and the refusals.

@@ -23,3 +23,6 @@
 # Tool-generated language caches
 **/__pycache__/
 *.py[cod]
+
+# Mod libraries built in place (tools/pc/build_mod.py)
+/mods/*/*.mod

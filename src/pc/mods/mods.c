@@ -7,19 +7,23 @@
  * manifest names the mod, says whether it needs a restart, and carries two
  * kinds of content, either or both:
  *
- *  - a library, which is dlopen'd when the mod is first applied and keeps
- *    the process for as long as the game runs (unloading one while the game
- *    holds pointers into it is how a port crashes for no visible reason);
+ *  - a library, one `.mod` file for every platform, which the game's own
+ *    loader (modload.c) reads when the mod is first applied and which stays
+ *    for as long as the game runs (unloading one while the game holds
+ *    pointers into it is how a port crashes for no visible reason);
  *  - data overrides, which replace or patch what the disc delivers, so that
  *    a mod of card statistics or artwork needs no code at all.
  *
- * What a mod may reach is the host table in modapi.h. There is no network
- * call in it and no way to name a file outside the mod's own directory and
- * its private data directory: Paths_Contained refuses absolute paths, "..",
- * and drive letters. A native library is still native code in this process,
- * which is what makes a mod like 3D Monsters possible at all, so the window
- * shows where each mod came from and the notes say plainly that installing
- * one is trusting it. */
+ * What a mod may reach is the host table in modapi.h, the game itself, and
+ * the C library modlibc.c gives it -- and nothing the operating system
+ * offers besides, because the loader links it to nothing else. There is no
+ * network call in any of them and no way to name a file outside the mod's
+ * own directory and its private data directory: Paths_Contained refuses
+ * absolute paths, "..", and drive letters, and there is no fopen, remove or
+ * rename. A library is still native code in this process, which is what
+ * makes a mod like 3D Monsters possible at all, so the window shows where
+ * each mod came from and the notes say plainly that installing one is
+ * trusting it. */
 #define _POSIX_C_SOURCE 200809L
 #include "mods.h"
 #include "modapi.h"
@@ -29,7 +33,7 @@
 #include "pc/platform/platform.h"
 #include "pc/debug/log.h"
 #include "pc/sdk/disc.h"
-#include "pc/compat/dlfcn.h"
+#include "modload.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -53,11 +57,8 @@
 #define REGIONS_MAX 64
 #define PATCHES_MAX 1024
 
-#ifdef _WIN32
-#define LIBRARY_SUFFIX ".dll"
-#else
-#define LIBRARY_SUFFIX ".so"
-#endif
+/* The one library format, on every platform (modload.h). */
+#define LIBRARY_SUFFIX ".mod"
 
 typedef struct {
     char id[ID_MAX];
@@ -513,18 +514,18 @@ int Mods_DiscSector(int lba, void *user_data)
 
 static int load_library(Mod *mod)
 {
-    char path[PATH_MAX_];
+    char path[PATH_MAX_], error[STATUS_MAX];
     MemoriesModEntry entry;
     union { void *pointer; int (*function)(const MemoriesModHost *, MemoriesMod *); } symbol;
     if (!mod->library[0]) return 1;   /* data only: nothing to load */
     if (mod->handle) return 1;
     if (snprintf(path, sizeof(path), "%s/%s", mod->directory, mod->library) >= (int)sizeof(path)) return 0;
-    mod->handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    mod->handle = ModLoad_Open(path, error, sizeof(error));
     if (!mod->handle) {
-        note(mod, "%s", dlerror());
+        note(mod, "%s: %s", mod->library, error);
         return 0;
     }
-    symbol.pointer = dlsym(mod->handle, "MemoriesModInit");
+    symbol.pointer = ModLoad_Symbol(mod->handle, "MemoriesModInit");
     if (!symbol.pointer) {
         note(mod, "%s has no MemoriesModInit", mod->library);
         return 0;
