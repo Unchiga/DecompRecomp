@@ -1,5 +1,6 @@
 #include "soft_gpu.h"
 #include "texture_dump.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -49,6 +50,13 @@ typedef struct WideTarget {
 static WideTarget wide[WIDE_TARGETS];
 static int wide_on;
 static unsigned wide_clock;
+/* The scaled picture (SoftGpu_SetScale): scale x scale pixels per word. */
+static uint32_t *picture;
+static int scale = 1;
+#define PICTURE_WIDTH (SOFT_GPU_WIDTH * scale)
+#define PICTURE_HEIGHT (SOFT_GPU_HEIGHT * scale)
+static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y);
+static int owns(const Vertex *a, const Vertex *b);
 
 uint16_t *SoftGpu_Bank(int bank)
 {
@@ -59,6 +67,37 @@ uint16_t *SoftGpu_Bank(int bank)
         banks[bank] = calloc(SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(uint16_t));
     }
     return banks[bank];
+}
+
+static inline __attribute__((always_inline)) uint32_t expand(uint16_t c)
+{
+    uint32_t r = c & 0x1f, g = (c >> 5) & 0x1f, b = (c >> 10) & 0x1f;
+    return ((r << 3 | r >> 2) << 16) | ((g << 3 | g >> 2) << 8) | (b << 3 | b >> 2);
+}
+
+static inline __attribute__((always_inline)) uint32_t *picture_pixel(int hx, int hy)
+{
+    int w = PICTURE_WIDTH, h = PICTURE_HEIGHT;
+    hx %= w;
+    hy %= h;
+    if (hx < 0) hx += w;
+    if (hy < 0) hy += h;
+    return &picture[(size_t)hy * (size_t)w + (size_t)hx];
+}
+
+/* The words x..x+w-1, y..y+h-1 of VRAM, copied into the picture. */
+static void picture_from_words(int x, int y, int w, int h)
+{
+    int i, j, sx, sy;
+    if (!picture) return;
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) {
+            uint32_t colour = expand(*pixel(x + i, y + j));
+            for (sy = 0; sy < scale; sy++) {
+                for (sx = 0; sx < scale; sx++) *picture_pixel((x + i) * scale + sx, (y + j) * scale + sy) = colour;
+            }
+        }
+    }
 }
 
 static const int8_t dither_matrix[4][4] = {
@@ -91,6 +130,31 @@ static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y)
 static inline __attribute__((always_inline)) uint16_t *vram_pixel(int x, int y)
 {
     return &vram[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
+}
+
+int SoftGpu_SetScale(int wanted)
+{
+    uint32_t *made = NULL;
+    if (wanted < 1 || wanted > 8) return 0;
+    if (wanted == scale) return 1;
+    if (wanted > 1) {
+        made = calloc((size_t)SOFT_GPU_WIDTH * wanted * SOFT_GPU_HEIGHT * wanted, sizeof(*made));
+        if (!made) return 0;
+    }
+    free(picture);
+    picture = made;
+    scale = wanted;
+    SoftGpu_PictureFromVram();
+    return 1;
+}
+
+int SoftGpu_Scale(void) { return scale; }
+
+const uint32_t *SoftGpu_Picture(void) { return picture; }
+
+void SoftGpu_PictureFromVram(void)
+{
+    if (picture) picture_from_words(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
 }
 
 /* The same word in whichever bank the current texture page names. */
@@ -234,6 +298,7 @@ void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
         }
     }
     wide_mirror(x, y, w, h, 0, 0);
+    picture_from_words(x, y, w, h);
 }
 
 void SoftGpu_Store(int x, int y, int w, int h, uint16_t *pixels)
@@ -260,6 +325,18 @@ void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
         }
     }
     wide_mirror(dx, dy, w, h, 0, 0);
+    if (picture) {
+        /* The picture's own pixels move, row by row forwards like the words. */
+        int hw = w * scale, hh = h * scale, hsx = sx * scale, hsy = sy * scale, hdx = dx * scale, hdy = dy * scale;
+        for (j = 0; j < hh; j++) {
+            for (i = 0; i < hw; i++) {
+                if (!gpu.mask_check || !(*pixel(dx + i / scale, dy + j / scale) & 0x8000) ||
+                    *pixel(dx + i / scale, dy + j / scale) == (uint16_t)(*pixel(sx + i / scale, sy + j / scale) | 0x8000)) {
+                    *picture_pixel(hdx + i, hdy + j) = *picture_pixel(hsx + i, hsy + j);
+                }
+            }
+        }
+    }
 }
 
 static uint16_t pack(uint32_t rgb24)
@@ -279,6 +356,7 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
         }
     }
     wide_mirror(x, y, w, h, 1, colour);
+    picture_from_words(x, y, w, h);
 }
 
 static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
@@ -378,6 +456,144 @@ static inline __attribute__((always_inline)) void plot(int x, int y, int r, int 
     }
     *target = (uint16_t)(r | (g << 5) | (b << 10) | (source & 0x8000) |
                          (gpu.mask_set ? 0x8000 : 0));
+}
+
+/* --- the scaled picture's own pass ------------------------------------
+ * The same primitives, drawn again at scale x scale pixels per word into
+ * the picture: positions and clipping scaled, texture coordinates carried
+ * with a fraction so that a pack's image is sampled at its own resolution,
+ * VRAM's own texels otherwise. No dithering; the mask bit is VRAM's. */
+
+/* A texel for the picture: the pack's image if it replaces it, else the
+ * word in VRAM through the palette. u and v in 16.16 texels. */
+static inline __attribute__((always_inline)) int picture_texel(int u, int v, uint32_t *rgb)
+{
+    uint16_t word;
+    if (shadow_on && TextureDump_Sample) {
+        int got = TextureDump_Sample(gpu.page_x, gpu.page_y, gpu.depth, u, v, rgb);
+        if (got == 1) return 1;
+        if (got == 2) return 0;
+    }
+    word = texel(u >> 16, v >> 16);
+    if (!word) return 0;
+    *rgb = expand(word) | ((uint32_t)(word & 0x8000) << 16); /* bit 31: semi-transparent texel */
+    return 1;
+}
+
+static inline __attribute__((always_inline)) void picture_plot(int hx, int hy, int r, int g, int b, int u, int v,
+                                                               int flags)
+{
+    uint32_t *target, rgb = 0;
+    int semi = flags & 2;
+    if (hx < gpu.clip_x1 * scale || hx >= (gpu.clip_x2 + 1) * scale || hy < gpu.clip_y1 * scale ||
+        hy >= (gpu.clip_y2 + 1) * scale) {
+        return;
+    }
+    if (gpu.mask_check && (*pixel(hx / scale, hy / scale) & 0x8000)) return;
+    target = picture_pixel(hx, hy);
+    if (flags & 4) {
+        if (!picture_texel(u, v, &rgb)) return;
+        semi = semi && (rgb & 0x80000000u);
+        if (flags & 1) {
+            r = (int)((rgb >> 16) & 0xff);
+            g = (int)((rgb >> 8) & 0xff);
+            b = (int)(rgb & 0xff);
+        } else {
+            r = (int)(((rgb >> 16) & 0xff) * r) >> 7;
+            g = (int)(((rgb >> 8) & 0xff) * g) >> 7;
+            b = (int)((rgb & 0xff) * b) >> 7;
+        }
+    }
+    r = clamp8(r);
+    g = clamp8(g);
+    b = clamp8(b);
+    if (semi) {
+        int br = (int)((*target >> 16) & 0xff), bg = (int)((*target >> 8) & 0xff), bb = (int)(*target & 0xff);
+        switch (gpu.blend) {
+        case 0: r = (br + r) >> 1; g = (bg + g) >> 1; b = (bb + b) >> 1; break;
+        case 1: r += br; g += bg; b += bb; break;
+        case 2: r = br - r; g = bg - g; b = bb - b; break;
+        default: r = br + (r >> 2); g = bg + (g >> 2); b = bb + (b >> 2); break;
+        }
+        r = clamp8(r);
+        g = clamp8(g);
+        b = clamp8(b);
+    }
+    *target = ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static int64_t picture_edge(const Vertex *a, const Vertex *b, int x, int y)
+{
+    return (int64_t)(b->x - a->x) * scale * (y - a->y * scale) - (int64_t)(b->y - a->y) * scale * (x - a->x * scale);
+}
+
+static void picture_triangle(Vertex a, Vertex b, Vertex c, int flags)
+{
+    int min_x, max_x, min_y, max_y, bias0, bias1, bias2;
+    int64_t area = (int64_t)(b.x - a.x) * (c.y - a.y) - (int64_t)(b.y - a.y) * (c.x - a.x);
+    if (area == 0) return;
+    if (area < 0) {
+        Vertex swap = b;
+        b = c;
+        c = swap;
+        area = -area;
+    }
+    min_x = a.x < b.x ? (a.x < c.x ? a.x : c.x) : (b.x < c.x ? b.x : c.x);
+    max_x = a.x > b.x ? (a.x > c.x ? a.x : c.x) : (b.x > c.x ? b.x : c.x);
+    min_y = a.y < b.y ? (a.y < c.y ? a.y : c.y) : (b.y < c.y ? b.y : c.y);
+    max_y = a.y > b.y ? (a.y > c.y ? a.y : c.y) : (b.y > c.y ? b.y : c.y);
+    if (max_x - min_x > 1023 || max_y - min_y > 511) return;
+    if (min_x < gpu.clip_x1) min_x = gpu.clip_x1;
+    if (min_y < gpu.clip_y1) min_y = gpu.clip_y1;
+    if (max_x > gpu.clip_x2) max_x = gpu.clip_x2;
+    if (max_y > gpu.clip_y2) max_y = gpu.clip_y2;
+    bias0 = owns(&b, &c) ? 0 : -1;
+    bias1 = owns(&c, &a) ? 0 : -1;
+    bias2 = owns(&a, &b) ? 0 : -1;
+    {
+        /* Edge functions on picture pixels, attributes in 12.20 from vertex
+         * a, stepped per picture pixel (a word is `scale` steps). */
+        enum { FRACTION = 20, BIAS = 1 << 12 };
+        const int32_t ex0 = (b.y - c.y), ey0 = (c.x - b.x), ex1 = (c.y - a.y), ey1 = (a.x - c.x);
+        const int32_t ex2 = (a.y - b.y), ey2 = (b.x - a.x);
+        const int hx0 = min_x * scale, hx1 = (max_x + 1) * scale - 1, hy0 = min_y * scale, hy1 = (max_y + 1) * scale - 1;
+        int64_t row0 = -picture_edge(&c, &b, hx0, hy0) + (int64_t)bias0 * scale;
+        int64_t row1 = -picture_edge(&a, &c, hx0, hy0) + (int64_t)bias1 * scale;
+        int64_t row2 = -picture_edge(&b, &a, hx0, hy0) + (int64_t)bias2 * scale;
+        const int values[5][3] = {{a.r, b.r, c.r}, {a.g, b.g, c.g}, {a.b, b.b, c.b}, {a.u, b.u, c.u}, {a.v, b.v, c.v}};
+        int64_t step_x[5], step_y[5], row[5];
+        int k, hy, hx;
+        for (k = 0; k < 5; k++) {
+            int64_t nx = (int64_t)ex0 * values[k][0] + (int64_t)ex1 * values[k][1] + (int64_t)ex2 * values[k][2];
+            int64_t ny = (int64_t)ey0 * values[k][0] + (int64_t)ey1 * values[k][1] + (int64_t)ey2 * values[k][2];
+            step_x[k] = (nx * (1 << FRACTION) + (nx < 0 ? -area / 2 : area / 2)) / area / scale;
+            step_y[k] = (ny * (1 << FRACTION) + (ny < 0 ? -area / 2 : area / 2)) / area / scale;
+            row[k] = (int64_t)values[k][0] * (1 << FRACTION) + BIAS + step_x[k] * (hx0 - a.x * scale) +
+                     step_y[k] * (hy0 - a.y * scale);
+        }
+        for (hy = hy0; hy <= hy1; hy++) {
+            int64_t w0 = row0, w1 = row1, w2 = row2;
+            int64_t r = row[0], g = row[1], blue = row[2], u = row[3], v = row[4];
+            for (hx = hx0; hx <= hx1; hx++) {
+                if ((w0 | w1 | w2) >= 0) {
+                    picture_plot(hx, hy, (int)(r >> FRACTION), (int)(g >> FRACTION), (int)(blue >> FRACTION),
+                                 (int)(u >> (FRACTION - 16)), (int)(v >> (FRACTION - 16)), flags);
+                }
+                w0 += ex0 * scale; /* the edge functions are in picture units squared */
+                w1 += ex1 * scale;
+                w2 += ex2 * scale;
+                r += step_x[0];
+                g += step_x[1];
+                blue += step_x[2];
+                u += step_x[3];
+                v += step_x[4];
+            }
+            row0 += ey0 * scale;
+            row1 += ey1 * scale;
+            row2 += ey2 * scale;
+            for (k = 0; k < 5; k++) row[k] += step_y[k];
+        }
+    }
 }
 
 static int64_t edge(const Vertex *a, const Vertex *b, int x, int y)
@@ -490,6 +706,19 @@ static void line(Vertex a, Vertex b, int flags)
     if ((dx < 0 ? -dx : dx) > 1023 || (dy < 0 ? -dy : dy) > 511) {
         return;
     }
+    if (picture) { /* first: see the polygon's note */
+        int hsteps = steps * scale, sx, sy;
+        for (i = 0; i <= hsteps; i++) {
+            int n = hsteps ? hsteps : 1;
+            int hx = a.x * scale + dx * scale * i / n, hy = a.y * scale + dy * scale * i / n;
+            for (sy = 0; sy < scale; sy++) {
+                for (sx = 0; sx < scale; sx++) {
+                    picture_plot(hx + sx, hy + sy, a.r + (b.r - a.r) * i / n, a.g + (b.g - a.g) * i / n,
+                                 a.b + (b.b - a.b) * i / n, 0, 0, flags);
+                }
+            }
+        }
+    }
     for (i = 0; i <= steps; i++) {
         int n = steps ? steps : 1;
         plot(a.x + dx * i / n, a.y + dy * i / n, a.r + (b.r - a.r) * i / n,
@@ -572,6 +801,12 @@ static size_t polygon(const uint32_t *words, size_t count)
         TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, u0, v0,
                               u1 > u0 ? u1 - 1 : u1, v1 > v0 ? v1 - 1 : v1);
     }
+    /* The picture's pass first: it reads the mask bits VRAM has before this
+     * primitive, as the primitive's own pass does. */
+    if (picture) {
+        picture_triangle(v[0], v[1], v[2], flags);
+        if (quad) picture_triangle(v[1], v[2], v[3], flags);
+    }
     triangle(v[0], v[1], v[2], flags);
     if (quad) {
         triangle(v[1], v[2], v[3], flags);
@@ -610,6 +845,15 @@ static size_t rectangle(const uint32_t *words, size_t count)
     if (textured && TextureDump_Enabled && w && h) {
         TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u,
                               base.v, base.u + w - 1, base.v + h - 1);
+    }
+    if (picture) { /* first: see the polygon's note */
+        int hw = w * scale, hh = h * scale;
+        for (j = 0; j < hh; j++) {
+            for (i = 0; i < hw; i++) {
+                picture_plot(base.x * scale + i, base.y * scale + j, base.r, base.g, base.b,
+                             (base.u << 16) + (i << 16) / scale, (base.v << 16) + (j << 16) / scale, flags);
+            }
+        }
     }
     switch (flags) {
 #define CASE(n) case n: \

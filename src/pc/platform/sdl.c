@@ -38,6 +38,7 @@ static GLuint gl_picture, gl_overlay;
 static int use_gl;
 static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
+static int picture_scale = 1; /* picture pixels per game pixel (internal resolution) */
 static MenuCanvas canvas;
 /* Menu/input geometry is in SDL window coordinates (logical pixels). The
  * renderer target may have more physical pixels on a high-DPI display. */
@@ -779,9 +780,9 @@ static void relayout(void)
     int output_w, output_h, window_w, window_h, menu;
     int aspect = Settings_Get(SET_ASPECT);
     /* Widescreen pictures arrive 4/3 as wide as the 4:3 ones (libgpu.c), so
-     * both keep the same pixel shape. */
-    int pw = aspect == 1 ? picture_w : aspect == 2 ? picture_h * 16 / 9 : picture_h * 4 / 3;
-    int ph = picture_h, area_h, mode = Settings_Get(SET_SCALING);
+     * both keep the same pixel shape; the internal resolution scales both. */
+    int pw = (aspect == 1 ? picture_w : aspect == 2 ? picture_h * 16 / 9 : picture_h * 4 / 3) / picture_scale;
+    int ph = picture_h / picture_scale, area_h, mode = Settings_Get(SET_SCALING);
     float factor;
     if ((!renderer && !use_gl) || picture_w <= 0 || picture_h <= 0 ||
         !SDL_GetWindowSize(window, &window_w, &window_h) ||
@@ -869,9 +870,9 @@ static void relayout(void)
 static void display_picture_size(int *w, int *h)
 {
     int aspect = Settings_Get(SET_ASPECT);
-    *h = picture_h > 0 ? picture_h : 240;
+    *h = picture_h > 0 ? picture_h / picture_scale : 240;
     *w = aspect == 2 ? *h * 16 / 9
-                     : aspect == 1 ? (picture_w > 0 ? picture_w : 320)
+                     : aspect == 1 ? (picture_w > 0 ? picture_w / picture_scale : 320)
                                    : *h * 4 / 3;
 }
 
@@ -1456,16 +1457,17 @@ int Platform_Open(const char *title)
     return 0;
 }
 
-void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
+/* Before a frame: input and the menu, then any window change. */
+static void begin_present(int w, int h, int at_scale)
 {
-    int i, j;
-    if ((!renderer && !use_gl) || w <= 0 || h <= 0) {
-        return;
-    }
     pump(); /* before the frame, so its input and menu state are current */
     if (pending_scale) {
         scale = pending_scale;
         pending_scale = 0;
+        display_settings_pending = 1;
+    }
+    if (picture_scale != at_scale) {
+        picture_scale = at_scale;
         display_settings_pending = 1;
     }
     if (display_settings_pending) {
@@ -1473,6 +1475,40 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
         apply_display_settings();
     }
     resize(w, h);
+}
+
+/* After the picture's pixels are in place: to the texture and the window. */
+static void finish_present(int w, int h)
+{
+    if (use_gl) {
+        glBindTexture(GL_TEXTURE_2D, gl_picture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, picture_pixels);
+    } else {
+        SDL_UpdateTexture(picture, NULL, picture_pixels, w * 4);
+    }
+    compose_menu_if_changed();
+    show();
+}
+
+int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, int w, int h, int at_scale)
+{
+    int j;
+    if ((!renderer && !use_gl) || w <= 0 || h <= 0 || at_scale < 1) return 0;
+    begin_present(w, h, at_scale);
+    for (j = 0; j < h; j++) {
+        memcpy(picture_pixels + (size_t)j * (size_t)w, pixels + (size_t)(y + j) * (size_t)stride + x, (size_t)w * 4);
+    }
+    finish_present(w, h);
+    return 1;
+}
+
+void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
+{
+    int i, j;
+    if ((!renderer && !use_gl) || w <= 0 || h <= 0) {
+        return;
+    }
+    begin_present(w, h, 1);
     for (j = 0; j < h; j++) {
         const uint16_t *row = vram + ((y + j) & 511) * stride;
         uint32_t *out = picture_pixels + (size_t)j * (size_t)w;
@@ -1487,14 +1523,7 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
             }
         }
     }
-    if (use_gl) {
-        glBindTexture(GL_TEXTURE_2D, gl_picture);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, picture_pixels);
-    } else {
-        SDL_UpdateTexture(picture, NULL, picture_pixels, w * 4);
-    }
-    compose_menu_if_changed();
-    show();
+    finish_present(w, h);
 }
 
 int Platform_ShouldQuit(void) { return quit; }

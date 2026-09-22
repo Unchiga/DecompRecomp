@@ -14,6 +14,8 @@ typedef struct Entry {
     int words, rows, bpp, crop_left, crop_width, clut_entries;
     char *file;
     uint16_t *pixels; /* resampled to words*per_word x rows, 15-bit | 0x8000, 0 = transparent; NULL until first use */
+    unsigned char *image; /* the PNG itself, RGBA, for the scaled picture */
+    int image_width, image_height;
     int failed;
 } Entry;
 
@@ -21,6 +23,7 @@ static Entry *entries;
 static int entry_count, resolved; /* offsets are absolute on the disc, entries sorted */
 static char directory[1024];
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
+static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
 
 static int per_word(int bpp) { return bpp == 4 ? 4 : bpp == 8 ? 2 : 1; }
 
@@ -111,8 +114,44 @@ static int load_pixels(Entry *entry)
             }
         }
     }
-    free(rgba);
+    entry->image = rgba;
+    entry->image_width = (int)image.width;
+    entry->image_height = (int)image.height;
     png_image_free(&image);
+    return 1;
+}
+
+/* The pack's image at its own resolution for the scaled picture: u and v
+ * are 16.16 texels within the page. 0 not replaced, 1 a colour, 2 painted
+ * transparent. */
+static int sample(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb)
+{
+    int per = depth == 0 ? 4 : depth == 1 ? 2 : 1;
+    int tu = (u >> 16) & 0xff, tv = (v >> 16) & 0xff;
+    int vx = (page_x + tu / per) & (SOFT_GPU_WIDTH - 1), vy = (page_y + tv) & (SOFT_GPU_HEIGHT - 1);
+    size_t at = (size_t)vy * SOFT_GPU_WIDTH + vx;
+    uint16_t index = entry_of[at];
+    const Entry *entry;
+    const unsigned char *p;
+    int64_t px, py;
+    int row, word, texel_x;
+    if (!index) return 0;
+    entry = &entries[index - 1];
+    if (!entry->image || per != per_word(entry->bpp)) return 0;
+    row = (int)(place_of[at] >> 16);
+    word = (int)(place_of[at] & 0xffff);
+    /* The texel within the image, with the fraction the picture carries. */
+    texel_x = word * per + (tu % per) - entry->crop_left;
+    if (texel_x < 0 || texel_x >= entry->crop_width) return 0;
+    px = ((int64_t)texel_x * 65536 + (u & 0xffff)) * entry->image_width / ((int64_t)entry->crop_width * 65536);
+    py = ((int64_t)row * 65536 + (v & 0xffff)) * entry->image_height / ((int64_t)entry->rows * 65536);
+    if (px < 0) px = 0;
+    if (py < 0) py = 0;
+    if (px >= entry->image_width) px = entry->image_width - 1;
+    if (py >= entry->image_height) py = entry->image_height - 1;
+    p = entry->image + ((size_t)py * entry->image_width + (size_t)px) * 4;
+    if (p[3] < 128) return 2;
+    *rgb = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
     return 1;
 }
 
@@ -203,6 +242,7 @@ static void paint(int x, int y, int w, int h)
             if (!load_pixels(entry)) continue;
             per = per_word(entry->bpp);
             entry_of[vy * SOFT_GPU_WIDTH + vx] = (uint16_t)(index + 1);
+            place_of[vy * SOFT_GPU_WIDTH + vx] = ((uint32_t)row << 16) | (uint32_t)word;
             for (k = 0; k < per; k++) {
                 uint16_t colour = entry->pixels[row * entry->words * per + word * per + k];
                 int sub = k * (4 / per), s;
@@ -238,6 +278,7 @@ static void free_entries(void)
         free(entries[i].file);
         free(entries[i].row_offsets);
         free(entries[i].pixels);
+        free(entries[i].image);
     }
     free(entries);
     entries = NULL;
@@ -304,8 +345,10 @@ int TexturePack_Load(const char *from)
         return 0;
     }
     if (!entry_of) entry_of = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*entry_of));
+    if (!place_of) place_of = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*place_of));
     TextureDump_Paint = paint;
     TextureDump_Prepare = prepare;
+    TextureDump_Sample = sample;
     /* What is in VRAM already keeps its tags: paint it now. */
     paint(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
     return entry_count;
@@ -316,6 +359,7 @@ void TexturePack_Unload(void)
     if (!entries) return;
     TextureDump_Paint = NULL;
     TextureDump_Prepare = NULL;
+    TextureDump_Sample = NULL;
     if (TextureDump_Shadow) {
         memset(TextureDump_Shadow, 0, (size_t)TEXTURE_SHADOW_WIDTH * SOFT_GPU_HEIGHT * sizeof(*TextureDump_Shadow));
     }

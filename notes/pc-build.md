@@ -584,6 +584,25 @@ is the proof of the provenance. A state load restores VRAM without
 deliveries, so it clears the tags: the textures traced after it are the
 ones loaded after it.
 
+### Internal resolution
+
+`MEMORIES_INTERNAL_SCALE=N` (2 to 8) draws every primitive a second time,
+at N x N pixels per VRAM word, into a picture of the whole of VRAM in
+24-bit colour (`soft_gpu.c`, `picture_*`), which is what the window shows.
+VRAM itself stays exactly what the console's would be: the game reads it
+back and states hold it, and the 1x frame the smoke fixtures hash is
+byte-identical at any scale. The picture's pass runs before the word's,
+so it sees the mask bits VRAM had before the primitive, as the word's pass
+does; uploads, fills and moves keep it in step; a state load redraws it
+from VRAM. Texture coordinates carry a fraction, so a texture pack's image
+is sampled at its own resolution there (`TextureDump_Sample`); VRAM's own
+texels otherwise. No dithering in the picture. `MEMORIES_DUMP_FRAME` with
+`MEMORIES_DUMP_PICTURE=1` writes the picture instead of the frame. Cost: a
+duel with 3D Monsters draws in about 4.5 ms a frame at 1x and 12.5 ms at
+2x on the development machine; 4x needs a faster inner loop. The X11
+backend shows VRAM as before (`Platform_PresentPicture` returns 0). Not in
+the Options menu yet.
+
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every
