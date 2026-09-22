@@ -29,7 +29,7 @@ void Win32_ServiceInterrupt(void);
 void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds);
 void Win32_Heartbeat(void);
 /* How often the clock's two exception races were repaired (clock trace). */
-void Win32_ClockRepairs(unsigned *lost_redirects, unsigned *undone_faults);
+void Win32_ClockRepairs(unsigned *lost_redirects, unsigned *undone_faults, unsigned *skipped_unreliable);
 
 void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp);
 /* The executable image, and the calling thread's stack. */

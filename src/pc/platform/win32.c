@@ -25,6 +25,12 @@
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
+#ifndef CONTEXT_EXCEPTION_REQUEST /* mingw-w64 defines these for x86-64 only */
+#define CONTEXT_EXCEPTION_ACTIVE 0x08000000
+#define CONTEXT_SERVICE_ACTIVE 0x10000000
+#define CONTEXT_EXCEPTION_REQUEST 0x40000000
+#define CONTEXT_EXCEPTION_REPORTING 0x80000000
+#endif
 
 static DWORD main_id;
 static HANDLE main_thread;
@@ -33,7 +39,7 @@ static volatile LONG in_tick;    /* a tick is running on the main thread */
 static volatile LONG pending;    /* a tick could not be delivered */
 static volatile LONG redirected; /* the clock redirected the main thread, the tick has not run yet */
 static DWORD pushed_at;          /* where that redirect left the interrupted EIP */
-static volatile LONG lost_redirects, undone_faults;
+static volatile LONG lost_redirects, undone_faults, skipped_unreliable;
 static void (*tick_handler)(uintptr_t, void *);
 static CONTEXT interrupted;      /* the registers a delivered tick interrupted */
 static uintptr_t image_low, image_high;
@@ -146,15 +152,32 @@ static DWORD WINAPI run_clock(void *unused)
             }
         }
         if (SuspendThread(main_thread) == (DWORD)-1) continue;
-        context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS;
+        context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_EXCEPTION_REQUEST;
         if (GetThreadContext(main_thread, &context)) {
+            /* The registers of a thread in the kernel for an exception or a
+             * system call are not the ones it will resume with: WoW64 hands
+             * back its saved 32-bit context, and a context set now can be
+             * dropped, or half-applied, by the exception's own NtContinue.
+             * The guest-call and low-memory faults (image.c) make this
+             * common, and the MIPS effect bridge makes it constant: in a
+             * 32-bit test with such faults in a loop, half the redirects
+             * were lost, and in the game one left Memories_VSync with a
+             * function address for its frame pointer. Such a tick waits for
+             * the next sample or wait. */
+            int unreliable = (context.ContextFlags & CONTEXT_EXCEPTION_REPORTING) &&
+                             (context.ContextFlags & (CONTEXT_EXCEPTION_ACTIVE | CONTEXT_SERVICE_ACTIVE));
+            context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
             /* A redirect made while an exception was being delivered can be
              * dropped: the exception resumes the thread with the registers
              * it captured. The tick then never runs and would hold in_tick
              * for ever. While it does run, the thread is below the slot the
              * redirect pushed; above it, the redirect was lost. */
-            if (redirected && context.Esp > pushed_at) release_lost_redirect();
-            if (!held && !in_tick && !(context.EFlags & 0x100) && context.Eip >= image_low && context.Eip < image_high) {
+            if (!unreliable && redirected && context.Esp > pushed_at) release_lost_redirect();
+            if (unreliable) {
+                InterlockedIncrement(&skipped_unreliable);
+                pending = 1;
+            } else if (!held && !in_tick && !(context.EFlags & 0x100) && context.Eip >= image_low &&
+                       context.Eip < image_high) {
                 interrupted = context;
                 in_tick = 1;
                 pending = 0;
@@ -211,10 +234,11 @@ void Win32_Heartbeat(void)
     InterlockedIncrement(&heartbeat);
 }
 
-void Win32_ClockRepairs(unsigned *lost, unsigned *undone)
+void Win32_ClockRepairs(unsigned *lost, unsigned *undone, unsigned *skipped)
 {
     *lost = (unsigned)lost_redirects;
     *undone = (unsigned)undone_faults;
+    *skipped = (unsigned)skipped_unreliable;
 }
 
 void Win32_ServiceInterrupt(void)
@@ -396,7 +420,14 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
     if ((address < image_low || address >= image_high) && !(address >= 0x80000000u && address < 0x80200000u) &&
         !(address >= 0xa0000000u && address < 0xa0200000u) && address >= 0x00200000u &&
         __readfsdword(0) != 0xffffffffu) {
-        return EXCEPTION_CONTINUE_SEARCH;
+        /* Except the main thread running where no module is: a jump
+         * through a bad pointer or return address, which nothing handles. */
+        HMODULE owner;
+        if (GetCurrentThreadId() != main_id ||
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCWSTR)address, &owner)) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
     }
     if (record->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
         static OverflowReport job;
