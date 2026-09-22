@@ -525,7 +525,7 @@ the native build prerequisites described above.
 
 F1, F2 and F4 pick those slots (shown in the window title), while slot 3 is
 available from File; **F5 saves and F7 loads**. Slots
-are `tmp/pc/states/slot<N>.state` (`MEMORIES_STATE_DIR` moves them), about
+are `states/slot<N>.state` in the user directory (`MEMORIES_STATE_DIR` moves them), about
 4 MiB each. `./build-pc.sh load [slot]` or `MEMORIES_LOAD_STATE=<slot or
 path>` starts from a state: the process boots for 30 frames so every
 subsystem is initialized, then resumes the state (under a second).
@@ -719,7 +719,8 @@ Linux build is unchanged.
 For play-testing, `tools/pc/run_debug_windows.bat` runs the game with
 problem reporting on. It keeps a rolling state every 30 s
 (`MEMORIES_AUTOSAVE=<seconds>`, slots `auto1`..`auto3` in
-`tmp/pc/debug/states`), traces in `tmp/pc/debug/trace.log` and the console in
+`tmp/pc/debug/states` through `MEMORIES_AUTOSAVE_DIR`; F5 states stay in the
+user directory), traces in `tmp/pc/debug/trace.log` and the console in
 `tmp/pc/debug/console.txt`. `tmp/pc/hang-*.txt` / `crash-*.txt` hold named
 backtraces: PE symbols have no sizes, so the build sizes each function up to
 the next symbol, and addresses in a DLL are named by module. The hang

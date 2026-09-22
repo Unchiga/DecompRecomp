@@ -642,7 +642,9 @@ void Memories_StatePoint(unsigned presented_frames)
     {
         /* MEMORIES_AUTOSAVE=<seconds>: a rolling state every so many seconds
          * of presented frames, in slots auto1..auto3 of the state folder, so
-         * that a problem report comes with a state from shortly before it. */
+         * that a problem report comes with a state from shortly before it.
+         * MEMORIES_AUTOSAVE_DIR puts them elsewhere, leaving the player's own
+         * slots where they are. */
         static unsigned autosave_every, autosave_next, autosave_index;
         static int autosave_read;
         if (!autosave_read) {
@@ -655,7 +657,12 @@ void Memories_StatePoint(unsigned presented_frames)
             char folder[512];
             const char *slash;
             autosave_next = presented_frames + autosave_every;
-            slot_path(folder, sizeof(folder), 0); /* creates the folder */
+            if (getenv("MEMORIES_AUTOSAVE_DIR")) {
+                snprintf(folder, sizeof(folder), "%s/", getenv("MEMORIES_AUTOSAVE_DIR"));
+                Paths_MakeDirs(getenv("MEMORIES_AUTOSAVE_DIR"));
+            } else {
+                slot_path(folder, sizeof(folder), 0); /* creates the folder */
+            }
             slash = strrchr(folder, '/');
             snprintf(path, sizeof(path), "%.*s/auto%u.state", slash ? (int)(slash - folder) : 1,
                      slash ? folder : ".", autosave_index % 3 + 1);
