@@ -123,10 +123,47 @@ void Memories_DumpFrame(const char *path, int full_vram)
     LOG(LOG_FRAMES, "dumped %s", path);
 }
 
+/* Widescreen shows the display area 4/3 as wide: the widened picture the GPU
+ * drew for it, or, for a screen with no widescreen target (a movie, a small
+ * drawing area), the 4:3 picture between black sides, so the window always
+ * gets a 16:9 frame. */
+static void present_wide(int w, int h)
+{
+    static uint16_t sides[SOFT_GPU_WIDTH * 2 * SOFT_GPU_HEIGHT]; /* room for a 24-bit row */
+    const uint16_t *pixels;
+    static int logged = -1;
+    int x = disp_env.disp.x, y = disp_env.disp.y, wide_x, wide_w, margin = (w / 6 + 1) & ~1, row;
+    int drawn = !disp_env.isrgb24 && SoftGpu_WideFrame(x, y, w, h, &pixels, &wide_x, &wide_w);
+    if (drawn != logged) {
+        LOG(LOG_FRAMES, "widescreen %dx%d at %d,%d: %s", w, h, x, y, drawn ? "widened" : "4:3 between black sides");
+        logged = drawn;
+    }
+    if (drawn) {
+        Platform_Present(pixels, SOFT_GPU_WIDTH, wide_x, y, wide_w, h, 0);
+        return;
+    }
+    for (row = 0; row < h; row++) {
+        uint8_t *out = (uint8_t *)(sides + row * SOFT_GPU_WIDTH * 2);
+        const uint8_t *in = (const uint8_t *)(SoftGpu_Vram() + ((y + row) & 511) * SOFT_GPU_WIDTH);
+        int size = disp_env.isrgb24 ? 3 : 2;
+        memset(out, 0, (size_t)(w + 2 * margin) * (size_t)size);
+        if (disp_env.isrgb24) {
+            memcpy(out + margin * 3, in + x * 2, (size_t)w * 3);
+        } else {
+            int i;
+            for (i = 0; i < w; i++) {
+                ((uint16_t *)out)[margin + i] = ((const uint16_t *)in)[(x + i) & 1023];
+            }
+        }
+    }
+    Platform_Present(sides, SOFT_GPU_WIDTH * 2, 0, 0, w + 2 * margin, h, disp_env.isrgb24);
+}
+
 void Memories_PresentDisplay(void)
 {
     const char *dump = getenv("MEMORIES_DUMP_FRAME");
     int w = disp_env.disp.w > 0 ? disp_env.disp.w : 320, h = disp_env.disp.h > 0 ? disp_env.disp.h : 240;
+    int wide = Platform_Widescreen();
     flush_drawing();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
@@ -137,11 +174,16 @@ void Memories_PresentDisplay(void)
     }
     if (display_enabled && Platform_PresentDue()) {
         frames_shown++;
-        Platform_Present(SoftGpu_Vram(), SOFT_GPU_WIDTH, disp_env.disp.x, disp_env.disp.y, w, h,
-                         disp_env.isrgb24);
+        if (wide) {
+            present_wide(w, h);
+        } else {
+            Platform_Present(SoftGpu_Vram(), SOFT_GPU_WIDTH, disp_env.disp.x, disp_env.disp.y, w, h,
+                             disp_env.isrgb24);
+        }
     } else {
         Platform_PumpEvents(); /* input and the menu keep up on frames that are not shown */
     }
+    SoftGpu_SetWidescreen(wide); /* between frames, so a frame is drawn one way */
 }
 
 /* The GPU draws a list in the background while the game builds its next
