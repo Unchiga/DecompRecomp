@@ -146,10 +146,27 @@ static uint32_t *tag_at(int x, int y)
     return &TextureDump_Tags[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
 }
 
+/* Does any delivery overlap [first, last)? Uploads of pixels the game made
+ * itself (a movie frame, a command buffer's data) would otherwise search the
+ * whole ring once per word. */
+static int delivered(uintptr_t first, uintptr_t last)
+{
+    unsigned i;
+    for (i = 0; i < DELIVERIES; i++) {
+        const Delivery *delivery = &deliveries[i];
+        if (delivery->bytes && delivery->destination < last && delivery->destination + delivery->bytes > first) return 1;
+    }
+    return 0;
+}
+
 void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
 {
     int i, j;
     if (!TextureDump_Tags) return;
+    if (!delivered((uintptr_t)pixels, (uintptr_t)(pixels + (size_t)w * h))) {
+        TextureDump_Cleared(x, y, w, h);
+        return;
+    }
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) *tag_at(x + i, y + j) = provenance((uintptr_t)&pixels[j * w + i]);
     }
@@ -185,6 +202,8 @@ void TextureDump_Cleared(int x, int y, int w, int h)
             if (TextureDump_Shadow) memset(TextureDump_Cell(x + i, y + j, 0), 0, 4 * sizeof(uint16_t));
         }
     }
+    /* The pack forgets which image was there (its own map of the words). */
+    if (TextureDump_Shadow && TextureDump_Paint) TextureDump_Paint(x, y, w, h);
 }
 
 static void write_archives_once(void)

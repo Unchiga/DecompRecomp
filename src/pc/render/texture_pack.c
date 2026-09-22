@@ -274,7 +274,7 @@ int TexturePack_Load(const char *from)
         entry->bpp = (int)Json_Number(Json_Member(item, "bpp"), 0);
         entry->clut_entries = (int)Json_Number(Json_Member(item, "clut_entries"), 0);
         entry->clut_offset = entry->clut_entries ? (uint32_t)Json_Number(Json_Member(item, "clut_offset"), 0) : 0;
-        entry->stride = (uint32_t)Json_Number(Json_Member(item, "stride"), 0);
+        entry->stride = (uint32_t)Json_Number(Json_Member(item, "stride"), entry->words); /* rows contiguous unless said */
         entry->crop_left = (int)Json_Number(Json_Member(item, "crop_left"), 0);
         entry->crop_width = (int)Json_Number(Json_Member(item, "width"), entry->words * per_word(entry->bpp));
         if (rows && Json_Count(rows) == entry->rows) {
