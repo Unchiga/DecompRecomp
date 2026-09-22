@@ -16,6 +16,7 @@ uint32_t *TextureDump_Tags;
 uint16_t *TextureDump_Shadow;
 void (*TextureDump_Paint)(int x, int y, int w, int h);
 int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
+int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
 static char directory[1024];
 static FILE *index_file, *assets_file;
 static int (*disc_file_info)(const char *path, int *lba, unsigned *size);

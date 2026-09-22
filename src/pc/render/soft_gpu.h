@@ -28,6 +28,20 @@ const uint16_t *SoftGpu_Vram(void);
  * Returns NULL if the bank cannot be allocated. */
 #define SOFT_GPU_BANKS 16
 uint16_t *SoftGpu_Bank(int bank);
+/* Internal resolution: with a scale above 1 every primitive is also drawn,
+ * at scale x scale pixels per VRAM word, into a second picture of the whole
+ * of VRAM in 24-bit colour, which is what is presented; VRAM itself stays
+ * exactly what the console's would be, since the game reads it back and
+ * states hold it. Uploads, fills and moves keep the picture in step; a
+ * texture pack's images are sampled at their own resolution there
+ * (texture_dump.h, `sample`). Returns 0 if the picture cannot be made. */
+int SoftGpu_SetScale(int scale);
+int SoftGpu_Scale(void);
+/* The picture: SOFT_GPU_WIDTH * scale words per row, 0x00RRGGBB. */
+const uint32_t *SoftGpu_Picture(void);
+/* Redraw the picture from VRAM (after a state load). */
+void SoftGpu_PictureFromVram(void);
+
 /* Save states: VRAM (index 0) and the drawing state (index 1). */
 void *SoftGpu_StateData(int index, size_t *size);
 #endif

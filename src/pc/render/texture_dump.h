@@ -44,6 +44,11 @@ extern uint16_t *TextureDump_Shadow;
 extern void (*TextureDump_Paint)(int x, int y, int w, int h);
 extern int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
 int TextureDump_EnableShadow(void);
+/* The pack's image at its own resolution, for the scaled picture: u and v
+ * are texel coordinates within the page in 16.16, page_x/page_y/depth the
+ * primitive's page. Returns 0 when the texel is not replaced, 1 with the
+ * colour as 0x00RRGGBB, 2 when it is painted transparent. NULL: no pack. */
+extern int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
 static inline uint16_t *TextureDump_Cell(int x, int y, int sub)
 {
     return &TextureDump_Shadow[(y & (SOFT_GPU_HEIGHT - 1)) * TEXTURE_SHADOW_WIDTH + (x & (SOFT_GPU_WIDTH - 1)) * 4 + sub];
