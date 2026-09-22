@@ -15,8 +15,10 @@ static struct {
     int window_mask_x, window_mask_y, window_x, window_y;
     int mask_set, mask_check;
     int clut_x, clut_y;
-    int shadow; /* this primitive may sample the texture pack's shadow */
 } gpu;
+/* This primitive may sample the texture pack's shadow. Not in `gpu`: that
+ * struct is a save state's, and its layout is fixed. */
+static int shadow_on;
 
 /* Where texels and palettes are read: VRAM, or one of the banks below. Set by
  * every texture-page word, so it is never stale and never part of a state. */
@@ -287,7 +289,7 @@ static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
     u &= 0xff;
     v &= 0xff;
     y = gpu.page_y + v;
-    if (gpu.shadow) {
+    if (shadow_on) {
         /* A replaced texel: the pack's colour, 0 for one painted transparent. */
         uint16_t cell = gpu.depth == 0 ? *TextureDump_Cell(gpu.page_x + u / 4, y, u & 3)
                         : gpu.depth == 1 ? *TextureDump_Cell(gpu.page_x + u / 2, y, (u & 1) * 2)
@@ -556,8 +558,8 @@ static size_t polygon(const uint32_t *words, size_t count)
             }
         }
     }
-    gpu.shadow = textured && TextureDump_Prepare && texture_source == vram &&
-                 TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, v[0].u, v[0].v);
+    shadow_on = textured && TextureDump_Prepare && texture_source == vram &&
+                TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, v[0].u, v[0].v);
     if (textured && TextureDump_Enabled) {
         /* The texels the primitive covers: a quad's far edge is exclusive. */
         int u0 = v[0].u, u1 = v[0].u, v0 = v[0].v, v1 = v[0].v;
@@ -603,8 +605,8 @@ static size_t rectangle(const uint32_t *words, size_t count)
         w = words[at] & 0x3ff;
         h = (words[at] >> 16) & 0x1ff;
     }
-    gpu.shadow = textured && TextureDump_Prepare && texture_source == vram &&
-                 TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u, base.v);
+    shadow_on = textured && TextureDump_Prepare && texture_source == vram &&
+                TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u, base.v);
     if (textured && TextureDump_Enabled && w && h) {
         TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u,
                               base.v, base.u + w - 1, base.v + h - 1);
