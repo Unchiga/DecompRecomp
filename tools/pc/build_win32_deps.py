@@ -41,7 +41,12 @@ def fetch(name):
     if not os.path.isdir(source):
         with tarfile.open(path) as archive:
             top = archive.getnames()[0].split("/")[0]
-            archive.extractall(os.path.join(OUT, "src"), filter="data")
+            # The data filter exists from Python 3.12 (and the 3.8-3.11 point
+            # releases that backported it); older ones take the plain call.
+            if hasattr(tarfile, "data_filter"):
+                archive.extractall(os.path.join(OUT, "src"), filter="data")
+            else:
+                archive.extractall(os.path.join(OUT, "src"))
         os.replace(os.path.join(OUT, "src", top), source)
     return source
 

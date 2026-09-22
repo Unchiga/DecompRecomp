@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "platform.h"
+#include "paths.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/debug/log.h"
@@ -160,9 +161,10 @@ void Platform_Screenshot(int window_image)
     int i, j;
     (void)window_image;
     if (!last.vram || last.w <= 0 || last.h <= 0) return;
+    char user[1024];
     if (!directory || !*directory) {
-        mkdir("saves", 0777);
-        directory = "saves/screenshots";
+        if (Paths_User(user, sizeof(user), "screenshots")) return;
+        directory = user;
     }
     mkdir(directory, 0777);
     now = time(NULL);

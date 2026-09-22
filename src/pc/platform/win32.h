@@ -49,8 +49,9 @@ int Win32_Restart(void);
 
 /* The game stack has no exception handlers of Windows' own: an exception
  * nothing handles there would end the process without a word. This fills
- * `record` (two words at the top of the game stack, which state.c points
- * the TEB's handler chain at) with a last handler that reports it. */
+ * `record` (four words at the top of the game stack, which state.c points
+ * the TEB's handler chain at) with a handler that reports it, followed by
+ * the chain end SEHOP requires. Call it on the process stack. */
 void Win32_GameStackRecord(uint32_t *record);
 
 /* Called for a fatal exception raised by code in the executable. */
