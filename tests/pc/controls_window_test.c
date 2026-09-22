@@ -2,6 +2,7 @@
 /* Include the UI for deterministic interaction tests without a native display. */
 #include "../../src/pc/platform/controls_window.c"
 #include <assert.h>
+#include "pc/compat/posix.h"
 #include <unistd.h>
 static int test_scale = 1;
 int Menu_Scale(void) { return test_scale; }

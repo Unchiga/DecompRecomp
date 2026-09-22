@@ -1,6 +1,7 @@
 /* Real SDL3 devices and OpenGL contexts; no guest/game assets needed. */
 #include "../../src/pc/platform/sdl.c"
 #include <assert.h>
+#include "pc/compat/posix.h"
 #include <unistd.h>
 int Menu_Scale(void) { return 1; }
 int Menu_TextWidthScaled(const char *s, int sc) { return (int)strlen(s) * 7 * sc; }

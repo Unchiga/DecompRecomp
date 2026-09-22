@@ -723,6 +723,9 @@ python tools/pc/build_game32.py
 tmp/pc/game32/memories-pc.exe game/SLUS_014.11
 ```
 
+`play.bat` (double-click, or `play.bat trace` / `play.bat load [slot]`) does
+the last two steps, and the first when the libraries are missing.
+
 `make match` / `make match-overlays` (for the symbol addresses) still run on
 Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
 `tmp/overlays/*/build/*.elf` into the Windows checkout.
@@ -734,7 +737,7 @@ every change is compiled for both (`MEMORIES_SKIP_WINDOWS=1` skips it). The
 first run of `tools/pc/build_win32_deps.py` fetches the pinned llvm-mingw
 release for Linux into `tmp/pc/llvm-mingw` (the same toolchain as on
 Windows) and builds the libraries with it; `build_game32.py --target windows`
-then writes `tmp/pc/win32/memories-pc.exe`, its mod DLLs and `SDL3.dll`,
+then writes `tmp/pc/win32/memories-pc.exe`, its mods and `SDL3.dll`,
 beside the Linux build rather than over it. Needs cmake, ninja and Wine to
 run it:
 
@@ -831,6 +834,10 @@ What differs from Linux, and why:
   export table. `mods.c` reads a replacement file into memory instead of
   mapping it. Both mods load under Wine; they have not been run in a duel
   on Windows yet.
+- **Tests.** On MinGW every CMake test links `-static`: otherwise a 32-bit
+  test loads whichever `libwinpthread-1.dll` PATH finds first, often a
+  64-bit one, and fails to start with 0xc000007b. Run them with a native
+  Windows `ctest`; an MSYS one mangles the test paths.
 - **rename.** Windows' `rename` does not replace an existing file; states,
   settings, controls and memory cards save through `MoveFileEx`
   (`pc/compat/posix.h`).

@@ -85,11 +85,25 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME pc_controls COMMAND memories_controls_test)
     find_package(PNG REQUIRED)
-    foreach(part config runtime window evdev)
+    find_package(Threads REQUIRED)
+    # The controls runtime holds the game clock (pc/compat/signal.h) and reads
+    # the monotonic clock; on Windows the first is platform/win32.c's, which a
+    # unit test cannot link, and the second comes from the threads library.
+    set(memories_platform_support "")
+    if(WIN32)
+        set(memories_platform_support tests/pc/win32_support.c)
+    endif()
+    # controls_evdev_test.c drives the /dev/input reader, which is Linux only.
+    set(memories_controls_parts config runtime window)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND memories_controls_parts evdev)
+    endif()
+    foreach(part IN LISTS memories_controls_parts)
         add_executable(memories_controls_${part}_test tests/pc/controls_${part}_test.c
             src/pc/platform/controls.c src/pc/platform/controls_config.c src/pc/platform/controls_runtime.c
-            src/pc/platform/paths.c)
+            src/pc/platform/paths.c ${memories_platform_support})
         target_include_directories(memories_controls_${part}_test PRIVATE src)
+        target_link_libraries(memories_controls_${part}_test PRIVATE Threads::Threads)
         if(part STREQUAL "window")
             target_sources(memories_controls_${part}_test PRIVATE src/pc/platform/controls_art.c)
             target_link_libraries(memories_controls_${part}_test PRIVATE PNG::PNG)
@@ -99,7 +113,6 @@ if(BUILD_TESTING)
         endif()
         add_test(NAME pc_controls_${part} COMMAND memories_controls_${part}_test)
     endforeach()
-    find_package(Threads REQUIRED)
     add_executable(memories_log_test tests/pc/log_test.c src/pc/debug/log.c)
     target_include_directories(memories_log_test PRIVATE src)
     target_link_libraries(memories_log_test PRIVATE Threads::Threads)
@@ -107,6 +120,26 @@ if(BUILD_TESTING)
         target_compile_options(memories_log_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_log COMMAND memories_log_test)
+
+    # The tests state every expectation with assert(). A Release configuration
+    # defines NDEBUG, which would leave them running and checking nothing;
+    # the Windows CI job builds Release, so this is what makes it a test run.
+    get_property(memories_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target IN LISTS memories_test_targets)
+        if(target MATCHES "_test$")
+            if(MSVC)
+                target_compile_options(${target} PRIVATE /UNDEBUG)
+            else()
+                target_compile_options(${target} PRIVATE -UNDEBUG)
+            endif()
+            # A 32-bit test would otherwise load whichever libwinpthread-1.dll
+            # PATH offers first, often a 64-bit one (0xc000007b); the game
+            # executable links it statically for the same reason.
+            if(MINGW)
+                target_link_options(${target} PRIVATE -static)
+            endif()
+        endif()
+    endforeach()
 endif()
 
 find_package(Python3 COMPONENTS Interpreter)
