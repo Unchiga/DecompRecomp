@@ -16,7 +16,11 @@ set MEMORIES_LOG=tmp/pc/debug/trace.log
 set MEMORIES_TRACE=frames,state,memcard,model,duel_effects,mips_printf,window,audio,clock
 echo ==== %date% %time% ==== >> tmp\pc\debug\trace.log
 echo Playing with problem reporting on. Reports go to %cd%\tmp\pc\debug and tmp\pc.
+for /f %%t in ('python -c "import time; print(int(time.time()))"') do set STARTED=%%t
 tmp\pc\game32\memories-pc.exe game\SLUS_014.11 > tmp\pc\debug\console.txt 2>&1
-echo Game exited with code %errorlevel%.
+set CODE=%errorlevel%
+echo Game exited with code %CODE%.
+rem Crashes Windows ends before the game's handler runs: report from its dump.
+if %CODE% LSS 0 python tools\pc\crash_report.py --since %STARTED% --wait 15
 dir /b /o-d tmp\pc\hang-*.txt tmp\pc\crash-*.txt 2>nul
 pause

@@ -16,8 +16,17 @@ if /i "%~1"=="trace" set MEMORIES_STUB_TRACE=1
 if /i "%~1"=="load" (
     if "%~2"=="" (set MEMORIES_LOAD_STATE=1) else (set MEMORIES_LOAD_STATE=%~2)
 )
+for /f %%t in ('python -c "import time; print(int(time.time()))"') do set STARTED=%%t
 tmp\pc\game32\memories-pc.exe game\SLUS_014.11
-exit /b %errorlevel%
+set CODE=%errorlevel%
+rem A crash code (negative) means Windows ended the game before its own
+rem handler could write tmp\pc\crash-*.txt; the report comes from Windows' dump.
+if %CODE% LSS 0 (
+    echo The game crashed ^(exit code %CODE%^). Writing a report from Windows' crash dump...
+    python tools\pc\crash_report.py --since %STARTED% --wait 15
+    pause
+)
+exit /b %CODE%
 
 :no_elf
 echo The matching build's ELFs are missing. Run "make match match-overlays" on
