@@ -12,8 +12,10 @@
 #endif
 
 int TextureDump_Enabled;
+uint32_t *TextureDump_Tags;
 static char directory[1024];
-static FILE *index_file;
+static FILE *index_file, *assets_file;
+static int (*disc_file_info)(const char *path, int *lba, unsigned *size);
 
 /* Hashes already written, in an open-addressed table that doubles. */
 static uint64_t *seen;
@@ -59,8 +61,150 @@ void TextureDump_Init(void)
         fprintf(stderr, "memories-pc: cannot write textures to %s\n", directory);
         return;
     }
+    snprintf(name, sizeof(name), "%s/assets.txt", directory);
+    assets_file = fopen(name, "a");
+    TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
     TextureDump_Enabled = 1;
     fprintf(stderr, "memories-pc: dumping textures to %s\n", directory);
+}
+
+/* --- provenance ---------------------------------------------------------- */
+
+static uint64_t fnv(uint64_t hash, const void *data, size_t length);
+
+typedef struct Delivery {
+    uintptr_t destination;
+    unsigned bytes;
+    uint32_t disc_offset; /* byte offset on the disc of the first byte */
+} Delivery;
+#define DELIVERIES 4096
+static Delivery deliveries[DELIVERIES];
+static unsigned delivery_head;
+
+void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsigned *size))
+{
+    disc_file_info = file_info;
+}
+
+void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector)
+{
+    Delivery *delivery;
+    if (!TextureDump_Tags || lba < 0) return;
+    delivery = &deliveries[delivery_head++ % DELIVERIES];
+    delivery->destination = (uintptr_t)destination;
+    delivery->bytes = bytes;
+    delivery->disc_offset = (uint32_t)lba * 2048u + offset_in_sector;
+}
+
+/* Disc offset + 1 of the byte at address, 0 if no delivery covers it. */
+static uint32_t provenance(uintptr_t address)
+{
+    static unsigned last;
+    const Delivery *delivery = &deliveries[last];
+    unsigned i;
+    if (address >= delivery->destination && address < delivery->destination + delivery->bytes) {
+        return delivery->disc_offset + (uint32_t)(address - delivery->destination) + 1;
+    }
+    for (i = 1; i <= DELIVERIES; i++) { /* newest first: a buffer is reused */
+        unsigned at = (delivery_head + DELIVERIES - i) % DELIVERIES;
+        delivery = &deliveries[at];
+        if (delivery->bytes && address >= delivery->destination && address < delivery->destination + delivery->bytes) {
+            last = at;
+            return delivery->disc_offset + (uint32_t)(address - delivery->destination) + 1;
+        }
+    }
+    return 0;
+}
+
+static uint32_t *tag_at(int x, int y)
+{
+    return &TextureDump_Tags[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
+}
+
+void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
+{
+    int i, j;
+    if (!TextureDump_Tags) return;
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) *tag_at(x + i, y + j) = provenance((uintptr_t)&pixels[j * w + i]);
+    }
+}
+
+void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h)
+{
+    int i, j;
+    if (!TextureDump_Tags) return;
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) *tag_at(dx + i, dy + j) = *tag_at(sx + i, sy + j);
+    }
+}
+
+void TextureDump_Cleared(int x, int y, int w, int h)
+{
+    int i, j;
+    if (!TextureDump_Tags) return;
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) *tag_at(x + i, y + j) = 0;
+    }
+}
+
+static void write_archives_once(void)
+{
+    static int done;
+    static const char *const paths[] = {"\\DATA\\WA_MRG.MRG;1", "\\DATA\\SU.MRG;1", "\\DATA\\MODEL.MRG;1"};
+    unsigned i;
+    if (done) return;
+    done = 1;
+    for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        int lba;
+        unsigned size;
+        if (disc_file_info && disc_file_info(paths[i], &lba, &size) == 0) {
+            fprintf(assets_file, "archive %s lba=%d bytes=%u\n", paths[i] + 6, lba, size);
+        }
+    }
+}
+
+/* The asset a primitive draws, if its texels and palette are all from the
+ * disc: offset of the first word, the upload's row stride, the rectangle,
+ * depth and palette. Deduplicated. */
+static void note_asset(int page_x, int page_y, int depth, int clut_x, int clut_y, int u0, int v0, int u1, int v1,
+                       int entries, uint64_t image)
+{
+    int per_word = depth == 0 ? 4 : depth == 1 ? 2 : 1;
+    int x = page_x + u0 / per_word, y = page_y + v0, words = u1 / per_word - u0 / per_word + 1, rows = v1 - v0 + 1;
+    uint32_t first = *tag_at(x, y), palette = entries ? *tag_at(clut_x, clut_y) : 0, key[6], stride = 0;
+    int32_t row_offsets[256];
+    int j, linear = 1;
+    if (!TextureDump_Tags || !assets_file || !first || (entries && !palette) || rows > 256) return;
+    /* Each row must be one run of consecutive bytes, and so must the palette;
+     * the rows themselves may lie anywhere (the sector streamer places 64x16
+     * blocks in columns or side by side). */
+    if (entries && *tag_at(clut_x + entries - 1, clut_y) != palette + (uint32_t)(entries - 1) * 2) return;
+    for (j = 0; j < rows; j++) {
+        uint32_t start = *tag_at(x, y + j);
+        if (!start || *tag_at(x + words - 1, y + j) != start + (uint32_t)(words - 1) * 2) return;
+        row_offsets[j] = (int32_t)(start - first);
+        if (j == 1) stride = (uint32_t)row_offsets[1] / 2;
+        if (j >= 1 && (row_offsets[j] != (int32_t)(stride * 2 * (uint32_t)j) || row_offsets[j] <= 0)) linear = 0;
+    }
+    if (rows == 1) stride = (uint32_t)words;
+    key[0] = first - 1; key[1] = linear ? stride : 0; key[2] = (uint32_t)words; key[3] = (uint32_t)rows;
+    key[4] = (uint32_t)depth; key[5] = entries ? palette - 1 : 0;
+    if (!remember(fnv(fnv(0x9e3779b97f4a7c15ull, key, sizeof(key)), row_offsets, (size_t)rows * sizeof(row_offsets[0])))) {
+        return;
+    }
+    write_archives_once();
+    fprintf(assets_file, "asset offset=%u words=%d rows=%d bpp=%d clut=%u entries=%d png=%016llx px=%d,%d", key[0],
+            words, rows, depth == 0 ? 4 : depth == 1 ? 8 : 16, key[5], entries, (unsigned long long)image,
+            u0 % per_word, u1 - u0 + 1);
+    if (linear) {
+        fprintf(assets_file, " stride=%u\n", stride);
+    } else {
+        fprintf(assets_file, " rowofs=");
+        for (j = 0; j < rows; j++) fprintf(assets_file, "%s%ld", j ? "," : "", (long)row_offsets[j]);
+        fputc('\n', assets_file);
+    }
+    fflush(assets_file);
 }
 
 /* --- PNG, RGBA8 with stored (uncompressed) deflate blocks --------------- */
@@ -233,6 +377,7 @@ void TextureDump_Primitive(const uint16_t *source, int page_x, int page_y, int d
     hash = fnv(0xcbf29ce484222325ull, header, sizeof(header));
     hash = fnv(hash, indices, (size_t)w * h * sizeof(*indices));
     hash = fnv(hash, palette, (size_t)entries * sizeof(*palette));
+    if (source == SoftGpu_Vram()) note_asset(page_x, page_y, depth, clut_x, clut_y, u0, v0, u1, v1, entries, hash);
     if (remember(hash)) {
         for (v = 0; v < h; v++) {
             unsigned char *row = rows + (size_t)v * (1 + (size_t)w * 4);

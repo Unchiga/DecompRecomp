@@ -62,13 +62,19 @@ def expand(colour: int) -> bytes:
     return bytes((r, g, b, 255))
 
 
-def decode(data: bytes, offset: int, words: int, rows: int, bpp: int, palette: list[int] | None) -> tuple[int, int, bytes]:
-    """A rectangle of VRAM words as RGBA pixels; bpp 4/8 index the palette."""
+def decode(data: bytes, offset: int, words: int, rows: int, bpp: int, palette: list[int] | None,
+           stride: int | None = None, row_offsets: list[int] | None = None) -> tuple[int, int, bytes]:
+    """A rectangle of VRAM words as RGBA pixels; bpp 4/8 index the palette.
+    stride: words from one row to the next in the archive (default: words);
+    row_offsets: each row's byte offset from `offset` instead, when the rows
+    are not evenly spaced."""
     per_word = {4: 4, 8: 2, 16: 1}[bpp]
     width = words * per_word
+    stride = words if stride is None else stride
     out = bytearray()
     for y in range(rows):
-        row = data[offset + y * words * 2:offset + (y + 1) * words * 2]
+        at = offset + (row_offsets[y] if row_offsets else y * stride * 2)
+        row = data[at:at + words * 2]
         for x in range(words):
             word = row[x * 2] | (row[x * 2 + 1] << 8)
             if bpp == 16:
@@ -99,21 +105,59 @@ class Extractor:
         return self.archives[name]
 
     def image(self, archive: str, offset: int, words: int, rows: int, bpp: int,
-              clut_offset: int | None, path: str, alias: str, clut_entries: int | None = None) -> None:
+              clut_offset: int | None, path: str, alias: str, clut_entries: int | None = None,
+              stride: int | None = None, row_offsets: list[int] | None = None,
+              crop: tuple[int, int] | None = None) -> None:
         data = self.archive(archive)
         entries = clut_entries if clut_entries is not None else {4: 16, 8: 256, 16: 0}[bpp]
         palette = read_palette(data, clut_offset, entries) if entries else None
         if palette is not None and len(palette) < 256:
             palette = palette + [0] * (256 - len(palette))  # indices past a short palette
-        width, height, rgba = decode(data, offset, words, rows, bpp, palette)
+        width, height, rgba = decode(data, offset, words, rows, bpp, palette, stride, row_offsets)
+        if crop and (crop[0] or crop[1] != width):
+            left, span = crop
+            rgba = b"".join(rgba[(y * width + left) * 4:(y * width + left + span) * 4] for y in range(height))
+            width = span
         full = os.path.join(self.out, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         write_png(full, width, height, rgba)
         self.manifest.append({
             "file": path.replace(os.sep, "/"), "alias": alias, "archive": archive, "offset": offset,
             "words": words, "rows": rows, "bpp": bpp, "width": width, "height": height,
-            "clut_offset": clut_offset, "clut_entries": entries,
+            "clut_offset": clut_offset, "clut_entries": entries, "stride": words if stride is None else stride,
+            "row_offsets": row_offsets,
         })
+
+    def assets(self, listing: str) -> None:
+        """assets.txt from a MEMORIES_DUMP_TEXTURES run: every texture the game
+        drew whose words and palette were traced to the disc."""
+        archives: list[tuple[str, int, int]] = []
+        with open(listing, encoding="utf-8") as handle:
+            for line in handle:
+                fields = line.split()
+                if not fields:
+                    continue
+                values = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
+                if fields[0] == "archive":
+                    name = fields[1].split(";")[0]
+                    archives.append((name, int(values["lba"]) * SECTOR, int(values["bytes"])))
+                elif fields[0] == "asset":
+                    offset, clut = int(values["offset"]), int(values["clut"])
+                    entries, bpp = int(values["entries"]), int(values["bpp"])
+                    home = [a for a in archives if a[1] <= offset < a[1] + a[2]]
+                    if not home or (entries and not any(a[1] <= clut < a[1] + a[2] for a in home)):
+                        continue  # not in one archive (a mod's data, or the executable's)
+                    name, start, _ = home[0]
+                    stem = f"{name.split('.')[0].lower()}-{offset - start:08x}-{values['words']}x{values['rows']}-{bpp}"
+                    if entries:
+                        stem += f"-p{clut - start:08x}"
+                    rowofs = [int(v) for v in values["rowofs"].split(",")] if "rowofs" in values else None
+                    crop = tuple(int(v) for v in values["px"].split(",")) if "px" in values else None
+                    self.image(name, offset - start, int(values["words"]), int(values["rows"]), bpp,
+                               clut - start if entries else None, f"assets/{stem}.png",
+                               f"drawn as {values.get('png', '?')}", clut_entries=entries,
+                               stride=int(values["stride"]) if "stride" in values else None, row_offsets=rowofs,
+                               crop=crop)
 
     def cards(self, names: dict[int, str]) -> None:
         """func_800289BC: seven sectors per card from WA sector 722."""
@@ -151,6 +195,7 @@ def main() -> int:
     parser.add_argument("--data", default="game/DATA")
     parser.add_argument("--out", default="tmp/pc/images")
     parser.add_argument("--names", help="cards.tsv with card_number and name columns")
+    parser.add_argument("--assets", help="assets.txt of a MEMORIES_DUMP_TEXTURES run: extract what it drew")
     parser.add_argument("families", nargs="*", default=list(FAMILIES))
     args = parser.parse_args()
     names: dict[int, str] = {}
@@ -158,6 +203,10 @@ def main() -> int:
         with open(args.names, encoding="utf-8") as handle:
             names = {int(row["card_number"]): row["name"] for row in csv.DictReader(handle, delimiter="\t")}
     extractor = Extractor(args.data, args.out)
+    if args.assets:
+        extractor.assets(args.assets)
+        print(f"assets: {len(extractor.manifest)} images")
+        args.families = [] if args.families == list(FAMILIES) else args.families
     for family in args.families:
         if family not in FAMILIES:
             print(f"unknown family {family}; known: {', '.join(FAMILIES)}", file=sys.stderr)
