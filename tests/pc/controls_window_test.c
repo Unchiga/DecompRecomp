@@ -115,13 +115,8 @@ int main(void)
     ControlSource south = {CTRL_SRC_BUTTON, CTRL_BTN_SOUTH, 0};
     assert(Controls_MoveSource(profile(1), 13, 0, &south));
     ControlsWindow_Draw(&c);
-    Hit circle = {0}, cross = {0};
-    for (int i = 0; i < ui.count; i++) {
-        if (ui.hits[i].id == DIAGRAM + 13)
-            circle = ui.hits[i];
-        if (ui.hits[i].id == DIAGRAM + 14)
-            cross = ui.hits[i];
-    }
+    /* The drawn buttons, which are smaller than their mouse targets. */
+    Rect circle = pad_rect[13], cross = pad_rect[14];
     assert(circle.w && cross.w);
     assert(c.pixels[(circle.y + circle.h / 2) * c.stride + circle.x + circle.w / 2] == held);
     /* Cross keeps the diagram panel's own background: it is not highlighted. */
@@ -152,6 +147,49 @@ int main(void)
     ControlsRuntime_Device(2)->connected = 0;
     ControlsWindow_Tick();
     assert(!ui.capture.state);
+    /* Every pad button owns a mouse target, no two targets overlap, and each
+     * target contains the button it highlights: a click can only ever mean
+     * one button. */
+    ControlsWindow_Init();
+    activate(CONTROLLER);
+    ControlsWindow_Draw(&c);
+    /* L3 and R3 have no place on this artwork and live only in the list. */
+    Rect targets[CTRL_DEST_COUNT];
+    for (int dest = 0; dest < CTRL_DEST_COUNT; dest++) {
+        targets[dest] = (Rect){0, 0, 0, 0};
+        for (int i = 0; i < ui.count; i++)
+            if (ui.hits[i].id == DIAGRAM + dest)
+                targets[dest] = (Rect){ui.hits[i].x, ui.hits[i].y, ui.hits[i].w, ui.hits[i].h};
+        if (dest == 1 || dest == 2) {
+            assert(!targets[dest].w && !pad_rect[dest].w);
+            continue;
+        }
+        assert(targets[dest].w > 0 && targets[dest].h > 0);
+        Rect b = pad_rect[dest];
+        assert(b.x + b.w / 2 >= targets[dest].x && b.x + b.w / 2 < targets[dest].x + targets[dest].w);
+        assert(b.y + b.h / 2 >= targets[dest].y && b.y + b.h / 2 < targets[dest].y + targets[dest].h);
+    }
+    for (int a = 0; a < CTRL_DEST_COUNT; a++)
+        for (int b = a + 1; b < CTRL_DEST_COUNT; b++) {
+            Rect *p = &targets[a], *q = &targets[b];
+            if (!p->w || !q->w)
+                continue;
+            int across = p->x < q->x + q->w && q->x < p->x + p->w;
+            int down = p->y < q->y + q->h && q->y < p->y + p->h;
+            assert(!(across && down));
+        }
+    /* Clicking a button's own pixels selects that button, not a neighbour. */
+    for (int dest = 0; dest < CTRL_DEST_COUNT; dest++) {
+        int px, py;
+        if (dest == 1 || dest == 2)
+            continue;
+        assert(ControlsWindow_Locate(DIAGRAM + dest, &px, &py));
+        MenuEvent tap = {.type = MENU_EVENT_BUTTON_DOWN, .button = 1, .x = px, .y = py};
+        ControlsWindow_Event(&tap);
+        assert(ui.row == dest);
+        ControlsWindow_Draw(&c);
+    }
+
     /* Arrows walk the table in reading order, not in wire-bit order, and
      * wrap from the first line (Up) to the last (Select). */
     ControlsWindow_Init();
