@@ -14,6 +14,7 @@ add_library(memories_pc_core STATIC
     src/pc/memory.c
     src/pc/render/packets.c
     src/pc/render/soft_gpu.c
+    src/pc/render/texture_dump.c
     src/pc/rng.c
     src/game/rand_get_interval.c
     src/game/util_compare_s16.c)

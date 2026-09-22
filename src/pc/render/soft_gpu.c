@@ -1,4 +1,5 @@
 #include "soft_gpu.h"
+#include "texture_dump.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -69,6 +70,7 @@ void SoftGpu_Reset(void)
 {
     memset(&gpu, 0, sizeof(gpu));
     texture_source = vram;
+    TextureDump_Init();
     gpu.clip_x2 = SOFT_GPU_WIDTH - 1;
     gpu.clip_y2 = SOFT_GPU_HEIGHT - 1;
 }
@@ -505,6 +507,18 @@ static size_t polygon(const uint32_t *words, size_t count)
             }
         }
     }
+    if (textured && TextureDump_Enabled) {
+        /* The texels the primitive covers: a quad's far edge is exclusive. */
+        int u0 = v[0].u, u1 = v[0].u, v0 = v[0].v, v1 = v[0].v;
+        for (i = 1; i < vertices; i++) {
+            if (v[i].u < u0) u0 = v[i].u;
+            if (v[i].u > u1) u1 = v[i].u;
+            if (v[i].v < v0) v0 = v[i].v;
+            if (v[i].v > v1) v1 = v[i].v;
+        }
+        TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, u0, v0,
+                              u1 > u0 ? u1 - 1 : u1, v1 > v0 ? v1 - 1 : v1);
+    }
     triangle(v[0], v[1], v[2], flags);
     if (quad) {
         triangle(v[1], v[2], v[3], flags);
@@ -537,6 +551,10 @@ static size_t rectangle(const uint32_t *words, size_t count)
     if (kind == 0) {
         w = words[at] & 0x3ff;
         h = (words[at] >> 16) & 0x1ff;
+    }
+    if (textured && TextureDump_Enabled && w && h) {
+        TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u,
+                              base.v, base.u + w - 1, base.v + h - 1);
     }
     switch (flags) {
 #define CASE(n) case n: \
