@@ -543,9 +543,10 @@ image files, so the tool replays the game's own loaders, one family at a
 time; so far `cards`, the 722 cards' artwork from `func_800289BC` (WA
 sector `(n-1)*7 + 722`, seven sectors: the 102x96 8-bit picture, its
 256-entry palette, the name strip under it and the strip beside it), 2,166
-files. `--names cards.tsv` (card_number, name) puts the card's name in the
-file name. Next: monster textures (`MODEL.MRG`), dialogue portraits, and
-the screens' packages.
+files, and `portraits`, the 48x48 dialogue portraits through their 64-entry
+palettes (the campaign's 25 and Free Duel's 40, `0x980`-byte records).
+`--names cards.tsv` (card_number, name) puts the card's name in the file
+name. Next: monster textures (`MODEL.MRG`) and the screens' packages.
 
 ### Texture dump (what is on screen)
 
