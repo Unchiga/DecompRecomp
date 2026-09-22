@@ -251,8 +251,13 @@ def build_mods(build):
             if WINDOWS:
                 # A DLL's references to the game and the port resolve through
                 # the executable's import library (the link step above); the
-                # loader binds them when mods.c loads the DLL.
-                run([CC, "-shared", "-o", library, *objects, f"{build}/{MOD_IMPLIB}", "-lm"])
+                # loader binds them when mods.c loads the DLL. Pinned guest
+                # variables are absolute symbols, which an import library
+                # cannot carry; guest RAM sits at the same addresses in every
+                # module, so the DLL takes the same definitions directly.
+                # winpthreads is linked in as for the executable.
+                run([CC, "-shared", "-o", library, *objects, f"{build}/{MOD_IMPLIB}",
+                     f"{build}/guest_symbols.o", "-lm", "-static", "-lpthread"])
             else:
                 run(["gcc", "-m32", "-shared", "-o", library, *objects, "-lm"])
         built.append(name)
