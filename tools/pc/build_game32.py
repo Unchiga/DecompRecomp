@@ -20,13 +20,22 @@ import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struc
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ELF = "tmp/project-build/SLUS_014.11.elf"
-WINDOWS = sys.platform == "win32"
+# --target windows on Linux cross-compiles with the llvm-mingw that
+# build_win32_deps.py fetches; the rest of this file only asks WINDOWS. Read
+# before argparse because the flags and tools below depend on it.
+TARGET = next((sys.argv[i + 1] for i, word in enumerate(sys.argv[:-1]) if word == "--target"),
+              os.environ.get("MEMORIES_TARGET") or ("windows" if sys.platform == "win32" else "linux"))
+WINDOWS = TARGET == "windows"
 WIN32_DEPS = "tmp/pc/win32-deps"  # tools/pc/build_win32_deps.py
 MOD_IMPLIB = "libmemories-pc.a"  # Windows: the executable's import library, which mod DLLs link against
 CC, OBJCOPY, NM, READELF, OBJDUMP = (("i686-w64-mingw32-clang", "llvm-objcopy", "llvm-nm", "llvm-readelf", "llvm-objdump")
                                      if WINDOWS else ("gcc", "objcopy", "nm", "readelf", "objdump"))
 PREFIX = "_" if WINDOWS else ""  # C symbol names in the object files
-if WINDOWS:
+if WINDOWS and sys.platform != "win32":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import build_win32_deps
+    build_win32_deps.use_toolchain()
+if sys.platform == "win32":
     # The paths below are written, compared and turned into object names
     # with forward slashes; Windows glob returns backslashes.
     _glob = glob.glob
@@ -251,8 +260,13 @@ def build_mods(build):
             if WINDOWS:
                 # A DLL's references to the game and the port resolve through
                 # the executable's import library (the link step above); the
-                # loader binds them when mods.c loads the DLL.
-                run([CC, "-shared", "-o", library, *objects, f"{build}/{MOD_IMPLIB}", "-lm"])
+                # loader binds them when mods.c loads the DLL. Pinned guest
+                # variables are absolute symbols, which a PE cannot export;
+                # they sit at the same address in every module, so the DLL
+                # links the executable's pins itself. clock_gettime and the
+                # like come from winpthreads, static as in the executable.
+                run([CC, "-shared", "-o", library, f"{build}/guest_symbols.o", *objects,
+                     f"{build}/{MOD_IMPLIB}", "-lm", "-static", "-lpthread"])
             else:
                 run(["gcc", "-m32", "-shared", "-o", library, *objects, "-lm"])
         built.append(name)
@@ -265,14 +279,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=list(BACKENDS), default=os.environ.get("MEMORIES_BACKEND") or
                         ("sdl" if WINDOWS or os.path.exists(f"{SDL_BUILD}/libSDL3.a") else "x11"))
-    parser.add_argument("--build", default="tmp/pc/game32")
+    parser.add_argument("--target", choices=("linux", "windows"), default=TARGET)
+    # A Windows build made on Linux gets a directory of its own, so both
+    # executables and their objects sit side by side.
+    parser.add_argument("--build", default="tmp/pc/win32" if WINDOWS and sys.platform != "win32" else "tmp/pc/game32")
     options = parser.parse_args()
     NATIVE.extend(BACKENDS[options.backend])
     NATIVE.sort()
     if WINDOWS:
         if options.backend != "sdl":
             sys.exit("Windows builds use the SDL backend")
-        if not os.path.exists(f"{WIN32_DEPS}/lib/libfreetype.a"):
+        if not os.path.exists(f"{WIN32_DEPS}/lib/libfreetype.a") or not shutil.which(CC):
             sys.exit(f"{WIN32_DEPS} is missing; run tools/pc/build_win32_deps.py first")
     elif options.backend == "sdl":
         if not os.path.exists(f"{SDL_BUILD}/libSDL3.a"):

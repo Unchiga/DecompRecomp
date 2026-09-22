@@ -14,6 +14,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EXECUTABLE = ROOT / "tmp/pc/game32/memories-pc"
+WINDOWS_EXECUTABLE = ROOT / "tmp/pc/win32/memories-pc.exe"  # build_game32.py --target windows
+WINE_PREFIX = ROOT / "tmp/pc/wine-prefix"
 DEFAULT_BUILD = ROOT / "tmp/pc/cmake-test"
 FIXTURES = ROOT / "tests/pc/smoke"
 OUTPUT = ROOT / "tmp/pc/smoke"
@@ -49,11 +51,25 @@ def smoke_environment(case: dict[str, object], image: Path, settings: Path) -> d
     return environment
 
 
+def launcher(executable: Path) -> tuple[list[str], dict[str, str]]:
+    """The command that runs the executable, and what Wine needs when a
+    Windows build is tested on another host: a prefix of its own, without the
+    Mono and Gecko installers, and quiet."""
+    if executable.suffix != ".exe" or sys.platform == "win32":
+        return [str(executable)], {}
+    return ["wine", str(executable)], {
+        "WINEPREFIX": str(WINE_PREFIX),
+        "WINEDLLOVERRIDES": "mscoree,mshtml=",
+        "WINEDEBUG": "-all",
+    }
+
+
 def run_smoke(executable: Path, record: bool) -> bool:
     if not executable.is_file():
         print(f"smoke: executable is missing: {executable}", file=sys.stderr)
         return False
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    command, extra = launcher(executable)
     fixtures = sorted(FIXTURES.glob("*.json"))
     if not fixtures:
         print(f"smoke: no fixtures in {FIXTURES}", file=sys.stderr)
@@ -67,9 +83,9 @@ def run_smoke(executable: Path, record: bool) -> bool:
         print(f"smoke: {name} (frame {case['frame']})", flush=True)
         try:
             result = subprocess.run(
-                [str(executable)],
+                command,
                 cwd=ROOT,
-                env=smoke_environment(case, image, settings),
+                env={**smoke_environment(case, image, settings), **extra},
                 timeout=120,
                 check=False,
             )
@@ -111,8 +127,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="replace fixture hashes with current output")
     parser.add_argument("--executable", type=Path, default=DEFAULT_EXECUTABLE)
+    parser.add_argument("--windows", action="store_true",
+                        help=f"test {WINDOWS_EXECUTABLE.relative_to(ROOT)} (under Wine off Windows) and skip the CTests")
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD, help="CTest build directory")
     arguments = parser.parse_args()
+    if arguments.windows:
+        return 0 if run_smoke(WINDOWS_EXECUTABLE, arguments.record) else 1
     screenshots_ok = run_smoke(arguments.executable.resolve(), arguments.record)
     tests_ok = run_ctests(arguments.build.resolve())
     return 0 if screenshots_ok and tests_ok else 1

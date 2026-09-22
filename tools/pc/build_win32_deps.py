@@ -5,8 +5,10 @@ The Linux build takes FreeType and libpng from the system and builds SDL3
 itself (tools/pc/build_sdl32.sh). On Windows this script provides them under
 tmp/pc/win32-deps: static zlib, libpng and FreeType built from pinned release
 archives, and SDL3's official MinGW development release (SDL3.dll, shipped
-beside the executable). Needs cmake, ninja and llvm-mingw's
-i686-w64-mingw32-clang on PATH (notes/pc-build.md, "Windows")."""
+beside the executable). Needs cmake and ninja, and llvm-mingw's
+i686-w64-mingw32-clang: on Windows from PATH; elsewhere this script fetches
+the pinned Linux release into tmp/pc/llvm-mingw, which build_game32.py then
+cross-compiles with (notes/pc-build.md, "Windows")."""
 import hashlib, os, shutil, subprocess, sys, tarfile, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,10 +24,23 @@ ARCHIVES = {
             "c7ef65bd72eabac6e5b535411dbd8d5824d0aab24fd62ff8812666b336f18a9c"),
 }
 CC = "i686-w64-mingw32-clang"
+# llvm-mingw for Linux hosts: the same toolchain the Windows build uses, so
+# a Linux checkout builds the Windows executable without a Windows machine.
+TOOLCHAIN = os.path.join(ROOT, "tmp", "pc", "llvm-mingw")
+TOOLCHAIN_ARCHIVE = ("https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/"
+                     "llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz",
+                     "bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21")
+
+
+def use_toolchain():
+    """Put the fetched llvm-mingw first on PATH, when there is one."""
+    bin_dir = os.path.join(TOOLCHAIN, "bin")
+    if os.path.isdir(bin_dir) and bin_dir not in os.environ["PATH"].split(os.pathsep):
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
 
 
 def fetch(name):
-    url, digest = ARCHIVES[name]
+    url, digest = TOOLCHAIN_ARCHIVE if name == "llvm-mingw" else ARCHIVES[name]
     path = os.path.join(OUT, "downloads", os.path.basename(url))
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -61,6 +76,9 @@ def cmake(name, source, *options):
 
 
 def main():
+    if sys.platform != "win32" and not os.path.isdir(TOOLCHAIN):
+        os.replace(fetch("llvm-mingw"), TOOLCHAIN)
+    use_toolchain()
     if shutil.which(CC) is None:
         sys.exit(f"{CC} is not on PATH (llvm-mingw)")
     cmake("zlib", fetch("zlib"), "-DZLIB_BUILD_SHARED=OFF", "-DZLIB_BUILD_TESTING=OFF", "-DBUILD_SHARED_LIBS=OFF")

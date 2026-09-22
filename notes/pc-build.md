@@ -689,7 +689,30 @@ tmp/pc/game32/memories-pc.exe game/SLUS_014.11
 
 `make match` / `make match-overlays` (for the symbol addresses) still run on
 Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
-`tmp/overlays/*/build/*.elf` into the Windows checkout. `SDL3.dll` is copied
+`tmp/overlays/*/build/*.elf` into the Windows checkout.
+
+### From Linux
+
+`./build-pc.sh` builds the Windows executable as well as the Linux one, so
+every change is compiled for both (`MEMORIES_SKIP_WINDOWS=1` skips it). The
+first run of `tools/pc/build_win32_deps.py` fetches the pinned llvm-mingw
+release for Linux into `tmp/pc/llvm-mingw` (the same toolchain as on
+Windows) and builds the libraries with it; `build_game32.py --target windows`
+then writes `tmp/pc/win32/memories-pc.exe`, its mod DLLs and `SDL3.dll`,
+beside the Linux build rather than over it. Needs cmake, ninja and Wine to
+run it:
+
+```sh
+./build-pc.sh run-windows               # play it under Wine (prefix tmp/pc/wine-prefix)
+python3 tools/pc/smoke.py --windows     # the smoke frames, under Wine
+```
+
+The smoke frames under Wine match the Linux hashes. Wine is not Windows: it
+presents through SDL's Direct3D renderer (its 32-bit OpenGL is not there),
+and its clock reads leave the executable, which is how the tick came to be
+serviced from `Platform_VSyncHeartbeat` (a `VSync(-1)` poll, as the movie's
+wait for sectors, otherwise took ticks only by chance: 3.5 frames/s). Check
+anything timing- or driver-sensitive on Windows itself. `SDL3.dll` is copied
 beside the executable. Everything Windows-specific is behind `_WIN32`; the
 Linux build is unchanged.
 
