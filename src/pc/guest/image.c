@@ -36,20 +36,48 @@ static struct {
     uint32_t original, patched;
 } low_fixup;
 
+/* Every instruction that has faulted into the low-address repair, appended
+ * on its first fault and read by the Windows clock thread: a thread it
+ * suspends at one of these may be on its way into the fault's dispatch,
+ * whose frames a redirect would land on (win32.c). */
+static uint32_t fault_sites[256];
+static volatile unsigned fault_site_count;
+
+static int is_fault_site(uintptr_t eip)
+{
+    unsigned i, count = fault_site_count;
+    for (i = 0; i < count; i++) {
+        if (fault_sites[i] == (uint32_t)eip) return 1;
+    }
+    return 0;
+}
+
+static int low_access_register(const unsigned char *code, uint32_t esi);
+#ifdef _WIN32
+static DWORD *context_register(CONTEXT *context, int number);
+
+/* For the clock: would the instruction the thread is at fault into the
+ * repair? Either it has before, or it addresses memory through a register
+ * holding a low address, which always faults here. The thread is suspended,
+ * so its code and registers can be read. */
+static int fault_imminent(void *context)
+{
+    CONTEXT *registers = context;
+    int reg;
+    if (is_fault_site(registers->Eip)) return 1;
+    reg = low_access_register((const unsigned char *)(uintptr_t)registers->Eip, registers->Esi);
+    return reg >= 0 && *context_register(registers, reg) < MEMORIES_GUEST_RAM_SIZE;
+}
+#endif
+
 static void report_low_access(uint32_t eip, uint32_t address)
 {
-    static uint32_t seen[32];
-    static unsigned count;
     char text[128];
-    unsigned i;
     int length;
-    for (i = 0; i < count; i++) {
-        if (seen[i] == eip) {
-            return;
-        }
-    }
-    if (count < sizeof(seen) / sizeof(seen[0])) {
-        seen[count++] = eip;
+    if (is_fault_site(eip)) return;
+    if (fault_site_count < sizeof(fault_sites) / sizeof(fault_sites[0])) {
+        fault_sites[fault_site_count] = eip;
+        fault_site_count++;
     }
     length = snprintf(text, sizeof(text), "memories-pc: null-pointer access to 0x%04x at eip 0x%08x goes to kernel RAM, as on the console\n",
                       (unsigned)address, (unsigned)eip);
@@ -182,7 +210,7 @@ static int emulate_low_mov(CONTEXT *context, uint32_t address)
 /* First in line for every exception in the process: take the guest's own
  * faults, leave everything else to the next handler (win32.c reports what
  * the executable raised). */
-static LONG CALLBACK on_guest_exception(EXCEPTION_POINTERS *pointers)
+static LONG guest_exception(EXCEPTION_POINTERS *pointers)
 {
     const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
     CONTEXT *context = pointers->ContextRecord;
@@ -238,6 +266,18 @@ static LONG CALLBACK on_guest_exception(EXCEPTION_POINTERS *pointers)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+/* The clock must not redirect the main thread into a tick while a handler
+ * runs: the tick would nest an exception on the dispatch stack, and the
+ * fixup below keeps state between the fault and its single step. */
+static LONG CALLBACK on_guest_exception(EXCEPTION_POINTERS *pointers)
+{
+    LONG disposition;
+    Win32_EnterHandler();
+    disposition = guest_exception(pointers);
+    Win32_LeaveHandler();
+    return disposition;
+}
+
 /* The Linux layout as far as Windows allows: one pagefile-backed section
  * holds guest RAM and is viewed at 0x80000000 and 0xA0000000. The physical
  * mirror (0x10000..0x200000) competes with what Windows puts there before
@@ -263,6 +303,7 @@ int Memories_GuestMap(void)
                                         MEMORIES_GUEST_RAM_SIZE, NULL);
     int result;
     AddVectoredExceptionHandler(1, on_guest_exception);
+    Win32_SetFaultSites(fault_imminent);
     if (section == NULL) {
         fprintf(stderr, "guest RAM: CreateFileMapping failed (error %lu)\n", GetLastError());
         return -1;

@@ -742,6 +742,16 @@ static void draw_monster(Monster *monster, int x, int z, int yaw)
  * standing on a card has nothing to stand on there. */
 #define FIELD_PITCH 512
 
+#ifdef _WIN32
+/* In a DLL the address of a function of the executable is that of a local
+ * import thunk; the game's table holds the function's own, which is what
+ * the import slot contains. */
+extern void *draw_field_cards_import __asm__("__imp__Duel_DrawFieldCards");
+#define DRAW_FIELD_CARDS draw_field_cards_import
+#else
+#define DRAW_FIELD_CARDS ((void *)Duel_DrawFieldCards)
+#endif
+
 static int duel_field_up(void)
 {
     static int phase = -1, distance = -1, pitch = -1, angle = -1;
@@ -755,7 +765,7 @@ static int duel_field_up(void)
         say("duel scene phase %d, camera %d away, pitch %d, angle %d, side %d, projection %d\n",
             phase, distance, pitch, angle, D_8009B1D5, D_800F2848.projection);
     }
-    return D_800E9DB0[3] == Duel_DrawFieldCards && D_800F2C40[2].field_E1F != 0 &&
+    return (void *)D_800E9DB0[3] == DRAW_FIELD_CARDS && D_800F2C40[2].field_E1F != 0 &&
            D_800F2848.field_04 < tunable("MEMORIES_MODS_PITCH", FIELD_PITCH);
 }
 

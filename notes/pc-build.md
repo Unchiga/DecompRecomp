@@ -755,7 +755,23 @@ What differs from Linux, and why:
   tick's entry; by the clock thread, when the main thread's stack pointer is
   back above the slot it pushed; and by `Win32_ServiceInterrupt`, since a
   wait on the main thread is not the tick. Before this, the game froze in
-  `Platform_WaitVBlank` after a few minutes of duelling. The game stack runs
+  `Platform_WaitVBlank` after a few minutes of duelling. Worse than a
+  dropped redirect is one that lands on the exception: the clock finds the
+  main thread at a faulting instruction (WoW64 still shows that EIP while
+  it builds the exception's frames on the stack), pushes its slot and runs
+  the tick right on those frames, and the handler is then called with an
+  `EXCEPTION_RECORD` pointer that is a code address. With the 3D Monsters
+  mod, whose draw path takes nine low-address faults per frame, this killed
+  the process within minutes. Three guards close it: the clock does not
+  redirect a thread it finds at an instruction that has faulted before
+  (`Win32_SetFaultSites`; every site repeats, so its first fault is the
+  only exposed one), nor while the main thread is inside an exception
+  handler (`Win32_EnterHandler`); and an interrupted fault is undone from
+  the registers the clock saved, not from the stack slot, which the
+  exception's frames may have replaced. An exception record with a facility
+  Windows does not use is reported with the stack, context and clock state
+  (`exception record at ... is not one`), which is how this was found. The
+  game stack runs
   with an empty SEH chain, so the crash reporter also takes any fatal
   exception raised while the chain is empty, in a DLL too; a stack overflow
   is reported from a thread of its own, the faulting one having too little
@@ -772,13 +788,20 @@ What differs from Linux, and why:
 - **Mods.** The executable exports its symbols (`--export-all-symbols`) and
   the link leaves an import library, `libmemories-pc.a`, beside it; a mod's
   DLL links against that, which is what `-rdynamic` does for a `.so` on
-  Linux. `mods.c` reads a replacement file into memory instead of mapping
-  it, and loads the DLL with `LoadLibrary` (`pc/compat/dlfcn.h`). Pinned
-  guest names are absolute symbols, which a PE export table cannot carry, so
-  a mod DLL also links `guest_symbols.o`, and `-static -lpthread` as the
-  executable does. Both shipped mods load on Windows (2026-09-22, headless
-  to the title screen with `MEMORIES_TRACE=mods`); in-game behaviour is not
-  checked yet.
+  Linux. Pinned guest names are absolute symbols, which a PE export table
+  cannot carry, so a mod DLL also links `guest_symbols.o`, and `-static
+  -lpthread` as the executable does. `mods.c` reads a replacement file into
+  memory instead of mapping it, and loads the DLL with `LoadLibrary`
+  (`pc/compat/dlfcn.h`), which also registers the DLL with the clock as
+  game code (`Win32_AddCodeModule`): its faults are the guest's to repair
+  and its loops are interruptible. Inside a DLL the address of an
+  executable's function is a local import thunk, so a mod that compares
+  one with a pointer the game holds must read the `__imp__` slot instead
+  (`field_models.c`, `Duel_DrawFieldCards`); without it 3D Monsters
+  computed its scene and never drew it. Both mods run on Windows
+  (2026-09-22, 3D Monsters through a 40,000-frame duel), from the menu or
+  `MEMORIES_3D_MONSTERS=1`; `MEMORIES_MODS_DIR` points at another build's
+  `mods/`.
 - **Tests.** On MinGW every CMake test links `-static`: otherwise a 32-bit
   test loads whichever `libwinpthread-1.dll` PATH finds first, often a
   64-bit one, and fails to start with 0xc000007b. Run them with a native

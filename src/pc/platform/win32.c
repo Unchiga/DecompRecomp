@@ -32,10 +32,15 @@ static volatile LONG in_tick;    /* a tick is running on the main thread */
 static volatile LONG pending;    /* a tick could not be delivered */
 static volatile LONG redirected; /* the clock redirected the main thread, the tick has not run yet */
 static DWORD pushed_at;          /* where that redirect left the interrupted EIP */
-static volatile LONG lost_redirects, undone_faults;
+static volatile LONG lost_redirects, undone_faults, misread_slots;
 static void (*tick_handler)(uintptr_t, void *);
 static CONTEXT interrupted;      /* the registers a delivered tick interrupted */
 static uintptr_t image_low, image_high;
+static struct { uintptr_t low, high; } modules[16]; /* mod libraries, game code too */
+static volatile LONG module_count;
+static int in_game_code(uintptr_t address);
+static volatile LONG in_handler; /* the main thread is inside an exception handler */
+static int (*fault_imminent)(void *context);
 static Win32CrashReport crash_report;
 static volatile LONG heartbeat;
 static void (*stall_report)(void *context);
@@ -153,7 +158,8 @@ static DWORD WINAPI run_clock(void *unused)
              * for ever. While it does run, the thread is below the slot the
              * redirect pushed; above it, the redirect was lost. */
             if (redirected && context.Esp > pushed_at) release_lost_redirect();
-            if (!held && !in_tick && !(context.EFlags & 0x100) && context.Eip >= image_low && context.Eip < image_high) {
+            if (!held && !in_tick && !in_handler && !(context.EFlags & 0x100) && in_game_code(context.Eip) &&
+                !(fault_imminent && fault_imminent(&context))) {
                 interrupted = context;
                 in_tick = 1;
                 pending = 0;
@@ -189,14 +195,36 @@ int Win32_UndoInterruptedFault(void *context)
         release_lost_redirect();
         return 0;
     }
-    /* The clock pushed the interrupted EIP before redirecting. */
-    registers->Eip = *(const DWORD *)(uintptr_t)registers->Esp;
-    registers->Esp += 4;
+    /* The clock pushed the interrupted EIP before redirecting, but the
+     * exception may have been dispatched onto the stack in between, leaving
+     * something else in that slot: the registers the clock saved are what
+     * the thread was really doing. */
+    if (*(const DWORD *)(uintptr_t)registers->Esp != interrupted.Eip) misread_slots++;
+    registers->Eip = interrupted.Eip;
+    registers->Esp = interrupted.Esp;
     redirected = 0;
     pending = 1;
     in_tick = 0;
     undone_faults++;
     return 1;
+}
+
+/* While the main thread runs an exception handler, the clock leaves it
+ * alone: a tick redirected onto the dispatch stack nests exceptions, and
+ * the handlers keep state of their own (image.c's low fixup). */
+void Win32_EnterHandler(void)
+{
+    if (GetCurrentThreadId() == main_id) InterlockedIncrement(&in_handler);
+}
+
+void Win32_SetFaultSites(int (*imminent)(void *context))
+{
+    fault_imminent = imminent;
+}
+
+void Win32_LeaveHandler(void)
+{
+    if (GetCurrentThreadId() == main_id) InterlockedDecrement(&in_handler);
 }
 
 void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds)
@@ -210,10 +238,11 @@ void Win32_Heartbeat(void)
     InterlockedIncrement(&heartbeat);
 }
 
-void Win32_ClockRepairs(unsigned *lost, unsigned *undone)
+void Win32_ClockRepairs(unsigned *lost, unsigned *undone, unsigned *misread)
 {
     *lost = (unsigned)lost_redirects;
     *undone = (unsigned)undone_faults;
+    *misread = (unsigned)misread_slots;
 }
 
 void Win32_ServiceInterrupt(void)
@@ -245,6 +274,30 @@ int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context))
     SetThreadPriority(thread, THREAD_PRIORITY_TIME_CRITICAL);
     CloseHandle(thread);
     return 0;
+}
+
+/* The executable, or a mod library: code the clock may interrupt and whose
+ * guest faults are ours to repair. */
+static int in_game_code(uintptr_t address)
+{
+    LONG i, count = module_count;
+    if (address >= image_low && address < image_high) return 1;
+    for (i = 0; i < count; i++) {
+        if (address >= modules[i].low && address < modules[i].high) return 1;
+    }
+    return 0;
+}
+
+void Win32_AddCodeModule(void *module)
+{
+    const unsigned char *base = module;
+    const IMAGE_NT_HEADERS *headers;
+    LONG slot = module_count;
+    if (!base || slot >= (LONG)(sizeof(modules) / sizeof(modules[0]))) return;
+    headers = (const IMAGE_NT_HEADERS *)(base + ((const IMAGE_DOS_HEADER *)base)->e_lfanew);
+    modules[slot].low = (uintptr_t)base;
+    modules[slot].high = (uintptr_t)base + headers->OptionalHeader.SizeOfImage;
+    InterlockedIncrement(&module_count);
 }
 
 void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp)
@@ -367,7 +420,7 @@ static DWORD WINAPI report_overflow(void *argument)
 /* Code in the executable installs no exception handlers of its own, so an
  * exception raised there that the guest fault handler (image.c) did not take
  * is fatal. Other modules' exceptions are theirs to handle. */
-static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
+static LONG exception_body(EXCEPTION_POINTERS *pointers)
 {
     const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
     const CONTEXT *context = pointers->ContextRecord;
@@ -392,7 +445,7 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
      * anywhere at all while the thread has no exception handler to try:
      * the game stack runs with an empty chain (state.c), so an exception
      * raised there with none installed is the end of the process. */
-    if ((address < image_low || address >= image_high) && !(address >= 0x80000000u && address < 0x80200000u) &&
+    if (!in_game_code(address) && !(address >= 0x80000000u && address < 0x80200000u) &&
         !(address >= 0xa0000000u && address < 0xa0200000u) && address >= 0x00200000u &&
         __readfsdword(0) != 0xffffffffu) {
         return EXCEPTION_CONTINUE_SEARCH;
@@ -411,6 +464,15 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
     write_dump("crash", pointers, GetCurrentThreadId());
     TerminateProcess(GetCurrentProcess(), 3);
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
+{
+    LONG disposition;
+    Win32_EnterHandler();
+    disposition = exception_body(pointers);
+    Win32_LeaveHandler();
+    return disposition;
 }
 
 /* Any other thread's exception that nothing handled (audio, drivers). */
@@ -439,6 +501,20 @@ static LONG CALLBACK on_unclaimed(EXCEPTION_POINTERS *pointers)
     if (record->ExceptionCode == 0x406d1388u || record->ExceptionCode == 0x40010006u ||
         record->ExceptionCode == 0x4001000au) {
         return EXCEPTION_CONTINUE_SEARCH; /* thread names and debug output */
+    }
+    /* An exception code Windows never raises means the record itself is not
+     * one: the dispatch frames on the stack were overwritten. Report where
+     * they were and what the clock was doing, which is the only way to tell
+     * a redirect that landed on them from other damage. */
+    if ((record->ExceptionCode & 0x0fff0000u) != 0) { /* a facility Windows does not use */
+        uintptr_t low, high;
+        Win32_StackRange(&low, &high);
+        fprintf(stderr, "memories-pc: exception record at %p is not one (stack %p..%p, context %p): "
+                        "eip 0x%08lx esp 0x%08lx, clock held=%ld tick=%ld redirected=%ld handler=%ld pushed 0x%08lx\n",
+                (void *)record, (void *)low, (void *)high, (void *)pointers->ContextRecord,
+                pointers->ContextRecord->Eip, pointers->ContextRecord->Esp, (long)held, (long)in_tick,
+                (long)redirected, (long)in_handler, (unsigned long)pushed_at);
+        fflush(stderr);
     }
     for (i = 0; i < n && i < 64; i++) {
         if (seen[i] == record->ExceptionAddress) return EXCEPTION_CONTINUE_SEARCH;

@@ -29,12 +29,21 @@ void Win32_ServiceInterrupt(void);
 void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds);
 void Win32_Heartbeat(void);
 /* How often the clock's two exception races were repaired (clock trace). */
-void Win32_ClockRepairs(unsigned *lost_redirects, unsigned *undone_faults);
+void Win32_ClockRepairs(unsigned *lost_redirects, unsigned *undone_faults, unsigned *misread_slots);
 
 void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp);
 /* The executable image, and the calling thread's stack. */
 void Win32_ImageRange(uintptr_t *low, uintptr_t *high);
 void Win32_StackRange(uintptr_t *low, uintptr_t *high);
+/* A mod library loaded into the process: game code like the executable's. */
+void Win32_AddCodeModule(void *module);
+/* Around an exception handler on the main thread: the clock holds its tick. */
+void Win32_EnterHandler(void);
+/* Is the suspended main thread (its CONTEXT) at an instruction that faults
+ * into the guest's repair? The clock does not redirect it there: it may be
+ * entering the fault's dispatch. */
+void Win32_SetFaultSites(int (*imminent)(void *context));
+void Win32_LeaveHandler(void);
 
 /* The DLL an address is in, as "name.dll"; 0 when it is in none. */
 int Win32_ModuleName(uintptr_t address, char *out, unsigned size, uintptr_t *offset);

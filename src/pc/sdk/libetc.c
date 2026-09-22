@@ -230,9 +230,10 @@ int Memories_VSync(int mode)
                 }
 #ifdef _WIN32
                 {
-                    unsigned lost, undone;
-                    Win32_ClockRepairs(&lost, &undone);
-                    LOG(LOG_FRAMES, "clock repairs: %u lost redirects, %u interrupted faults", lost, undone);
+                    unsigned lost, undone, misread;
+                    Win32_ClockRepairs(&lost, &undone, &misread);
+                    LOG(LOG_FRAMES, "clock repairs: %u lost redirects, %u interrupted faults (%u off-slot)",
+                        lost, undone, misread);
                 }
 #endif
             }

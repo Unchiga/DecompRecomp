@@ -17,10 +17,16 @@ __declspec(dllimport) unsigned long __stdcall GetLastError(void);
 #define RTLD_NOW 2
 #define RTLD_LOCAL 0
 
+void Win32_AddCodeModule(void *module);
+
 static inline void *dlopen(const char *path, int flags)
 {
+    void *module = LoadLibraryA(path);
     (void)flags;
-    return LoadLibraryA(path);
+    /* The clock interrupts the library's code, and repairs its guest faults,
+     * as it does the executable's (win32.c). */
+    Win32_AddCodeModule(module);
+    return module;
 }
 
 static inline void *dlsym(void *handle, const char *name)
