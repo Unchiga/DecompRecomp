@@ -6,6 +6,10 @@
  * Platform_VBlankCount must be called from the main thread only.
  * MEMORIES_HEADLESS=1 skips the window; MEMORIES_SCALE picks the zoom. */
 int Platform_Open(const char *title);
+void Platform_OpenMods(void);
+void Platform_OpenControls(void);
+/* Re-exec with the original arguments; returns only on failure. */
+int Platform_RestartGame(void);
 /* Show a VRAM rectangle (15-bit, or packed 24-bit RGB bytes) and pump events. */
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24);
 int Platform_ShouldQuit(void);

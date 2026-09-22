@@ -33,6 +33,10 @@ int main(void)
     assert(Settings_Get(SET_MASTER_VOLUME) == 40);
     assert(Settings_Get(SET_MUSIC_VOLUME) == 70);
     assert(Settings_Get(SET_SFX_VOLUME) == 100);
+    Settings_Set(SET_ASPECT, 2);
+    assert(Settings_Get(SET_ASPECT) == 2);
+    Settings_Set(SET_ASPECT, 3);
+    assert(Settings_Get(SET_ASPECT) == 2);
     Settings_Set(SET_SPEED, 999);
     assert(Settings_Get(SET_SPEED) == 400);
     assert(Settings_Get(SET_FPS) == 0);
@@ -41,11 +45,13 @@ int main(void)
     Settings_Set(SET_FPS, 144);
     assert(Settings_Get(SET_FPS) == 144);
     Settings_Set(SET_SFX_VOLUME, 65);
-    Settings_Save();
+    assert(Settings_Save());
     assert(contains(path, "master_volume=40\n"));
     assert(contains(path, "volume=40\n"));
     assert(contains(path, "sfx_volume=65\n"));
     assert(contains(path, "unknown=7\n"));
     unlink(path);
+    assert(!setenv("MEMORIES_SETTINGS", "/dev/null/settings", 1));
+    assert(!Settings_Save());
     return 0;
 }

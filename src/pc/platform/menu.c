@@ -66,10 +66,9 @@ enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
 enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, ACT_GIVE_CARDS,
-    ACT_RELOAD_SETTINGS, ACT_PAUSE, ACT_FRAME_STEP, ACT_DUMP_FRAME, ACT_DUMP_VRAM,
+    ACT_MODS, ACT_CONTROLS, ACT_RELOAD_SETTINGS, ACT_PAUSE, ACT_FRAME_STEP, ACT_DUMP_FRAME, ACT_DUMP_VRAM,
     SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, SLIDER_STREAM, CHECK_MUTE,
     CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT,
-    CHECK_MOD = 200,   /* + mod */
     CHECK_TRACE = 300  /* value is a LogChannel */
 };
 
@@ -84,7 +83,7 @@ typedef struct {
 } Item;
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
-enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_GAME, MENU_MODS, MENU_DEBUG, MENU_TRACE, MENU_COUNT };
+enum { MENU_FILE, MENU_VIEW, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_TRACE, MENU_COUNT };
 enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
@@ -96,13 +95,6 @@ static Menu menus[MENU_COUNT] = {
               {"Screenshot", "F12", ITEM_ACTION, ACT_SCREENSHOT, -1, 0, ITEM_GROUP_BREAK},
               {"Reload settings", 0, ITEM_ACTION, ACT_RELOAD_SETTINGS, -1},
               {"Exit", "Esc", ITEM_ACTION, ACT_EXIT, -1, 0, ITEM_GROUP_BREAK}}, 9},
-    {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
-               {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
-               {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
-               {"Movies", 0, ITEM_SLIDER, SLIDER_STREAM, SET_STREAM_VOLUME},
-               {0, 0, ITEM_SEPARATOR, 0, -1},
-               {"Mute all", "M", ITEM_CHECK, CHECK_MUTE, -1},
-               {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS}}, 7},
     {"View", {{"Window scale", 0, ITEM_SUBMENU, 0, -1, SUB_SCALE},
               {"Menu size", 0, ITEM_SUBMENU, 0, -1, SUB_MENU_SIZE},
               {"Fullscreen", "F11", ITEM_CHECK, MENU_ITEM_FULLSCREEN, SET_FULLSCREEN, 0, ITEM_GROUP_BREAK},
@@ -112,14 +104,23 @@ static Menu menus[MENU_COUNT] = {
               {"Stretch", 0, ITEM_RADIO, MENU_ITEM_SCALING_STRETCH, SET_SCALING, 2},
               {"4:3 aspect", 0, ITEM_RADIO, MENU_ITEM_ASPECT_4_3, SET_ASPECT, 0, ITEM_GROUP_BREAK},
               {"Square pixels", 0, ITEM_RADIO, MENU_ITEM_ASPECT_SQUARE, SET_ASPECT, 1},
+              {"Widescreen (16:9)", 0, ITEM_RADIO, MENU_ITEM_ASPECT_WIDESCREEN, SET_ASPECT, 2},
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
-              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 11},
+              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 12},
+    {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
+               {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
+               {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
+               {"Movies", 0, ITEM_SLIDER, SLIDER_STREAM, SET_STREAM_VOLUME},
+               {0, 0, ITEM_SEPARATOR, 0, -1},
+               {"Mute all", "M", ITEM_CHECK, CHECK_MUTE, -1},
+               {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS}}, 7},
     /* Game speed scales the game clock (music keeps its tempo); the frame
      * rate is how many of those game frames reach the window. Tab holds 400%. */
-    {"Game", {{"Game speed", 0, ITEM_SUBMENU, 0, -1, SUB_SPEED},
+    {"Game", {{"Controls...", 0, ITEM_ACTION, ACT_CONTROLS, -1},
+              {"Mods", 0, ITEM_ACTION, ACT_MODS, -1},
+              {"Game speed", 0, ITEM_SUBMENU, 0, -1, SUB_SPEED},
               {"Frame rate", 0, ITEM_SUBMENU, 0, -1, SUB_FPS},
-              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 3},
-    {"Mods", {{0}}, 0},
+              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 5},
     {"Debug", {{"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1},
                {"Full stats", 0, ITEM_CHECK, CHECK_HUD_FULL, -1},
                {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},
@@ -308,7 +309,8 @@ static int text_width(const char *text)
 }
 
 /* Source over destination. On an opaque canvas the destination's alpha is
- * ignored; on an overlay both alphas take part (straight, not premultiplied)
+ * ignored and the result is fully opaque (a backend may upload the canvas to
+ * a texture that blends by alpha); on an overlay both alphas take part (straight, not premultiplied)
  * so the platform can blend the result over the picture. */
 static inline uint32_t blend(uint32_t under, uint32_t over, unsigned alpha)
 {
@@ -326,7 +328,7 @@ static inline uint32_t blend(uint32_t under, uint32_t over, unsigned alpha)
     r = ((over >> 16 & 0xff) * alpha + (under >> 16 & 0xff) * inverse + 127) / 255;
     g = ((over >> 8 & 0xff) * alpha + (under >> 8 & 0xff) * inverse + 127) / 255;
     b = ((over & 0xff) * alpha + (under & 0xff) * inverse + 127) / 255;
-    return r << 16 | g << 8 | b;
+    return 0xff000000u | r << 16 | g << 8 | b;
 }
 
 static void put(int x, int y, uint32_t colour, unsigned alpha)
@@ -441,6 +443,28 @@ void Menu_DrawText(MenuCanvas *into, int x, int y, const char *text, uint32_t co
 
 int Menu_TextWidth(const char *text) { return text_width(text); }
 
+int Menu_TextWidthScaled(const char *text, int scale) { return text_width(text) * scale / ui; }
+void Menu_DrawTextScaled(MenuCanvas *into, int x, int middle, const char *text, uint32_t colour, int scale)
+{
+    canvas = into;
+    if (scale == ui) { draw_text(x, middle, text, colour); return; }
+    if (!font_loaded) {
+        int previous = ui; ui = scale; draw_bitmap_text(x, middle, text, colour); ui = previous; return;
+    }
+    int baseline = middle + (font_ascent - font_descent + 1) * scale / (2 * ui);
+    int advance = 0;
+    for (; *text; text++) {
+        unsigned char c = (unsigned char)*text;
+        const Glyph *g = &glyphs[c >= 32 && c < 127 ? c - 32 : 0];
+        for (int row = 0; row < g->h * scale / ui && g->coverage; row++)
+            for (int col = 0; col < g->w * scale / ui; col++)
+                put(x + advance * scale / ui + g->left * scale / ui + col,
+                    baseline - g->top * scale / ui + row, colour,
+                    g->coverage[(row * ui / scale) * g->w + col * ui / scale]);
+        advance += g->advance;
+    }
+}
+
 void Menu_LoadSettings(void)
 {
     Settings_Load();
@@ -466,8 +490,12 @@ static void setting_changed(SettingId id, int value)
     case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_FPS: Platform_SetPresentCap(value); break;
     case SET_MENU_SCALE: Platform_ApplyDisplaySettings(); break;
-    case SET_MOD_3D_MONSTERS: Mods_SetEnabled(MODS_FIELD_MODELS, value); break;
-    case SET_MOD_HAND_CAMERA: Mods_SetEnabled(MODS_HAND_CAMERA, value); break;
+    case SET_MOD_3D_MONSTERS:
+        if (!Mods_RequiresRestart(MODS_FIELD_MODELS)) Mods_SetEnabled(MODS_FIELD_MODELS, value);
+        break;
+    case SET_MOD_HAND_CAMERA:
+        if (!Mods_RequiresRestart(MODS_HAND_CAMERA)) Mods_SetEnabled(MODS_HAND_CAMERA, value);
+        break;
     default: break;
     }
 }
@@ -488,16 +516,7 @@ static void layout_bar(void)
 
 void Menu_Init(void)
 {
-    int i;
-    Menu *mods = &menus[MENU_MODS];
     load_font();
-    for (i = 0; i < MODS_COUNT && i < 8; i++) {
-        mods->items[i].label = Mods_Name(i);
-        mods->items[i].kind = ITEM_CHECK;
-        mods->items[i].id = CHECK_MOD + i;
-        mods->items[i].setting = i == MODS_FIELD_MODELS ? SET_MOD_3D_MONSTERS : SET_MOD_HAND_CAMERA;
-    }
-    mods->count = i;
     layout_bar();
     Settings_Observe(setting_changed);
     ready = 1;
@@ -705,7 +724,6 @@ static int item_state(const Item *item)
     if (item->id == ACT_PAUSE) return Platform_ClockRate() == 0;
     if (item->id == RADIO_STATE_SLOT) return Platform_StateSlot() == item->value;
     if (item->id == CHECK_TRACE) return Log_Enabled((LogChannel)item->value);
-    if (item->id >= CHECK_MOD && item->id < CHECK_MOD + MODS_COUNT) return Mods_Enabled(item->id - CHECK_MOD);
     if (item->setting >= 0 && item->kind == ITEM_CHECK) return Settings_Get(item->setting) != 0;
     if (item->setting >= 0 && item->kind == ITEM_RADIO) return Settings_Get(item->setting) == item->value;
     return 0;
@@ -856,6 +874,8 @@ static void activate(const Item *item, int *quit)
 {
     if (item->flags & ITEM_DISABLED) return;
     switch (item->id) {
+    case ACT_MODS: Platform_OpenMods(); break;
+    case ACT_CONTROLS: Platform_OpenControls(); break;
     case ACT_SAVE_STATE: Memories_StateRequest(1, Platform_StateSlot()); break;
     case ACT_LOAD_STATE: Memories_StateRequest(2, Platform_StateSlot()); break;
     case ACT_SCREENSHOT: Platform_Screenshot(0); break;
@@ -883,9 +903,7 @@ static void activate(const Item *item, int *quit)
     case RADIO_STATE_SLOT: Platform_SetStateSlot(item->value); break;
     case CHECK_TRACE: Log_Enable((LogChannel)item->value, !Log_Enabled((LogChannel)item->value)); break;
     default:
-        if (item->id >= CHECK_MOD && item->id < CHECK_MOD + MODS_COUNT) {
-            Settings_Set(item->setting, !Mods_Enabled(item->id - CHECK_MOD));
-        } else if (item->setting >= 0 && item->kind == ITEM_CHECK) {
+        if (item->setting >= 0 && item->kind == ITEM_CHECK) {
             Settings_Set(item->setting, !Settings_Get(item->setting));
         } else if (item->setting >= 0 && item->kind == ITEM_RADIO) {
             Settings_Set(item->setting, item->value);

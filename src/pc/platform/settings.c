@@ -27,7 +27,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_FULLSCREEN] = {"fullscreen", NULL, "MEMORIES_FULLSCREEN", NULL, 0, 0, 2},
     [SET_BORDERLESS] = {"borderless", NULL, "MEMORIES_BORDERLESS", NULL, 0, 0, 1},
     [SET_SCALING] = {"scaling", NULL, "MEMORIES_SCALING", NULL, 0, 0, 2},
-    [SET_ASPECT] = {"aspect", NULL, "MEMORIES_ASPECT", NULL, 0, 0, 1},
+    /* 0 is corrected 4:3, 1 uses source pixels, and 2 opens a 16:9 canvas. */
+    [SET_ASPECT] = {"aspect", NULL, "MEMORIES_ASPECT", NULL, 0, 0, 2},
     [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 1},
     [SET_VSYNC] = {"vsync", NULL, "MEMORIES_VSYNC", NULL, 0, 0, 1},
     [SET_SPEED] = {"speed", NULL, "MEMORIES_SPEED", NULL, 100, -1, 400},
@@ -136,16 +137,16 @@ void Settings_Load(void)
     }
 }
 
-void Settings_Save(void)
+int Settings_Save(void)
 {
     const char *path = settings_path();
     char temporary[1024];
     FILE *file;
     int id, i;
     if (!getenv("MEMORIES_SETTINGS")) mkdir("saves", 0777);
-    if (snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return;
+    if (snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return 0;
     file = fopen(temporary, "w");
-    if (!file) return;
+    if (!file) return 0;
     for (id = 0; id < SET_COUNT; id++) {
         fprintf(file, "%s=%d\n", info[id].key, stored[id]);
         /* TODO remove legacy keys after one compatibility release. */
@@ -154,7 +155,12 @@ void Settings_Save(void)
         }
     }
     for (i = 0; i < unknown_count; i++) fprintf(file, "%s\n", unknown[i]);
-    if (fclose(file) || rename(temporary, path)) remove(temporary);
+    {
+        int failed = ferror(file);
+        if (fclose(file)) failed = 1;
+        if (failed || rename(temporary, path)) { remove(temporary); return 0; }
+    }
+    return 1;
 }
 
 int Settings_Get(SettingId id)

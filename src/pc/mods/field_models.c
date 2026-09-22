@@ -156,6 +156,9 @@ const char *Mods_Name(int mod)
 {
     return mod == MODS_FIELD_MODELS ? "3D Monsters" : mod == MODS_HAND_CAMERA ? "Hand camera (L1/R1 turn, L3/R3 zoom)" : "";
 }
+/* Both current mods are checked on every frame and support live changes. */
+int Mods_RequiresRestart(int mod) { (void)mod; return 0; }
+
 int Mods_Enabled(int mod) { return mod >= 0 && mod < MODS_COUNT && enabled[mod]; }
 
 void Mods_SetEnabled(int mod, int on)

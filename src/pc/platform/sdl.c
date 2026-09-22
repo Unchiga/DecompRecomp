@@ -10,6 +10,9 @@
 #define _GNU_SOURCE
 #include "platform.h"
 #include "menu.h"
+#include "mods_window.h"
+#include "controls_window.h"
+#include "controls_linux.h"
 #include "settings.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
@@ -43,13 +46,13 @@ static int menu_reveal_frames;
 /* 4 puts the 320x240 picture on screen at 1280x960. */
 static int scale = 4, pending_scale, quit, state_slot = 1;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
-static volatile uint16_t pad_bits, scripted_bits, mouse_bits;
+static volatile uint16_t scripted_bits, mouse_bits;
 static uint16_t wheel_bits;
 static int wheel_frames;
 static volatile uint16_t wheel_now;
 static int pointer_x, pointer_y, pointer_inside, cursor_hidden;
 static unsigned last_pointer_motion, current_frame;
-static int focus_clock_rate = 100;
+static int focus_clock_rate = 100, focus_paused;
 static char base_title[160];
 static float known_refresh; /* what the wayland driver reported before a fallback to x11 */
 
@@ -71,6 +74,146 @@ static void update_menu_scale(int window_h)
     Menu_SetScale(wanted ? wanted : Menu_AutoScale(window_h));
 }
 static void relayout(void);
+static void show_cursor(void);
+static void block_signals(sigset_t *previous);
+static void restore_signals(const sigset_t *previous);
+
+/* SDL_Render may leave its own OpenGL context current. Game texture uploads
+ * must never inherit that context (or its pixel unpack stride). */
+static void restore_game_context(void)
+{
+    if (use_gl && !SDL_GL_MakeCurrent(window, gl_context)) {
+        fprintf(stderr, "memories-pc: restoring game OpenGL context: %s\n", SDL_GetError());
+        quit = 1;
+    }
+}
+static SDL_Window *mods_window;
+static SDL_Renderer *mods_renderer;
+static SDL_Texture *mods_texture;
+static MenuCanvas mods_canvas;
+static void close_mods(void)
+{
+    if (mods_texture) SDL_DestroyTexture(mods_texture);
+    if (mods_renderer) SDL_DestroyRenderer(mods_renderer);
+    if (mods_window) SDL_DestroyWindow(mods_window);
+    free(mods_canvas.pixels);
+    mods_texture = NULL; mods_renderer = NULL; mods_window = NULL;
+    mods_canvas.pixels = NULL;
+    restore_game_context();
+}
+static void draw_mods(void)
+{
+    ModsWindow_Draw(&mods_canvas);
+    SDL_UpdateTexture(mods_texture, NULL, mods_canvas.pixels, mods_canvas.stride * 4);
+    SDL_RenderClear(mods_renderer);
+    SDL_RenderTexture(mods_renderer, mods_texture, NULL, NULL);
+    SDL_RenderPresent(mods_renderer);
+    restore_game_context();
+}
+void Platform_OpenMods(void)
+{
+    sigset_t previous;
+    if (mods_window) { SDL_RaiseWindow(mods_window); return; }
+    ModsWindow_Init();
+    ModsWindow_Size(&mods_canvas.width, &mods_canvas.height);
+    mods_canvas.stride = mods_canvas.width;
+    mods_canvas.pixels = calloc((size_t)mods_canvas.width * mods_canvas.height, 4);
+    /* Driver worker threads must inherit the blocked game timer signals. */
+    block_signals(&previous);
+    mods_window = SDL_CreateWindow("MODS", mods_canvas.width, mods_canvas.height, 0);
+    mods_renderer = mods_window ? SDL_CreateRenderer(mods_window, NULL) : NULL;
+    mods_texture = mods_renderer ? SDL_CreateTexture(mods_renderer, SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING, mods_canvas.width, mods_canvas.height) : NULL;
+    restore_signals(&previous);
+    /* The canvas is opaque; SDL would otherwise blend an ARGB texture by alpha. */
+    if (mods_texture) SDL_SetTextureBlendMode(mods_texture, SDL_BLENDMODE_NONE);
+    if (!mods_canvas.pixels || !mods_texture) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "MODS", "Could not open the mods window.", window);
+        close_mods(); return;
+    }
+    show_cursor();
+    draw_mods();
+}
+
+static void controls_key_labels(void);
+static void controls_sync_keys(void);
+static SDL_Window *controls_window;
+static SDL_Renderer *controls_renderer;
+static SDL_Texture *controls_texture;
+static MenuCanvas controls_canvas;
+static void close_controls(void)
+{
+    if (controls_texture)
+        SDL_DestroyTexture(controls_texture);
+    if (controls_renderer)
+        SDL_DestroyRenderer(controls_renderer);
+    if (controls_window)
+        SDL_DestroyWindow(controls_window);
+    free(controls_canvas.pixels);
+    memset(&controls_canvas, 0, sizeof(controls_canvas));
+    controls_window = NULL;
+    controls_renderer = NULL;
+    controls_texture = NULL;
+    mouse_bits = wheel_now = 0;
+    wheel_frames = 0;
+    ControlsRuntime_Block(0);
+    restore_game_context();
+}
+static void draw_controls(void)
+{
+    ControlsWindow_Draw(&controls_canvas);
+    SDL_UpdateTexture(controls_texture,NULL,controls_canvas.pixels,controls_canvas.stride*4);
+    SDL_RenderClear(controls_renderer);SDL_RenderTexture(controls_renderer,controls_texture,NULL,NULL);
+    SDL_RenderPresent(controls_renderer);restore_game_context();
+}
+/* The window is resizable: rebuild the canvas and texture for the new size
+ * and repaint, keeping the old ones when the new pair cannot be made. */
+static void resize_controls(int w, int h)
+{
+    sigset_t previous;
+    if(!controls_window||w<1||h<1||(w==controls_canvas.width&&h==controls_canvas.height))return;
+    uint32_t *pixels=calloc((size_t)w*h,4);
+    block_signals(&previous);
+    SDL_Texture *texture=pixels?SDL_CreateTexture(controls_renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h):NULL;
+    restore_signals(&previous);
+    if(!texture){free(pixels);return;}
+    SDL_SetTextureBlendMode(texture,SDL_BLENDMODE_NONE);
+    block_signals(&previous);
+    SDL_DestroyTexture(controls_texture);
+    restore_signals(&previous);
+    free(controls_canvas.pixels);
+    controls_texture=texture;
+    controls_canvas.pixels=pixels;
+    controls_canvas.width=controls_canvas.stride=w;
+    controls_canvas.height=h;
+    draw_controls();
+}
+void Platform_OpenControls(void)
+{
+    sigset_t previous;
+    if(controls_window){SDL_RaiseWindow(controls_window);return;}
+    controls_key_labels();
+    ControlsWindow_Init();controls_sync_keys();ControlsWindow_Size(&controls_canvas.width,&controls_canvas.height);
+    SDL_Rect usable;
+    if(SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(window),&usable)) {
+        if(controls_canvas.width>usable.w)controls_canvas.width=usable.w;
+        if(controls_canvas.height>usable.h-50)controls_canvas.height=usable.h-50;
+    }
+    controls_canvas.stride=controls_canvas.width;
+    controls_canvas.pixels=calloc((size_t)controls_canvas.width*controls_canvas.height,4);
+    block_signals(&previous);
+    controls_window=SDL_CreateWindow("Controls",controls_canvas.width,controls_canvas.height,SDL_WINDOW_RESIZABLE);
+    controls_renderer=controls_window?SDL_CreateRenderer(controls_window,NULL):NULL;
+    controls_texture=controls_renderer?SDL_CreateTexture(controls_renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,controls_canvas.width,controls_canvas.height):NULL;
+    restore_signals(&previous);
+    if(!controls_texture||!controls_canvas.pixels) {close_controls();return;}
+    SDL_SetTextureBlendMode(controls_texture,SDL_BLENDMODE_NONE);
+    int min_w,min_h;
+    ControlsWindow_MinSize(&min_w,&min_h);
+    SDL_SetWindowMinimumSize(controls_window,min_w,min_h);
+    mouse_bits=wheel_now=0;wheel_frames=0;show_cursor();draw_controls();
+}
+
 static void pump(void);
 
 static void update_title(void)
@@ -230,11 +373,235 @@ void Platform_Screenshot(int window_image)
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
  * L2/R2, T/Y L3/R3; Enter start, right Shift select. */
-static const struct { SDL_Keycode key; uint16_t bit; } keymap[] = {
-    {SDLK_RSHIFT, 0x0001}, {SDLK_T, 0x0002}, {SDLK_Y, 0x0004}, {SDLK_RETURN, 0x0008},
-    {SDLK_UP, 0x0010}, {SDLK_RIGHT, 0x0020}, {SDLK_DOWN, 0x0040}, {SDLK_LEFT, 0x0080},
-    {SDLK_E, 0x0100}, {SDLK_R, 0x0200}, {SDLK_Q, 0x0400}, {SDLK_W, 0x0800},
-    {SDLK_A, 0x1000}, {SDLK_S, 0x2000}, {SDLK_X, 0x4000}, {SDLK_Z, 0x8000}};
+static int controls_key(SDL_Scancode code)
+{
+    switch (code) {
+    case SDL_SCANCODE_CAPSLOCK:
+        return CTRL_KEY_CAPS_LOCK;
+    case SDL_SCANCODE_NUMLOCKCLEAR:
+        return CTRL_KEY_NUM_LOCK;
+    case SDL_SCANCODE_PRINTSCREEN:
+        return CTRL_KEY_PRINT_SCREEN;
+    case SDL_SCANCODE_SCROLLLOCK:
+        return CTRL_KEY_SCROLL_LOCK;
+    case SDL_SCANCODE_PAUSE:
+        return CTRL_KEY_PAUSE;
+    case SDL_SCANCODE_SPACE:
+        return CTRL_KEY_SPACE;
+    case SDL_SCANCODE_ESCAPE:
+        return CTRL_KEY_ESCAPE;
+    case SDL_SCANCODE_TAB:
+        return CTRL_KEY_TAB;
+    case SDL_SCANCODE_BACKSPACE:
+        return CTRL_KEY_BACKSPACE;
+    case SDL_SCANCODE_RETURN:
+        return CTRL_KEY_ENTER;
+    case SDL_SCANCODE_MINUS:
+        return CTRL_KEY_MINUS;
+    case SDL_SCANCODE_EQUALS:
+        return CTRL_KEY_EQUAL;
+    case SDL_SCANCODE_LEFTBRACKET:
+        return CTRL_KEY_LBRACKET;
+    case SDL_SCANCODE_RIGHTBRACKET:
+        return CTRL_KEY_RBRACKET;
+    case SDL_SCANCODE_BACKSLASH:
+        return CTRL_KEY_BACKSLASH;
+    case SDL_SCANCODE_SEMICOLON:
+        return CTRL_KEY_SEMICOLON;
+    case SDL_SCANCODE_APOSTROPHE:
+        return CTRL_KEY_APOSTROPHE;
+    case SDL_SCANCODE_GRAVE:
+        return CTRL_KEY_GRAVE;
+    case SDL_SCANCODE_COMMA:
+        return CTRL_KEY_COMMA;
+    case SDL_SCANCODE_PERIOD:
+        return CTRL_KEY_PERIOD;
+    case SDL_SCANCODE_SLASH:
+        return CTRL_KEY_SLASH;
+    case SDL_SCANCODE_UP:
+        return CTRL_KEY_ARROW_UP;
+    case SDL_SCANCODE_DOWN:
+        return CTRL_KEY_ARROW_DOWN;
+    case SDL_SCANCODE_LEFT:
+        return CTRL_KEY_ARROW_LEFT;
+    case SDL_SCANCODE_RIGHT:
+        return CTRL_KEY_ARROW_RIGHT;
+    case SDL_SCANCODE_INSERT:
+        return CTRL_KEY_INSERT;
+    case SDL_SCANCODE_HOME:
+        return CTRL_KEY_HOME;
+    case SDL_SCANCODE_END:
+        return CTRL_KEY_END;
+    case SDL_SCANCODE_PAGEUP:
+        return CTRL_KEY_PAGE_UP;
+    case SDL_SCANCODE_PAGEDOWN:
+        return CTRL_KEY_PAGE_DOWN;
+    case SDL_SCANCODE_DELETE:
+        return CTRL_KEY_DELETE;
+    case SDL_SCANCODE_LSHIFT:
+        return CTRL_KEY_LEFT_SHIFT;
+    case SDL_SCANCODE_RSHIFT:
+        return CTRL_KEY_RIGHT_SHIFT;
+    case SDL_SCANCODE_LCTRL:
+        return CTRL_KEY_LEFT_CTRL;
+    case SDL_SCANCODE_RCTRL:
+        return CTRL_KEY_RIGHT_CTRL;
+    case SDL_SCANCODE_LALT:
+        return CTRL_KEY_LEFT_ALT;
+    case SDL_SCANCODE_RALT:
+        return CTRL_KEY_RIGHT_ALT;
+    case SDL_SCANCODE_LGUI:
+        return CTRL_KEY_LEFT_SUPER;
+    case SDL_SCANCODE_RGUI:
+        return CTRL_KEY_RIGHT_SUPER;
+    case SDL_SCANCODE_A:
+        return CTRL_KEY_A;
+    case SDL_SCANCODE_B:
+        return CTRL_KEY_B;
+    case SDL_SCANCODE_C:
+        return CTRL_KEY_C;
+    case SDL_SCANCODE_D:
+        return CTRL_KEY_D;
+    case SDL_SCANCODE_E:
+        return CTRL_KEY_E;
+    case SDL_SCANCODE_F:
+        return CTRL_KEY_F;
+    case SDL_SCANCODE_G:
+        return CTRL_KEY_G;
+    case SDL_SCANCODE_H:
+        return CTRL_KEY_H;
+    case SDL_SCANCODE_I:
+        return CTRL_KEY_I;
+    case SDL_SCANCODE_J:
+        return CTRL_KEY_J;
+    case SDL_SCANCODE_K:
+        return CTRL_KEY_K;
+    case SDL_SCANCODE_L:
+        return CTRL_KEY_L;
+    case SDL_SCANCODE_M:
+        return CTRL_KEY_M;
+    case SDL_SCANCODE_N:
+        return CTRL_KEY_N;
+    case SDL_SCANCODE_O:
+        return CTRL_KEY_O;
+    case SDL_SCANCODE_P:
+        return CTRL_KEY_P;
+    case SDL_SCANCODE_Q:
+        return CTRL_KEY_Q;
+    case SDL_SCANCODE_R:
+        return CTRL_KEY_R;
+    case SDL_SCANCODE_S:
+        return CTRL_KEY_S;
+    case SDL_SCANCODE_T:
+        return CTRL_KEY_T;
+    case SDL_SCANCODE_U:
+        return CTRL_KEY_U;
+    case SDL_SCANCODE_V:
+        return CTRL_KEY_V;
+    case SDL_SCANCODE_W:
+        return CTRL_KEY_W;
+    case SDL_SCANCODE_X:
+        return CTRL_KEY_X;
+    case SDL_SCANCODE_Y:
+        return CTRL_KEY_Y;
+    case SDL_SCANCODE_Z:
+        return CTRL_KEY_Z;
+    case SDL_SCANCODE_0:
+        return CTRL_KEY_0;
+    case SDL_SCANCODE_1:
+        return CTRL_KEY_1;
+    case SDL_SCANCODE_2:
+        return CTRL_KEY_2;
+    case SDL_SCANCODE_3:
+        return CTRL_KEY_3;
+    case SDL_SCANCODE_4:
+        return CTRL_KEY_4;
+    case SDL_SCANCODE_5:
+        return CTRL_KEY_5;
+    case SDL_SCANCODE_6:
+        return CTRL_KEY_6;
+    case SDL_SCANCODE_7:
+        return CTRL_KEY_7;
+    case SDL_SCANCODE_8:
+        return CTRL_KEY_8;
+    case SDL_SCANCODE_9:
+        return CTRL_KEY_9;
+    case SDL_SCANCODE_F1:
+        return CTRL_KEY_F1;
+    case SDL_SCANCODE_F2:
+        return CTRL_KEY_F2;
+    case SDL_SCANCODE_F3:
+        return CTRL_KEY_F3;
+    case SDL_SCANCODE_F4:
+        return CTRL_KEY_F4;
+    case SDL_SCANCODE_F5:
+        return CTRL_KEY_F5;
+    case SDL_SCANCODE_F6:
+        return CTRL_KEY_F6;
+    case SDL_SCANCODE_F7:
+        return CTRL_KEY_F7;
+    case SDL_SCANCODE_F8:
+        return CTRL_KEY_F8;
+    case SDL_SCANCODE_F9:
+        return CTRL_KEY_F9;
+    case SDL_SCANCODE_F10:
+        return CTRL_KEY_F10;
+    case SDL_SCANCODE_F11:
+        return CTRL_KEY_F11;
+    case SDL_SCANCODE_F12:
+        return CTRL_KEY_F12;
+    case SDL_SCANCODE_KP_0:
+        return CTRL_KEY_KP_0;
+    case SDL_SCANCODE_KP_1:
+        return CTRL_KEY_KP_1;
+    case SDL_SCANCODE_KP_2:
+        return CTRL_KEY_KP_2;
+    case SDL_SCANCODE_KP_3:
+        return CTRL_KEY_KP_3;
+    case SDL_SCANCODE_KP_4:
+        return CTRL_KEY_KP_4;
+    case SDL_SCANCODE_KP_5:
+        return CTRL_KEY_KP_5;
+    case SDL_SCANCODE_KP_6:
+        return CTRL_KEY_KP_6;
+    case SDL_SCANCODE_KP_7:
+        return CTRL_KEY_KP_7;
+    case SDL_SCANCODE_KP_8:
+        return CTRL_KEY_KP_8;
+    case SDL_SCANCODE_KP_9:
+        return CTRL_KEY_KP_9;
+    case SDL_SCANCODE_KP_COMMA:
+        return CTRL_KEY_KP_COMMA;
+    case SDL_SCANCODE_KP_PERIOD:
+        return CTRL_KEY_KP_DOT;
+    case SDL_SCANCODE_KP_DIVIDE:
+        return CTRL_KEY_KP_SLASH;
+    case SDL_SCANCODE_KP_MULTIPLY:
+        return CTRL_KEY_KP_ASTERISK;
+    case SDL_SCANCODE_KP_MINUS:
+        return CTRL_KEY_KP_MINUS;
+    case SDL_SCANCODE_KP_PLUS:
+        return CTRL_KEY_KP_PLUS;
+    case SDL_SCANCODE_KP_ENTER:
+        return CTRL_KEY_KP_ENTER;
+    case SDL_SCANCODE_KP_EQUALS:
+        return CTRL_KEY_KP_EQUAL;
+    default:
+        return 0;
+    }
+}
+static void controls_sync_keys(void)
+{
+    int count=0;const bool *held=SDL_GetKeyboardState(&count);
+    for(int sc=1;sc<count;sc++) {int key=controls_key((SDL_Scancode)sc);if(key)ControlsRuntime_Key(key,held[sc]);}
+}
+static void controls_key_labels(void)
+{
+    for(int sc=1;sc<SDL_SCANCODE_COUNT;sc++) {
+        int key=controls_key((SDL_Scancode)sc);
+        if(key)Controls_SetKeyLabel(key,SDL_GetKeyName(SDL_GetKeyFromScancode((SDL_Scancode)sc,SDL_KMOD_NONE,false)));
+    }
+}
 /* Mouse: right circle (cancel), middle triangle; left is the menu bar's. */
 static const uint16_t mouse_buttons[4] = {0, 0, 0x1000, 0x2000};
 
@@ -269,75 +636,89 @@ void Platform_SetScale(int wanted)
 
 /* --- controllers ------------------------------------------------------ */
 
-static SDL_Gamepad *pads[2];
-static uint16_t pad_state[2];
-
+static SDL_Gamepad *pads[CONTROLS_DEVICES];
 static void open_gamepad(SDL_JoystickID id)
 {
-    int port;
-    if (getenv("MEMORIES_NO_GAMEPAD")) {
+    if (getenv("MEMORIES_NO_GAMEPAD"))
         return;
-    }
-    for (port = 0; port < 2; port++) {
-        if (!pads[port]) {
-            pads[port] = SDL_OpenGamepad(id);
-            if (pads[port]) {
-                fprintf(stderr, "memories-pc: controller on port %d: %s\n", port + 1, SDL_GetGamepadName(pads[port]));
+    for (int i = 0; i < CONTROLS_DEVICES; i++)
+        if (pads[i] && SDL_GetGamepadID(pads[i]) == id)
+            return;
+    for (int i = 0; i < CONTROLS_DEVICES; i++)
+        if (!pads[i]) {
+            pads[i] = SDL_OpenGamepad(id);
+            if (!pads[i])
+                return;
+            ControllerDevice *d = ControlsRuntime_Device(i);
+            memset(d, 0, sizeof(*d));
+            d->connected = 1;
+            d->threshold = 1.0f / 3;
+            snprintf(d->name, sizeof(d->name), "%s", SDL_GetGamepadName(pads[i]));
+            const char *serial = SDL_GetGamepadSerial(pads[i]);
+            if (!ControlsLinux_Identity(SDL_GetGamepadPath(pads[i]), d->identity, sizeof(d->identity))) {
+                snprintf(d->identity, sizeof(d->identity), "pad:%04x:%04x:%s", SDL_GetGamepadVendor(pads[i]),
+                         SDL_GetGamepadProduct(pads[i]), serial ? serial : "");
+                d->ambiguous = !serial || !*serial;
+                if (d->ambiguous) {
+                    static uint64_t session;
+                    if (!session)
+                        session = ControlsRuntime_Now();
+                    snprintf(d->identity, sizeof(d->identity), "session:sdl:%llu:%u",
+                             (unsigned long long)session, (unsigned)id);
+                }
             }
+            SDL_GamepadType type = SDL_GetGamepadType(pads[i]);
+            d->style = type == SDL_GAMEPAD_TYPE_XBOX360 || type == SDL_GAMEPAD_TYPE_XBOXONE ? CTRL_ICON_XBOX
+                       : type >= SDL_GAMEPAD_TYPE_PS3 && type <= SDL_GAMEPAD_TYPE_PS5 ? CTRL_ICON_PLAYSTATION
+                       : type >= SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO &&
+                               type <= SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR
+                           ? CTRL_ICON_NINTENDO
+                           : CTRL_ICON_GENERIC;
             return;
         }
-    }
 }
-
+static void scan_gamepads(void)
+{
+    int count=0;SDL_JoystickID *ids;
+    if(getenv("MEMORIES_NO_GAMEPAD"))return;
+    ids=SDL_GetGamepads(&count);
+    for(int i=0;ids && i<count;i++)open_gamepad(ids[i]);
+    SDL_free(ids);
+}
 static void close_gamepad(SDL_JoystickID id)
 {
-    int port;
-    for (port = 0; port < 2; port++) {
-        if (pads[port] && SDL_GetGamepadID(pads[port]) == id) {
-            SDL_CloseGamepad(pads[port]);
-            pads[port] = NULL;
-            pad_state[port] = 0;
-        }
+    for(int i=0;i<CONTROLS_DEVICES;i++) if(pads[i]&&SDL_GetGamepadID(pads[i])==id) {
+        SDL_CloseGamepad(pads[i]);pads[i]=NULL;memset(ControlsRuntime_Device(i),0,sizeof(ControllerDevice));
+        ControlsRuntime_Gate();
     }
 }
-
 void Gamepad_Poll(unsigned frame)
 {
-    static const struct { SDL_GamepadButton button; uint16_t bit; } buttons[] = {
-        {SDL_GAMEPAD_BUTTON_BACK, 0x0001}, {SDL_GAMEPAD_BUTTON_LEFT_STICK, 0x0002},
-        {SDL_GAMEPAD_BUTTON_RIGHT_STICK, 0x0004}, {SDL_GAMEPAD_BUTTON_START, 0x0008},
-        {SDL_GAMEPAD_BUTTON_DPAD_UP, 0x0010}, {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, 0x0020},
-        {SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0x0040}, {SDL_GAMEPAD_BUTTON_DPAD_LEFT, 0x0080},
-        {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, 0x0400}, {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, 0x0800},
-        {SDL_GAMEPAD_BUTTON_NORTH, 0x1000}, {SDL_GAMEPAD_BUTTON_EAST, 0x2000},
-        {SDL_GAMEPAD_BUTTON_SOUTH, 0x4000}, {SDL_GAMEPAD_BUTTON_WEST, 0x8000}};
-    const int third = 32767 / 3;
-    int port;
-    (void)frame;
-    for (port = 0; port < 2; port++) {
-        uint16_t bits = 0;
-        size_t i;
-        int x, y;
-        if (!pads[port]) {
-            continue;
+    static uint64_t last_scan;
+    static const SDL_GamepadButton buttons[CTRL_BTN_COUNT]={
+        SDL_GAMEPAD_BUTTON_INVALID,SDL_GAMEPAD_BUTTON_SOUTH,SDL_GAMEPAD_BUTTON_EAST,
+        SDL_GAMEPAD_BUTTON_WEST,SDL_GAMEPAD_BUTTON_NORTH,SDL_GAMEPAD_BUTTON_BACK,
+        SDL_GAMEPAD_BUTTON_GUIDE,SDL_GAMEPAD_BUTTON_START,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
+        SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,SDL_GAMEPAD_BUTTON_LEFT_STICK,SDL_GAMEPAD_BUTTON_RIGHT_STICK,
+        SDL_GAMEPAD_BUTTON_DPAD_UP,SDL_GAMEPAD_BUTTON_DPAD_DOWN,SDL_GAMEPAD_BUTTON_DPAD_LEFT,
+        SDL_GAMEPAD_BUTTON_DPAD_RIGHT,SDL_GAMEPAD_BUTTON_MISC1,SDL_GAMEPAD_BUTTON_MISC2};
+    uint64_t now=ControlsRuntime_Now();(void)frame;
+    if(now-last_scan>=1000000){scan_gamepads();last_scan=now;}
+    for(int i=0;i<CONTROLS_DEVICES;i++) if(pads[i]) {
+        if(!SDL_GamepadConnected(pads[i])){close_gamepad(SDL_GetGamepadID(pads[i]));continue;}
+        ControllerDevice *d=ControlsRuntime_Device(i);ControllerSnapshot *snap=&d->snapshot;memset(snap,0,sizeof(*snap));
+        for(int b=1;b<CTRL_BTN_COUNT;b++) if(SDL_GetGamepadButton(pads[i],buttons[b])) {
+            if(b>=CTRL_BTN_DPAD_UP && b<=CTRL_BTN_DPAD_RIGHT) {
+                static const unsigned char hats[]={1,4,8,2};snap->hat_down|=hats[b-CTRL_BTN_DPAD_UP];
+            } else snap->buttons_down|=1u<<(b-1);
         }
-        for (i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
-            if (SDL_GetGamepadButton(pads[port], buttons[i].button)) {
-                bits |= buttons[i].bit;
-            }
-        }
-        x = SDL_GetGamepadAxis(pads[port], SDL_GAMEPAD_AXIS_LEFTX);
-        y = SDL_GetGamepadAxis(pads[port], SDL_GAMEPAD_AXIS_LEFTY);
-        bits |= y < -third ? 0x0010 : y > third ? 0x0040 : 0;
-        bits |= x > third ? 0x0020 : x < -third ? 0x0080 : 0;
-        if (SDL_GetGamepadAxis(pads[port], SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > third) bits |= 0x0100;
-        if (SDL_GetGamepadAxis(pads[port], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > third) bits |= 0x0200;
-        pad_state[port] = bits;
+        for(int a=0;a<4;a++) {int value=SDL_GetGamepadAxis(pads[i],(SDL_GamepadAxis)a);snap->axis[a+1]=value/(value<0?32768.0f:32767.0f);}
+        for(int a=0;a<2;a++) {int value=SDL_GetGamepadAxis(pads[i],(SDL_GamepadAxis)(SDL_GAMEPAD_AXIS_LEFT_TRIGGER+a));snap->trigger[a+1]=value>0?value/32767.0f:0;}
     }
+    ControlsRuntime_Update();
 }
-
-uint16_t Gamepad_Bits(int port) { return port >= 0 && port < 2 ? pad_state[port] : 0; }
-int Gamepad_Connected(int port) { return port >= 0 && port < 2 && pads[port] != NULL; }
+uint16_t Gamepad_Bits(int p){return ControlsRuntime_Pad(p);}
+int Gamepad_Connected(int p){return ControlsRuntime_Connected(p);}
 
 /* --- audio ------------------------------------------------------------ */
 
@@ -393,7 +774,11 @@ static void relayout(void)
 {
     static int logged_window_w, logged_window_h, logged_output_w, logged_output_h;
     int output_w, output_h, window_w, window_h, menu;
-    int pw = Settings_Get(SET_ASPECT) ? picture_w : picture_h * 4 / 3;
+    int aspect = Settings_Get(SET_ASPECT);
+    /* Widescreen enlarges the canvas, not the PSX framebuffer. Fit and
+     * integer scaling retain the game's corrected 4:3 picture and centre it
+     * between side pillars; only the explicit Stretch mode fills the canvas. */
+    int pw = aspect == 1 ? picture_w : picture_h * 4 / 3;
     int ph = picture_h, area_h, mode = Settings_Get(SET_SCALING);
     float factor;
     if ((!renderer && !use_gl) || picture_w <= 0 || picture_h <= 0 ||
@@ -481,8 +866,11 @@ static void relayout(void)
 
 static void display_picture_size(int *w, int *h)
 {
+    int aspect = Settings_Get(SET_ASPECT);
     *h = picture_h > 0 ? picture_h : 240;
-    *w = Settings_Get(SET_ASPECT) ? (picture_w > 0 ? picture_w : 320) : *h * 4 / 3;
+    *w = aspect == 2 ? *h * 16 / 9
+                     : aspect == 1 ? (picture_w > 0 ? picture_w : 320)
+                                   : *h * 4 / 3;
 }
 
 static void apply_display_settings(void)
@@ -759,12 +1147,60 @@ static void translate(const SDL_Event *event, MenuEvent *out)
     }
 }
 
+static int dispatch_controls(const SDL_Event *event, const MenuEvent *menu_event)
+{
+    if (controls_window && SDL_GetWindowFromEvent(event) == controls_window) {
+        if (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP) {
+            if (event->key.repeat)
+                return 1;
+            int key = controls_key(event->key.scancode), down = event->type == SDL_EVENT_KEY_DOWN;
+            ControlsRuntime_Key(key, down);
+            int mods = (event->key.mod & SDL_KMOD_SHIFT ? 1 : 0) |
+                       (event->key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI) ? 2 : 0);
+            /* Right Shift alone is the default Select binding. */
+            if ((event->key.mod & ~SDL_KMOD_RSHIFT &
+                 (SDL_KMOD_SHIFT | SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) == 0)
+                mods = 0;
+            ControlsWindow_Key(key, down, event->key.repeat, mods);
+            ControlsWindow_Tick();
+        } else if (event->type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+            ControlsWindow_RequestClose();
+        else if (event->type == SDL_EVENT_WINDOW_FOCUS_LOST)
+            ControlsWindow_FocusLost();
+        else if (event->type == SDL_EVENT_WINDOW_FOCUS_GAINED)
+            controls_sync_keys();
+        else if (event->type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || event->type == SDL_EVENT_WINDOW_RESIZED)
+            resize_controls(event->window.data1, event->window.data2);
+        else
+            ControlsWindow_Event(menu_event);
+        if (ControlsWindow_ShouldClose())
+            close_controls();
+        return 1;
+    }
+    if (controls_window && (event->type == SDL_EVENT_KEY_DOWN || event->type == SDL_EVENT_KEY_UP ||
+                            event->type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                            event->type == SDL_EVENT_MOUSE_BUTTON_UP || event->type == SDL_EVENT_MOUSE_WHEEL))
+        return 1;
+
+    return 0;
+}
+
 static void pump(void)
 {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         MenuEvent menu_event;
         translate(&event, &menu_event);
+        if(event.type==SDL_EVENT_KEYMAP_CHANGED){controls_key_labels();continue;}
+        if(event.type==SDL_EVENT_GAMEPAD_ADDED){open_gamepad(event.gdevice.which);continue;}
+        if(event.type==SDL_EVENT_GAMEPAD_REMOVED){close_gamepad(event.gdevice.which);continue;}
+        if(event.type==SDL_EVENT_KEY_UP)ControlsRuntime_Key(controls_key(event.key.scancode),0);
+        if(dispatch_controls(&event, &menu_event))continue;
+        if (mods_window && SDL_GetWindowFromEvent(&event) == mods_window) {
+            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED || ModsWindow_Event(&menu_event)) close_mods();
+            else draw_mods();
+            continue;
+        }
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
             static unsigned logged_frame = ~0u;
             pointer_x = menu_event.x;
@@ -812,9 +1248,11 @@ static void pump(void)
             update_display_refresh();
             break;
         case SDL_EVENT_WINDOW_FOCUS_LOST:
+            if(!controls_window)ControlsRuntime_ResetKeys(); mouse_bits=wheel_now=0;wheel_frames=0;
             if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) Spu_SetOutputVolume(0);
             if (Settings_Get(SET_PAUSE_ON_FOCUS_LOSS) && Platform_ClockRate() != 0) {
                 focus_clock_rate = Platform_ClockRate();
+                focus_paused = 1;
                 Platform_SetClockRate(0);
             }
             show_cursor();
@@ -823,8 +1261,9 @@ static void pump(void)
             if (Settings_Get(SET_MUTE_ON_FOCUS_LOSS)) {
                 Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
             }
-            if (Settings_Get(SET_PAUSE_ON_FOCUS_LOSS) && Platform_ClockRate() == 0) {
+            if (focus_paused && Platform_ClockRate() == 0) {
                 Platform_SetClockRate(focus_clock_rate);
+                focus_paused = 0;
             }
             break;
         case SDL_EVENT_GAMEPAD_ADDED: open_gamepad(event.gdevice.which); break;
@@ -845,7 +1284,6 @@ static void pump(void)
         case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP: {
             SDL_Keycode key = event.key.key;
             int down = event.type == SDL_EVENT_KEY_DOWN;
-            size_t i;
             if (event.key.repeat) {
                 break;
             }
@@ -896,16 +1334,20 @@ static void pump(void)
             } else if (down && (key == SDLK_F5 || key == SDLK_F7)) {
                 Memories_StateRequest(key == SDLK_F5 ? 1 : 2, state_slot);
             }
-            for (i = 0; i < sizeof(keymap) / sizeof(keymap[0]); i++) {
-                if (keymap[i].key == key) {
-                    pad_bits = down ? (uint16_t)(pad_bits | keymap[i].bit) : (uint16_t)(pad_bits & ~keymap[i].bit);
-                }
-            }
+            ControlsRuntime_Key(controls_key(event.key.scancode),down);
             break;
         }
         default: break;
         }
     }
+    Gamepad_Poll(current_frame);
+    if(controls_window) {
+        static uint64_t last_draw;
+        ControlsWindow_Tick();
+        if(ControlsWindow_ShouldClose())close_controls();
+        else if(ControlsRuntime_Now()-last_draw>=16000){draw_controls();last_draw=ControlsRuntime_Now();}
+    }
+
 }
 
 static void create_window(const char *title)
@@ -941,6 +1383,7 @@ static int software_gl_renderer(void)
 int Platform_Open(const char *title)
 {
     sigset_t previous;
+    ControlsRuntime_Init();
     Menu_LoadSettings(); /* the volume and scale apply with or without a window */
     snprintf(base_title, sizeof(base_title), "%s", title);
     if (getenv("MEMORIES_HEADLESS")) {
@@ -1070,7 +1513,7 @@ void Platform_PumpEvents(void)
 
 uint16_t Platform_Pad(int port)
 {
-    return port == 0 ? (uint16_t)(pad_bits | mouse_bits | wheel_now | scripted_bits | Gamepad_Bits(0))
+    return port == 0 ? (uint16_t)(ControlsRuntime_Keyboard() | (ControlsRuntime_Blocked()?0:(mouse_bits | wheel_now)) | scripted_bits | Gamepad_Bits(0))
                      : Gamepad_Bits(1);
 }
 
@@ -1120,6 +1563,7 @@ static void run_event_script(unsigned frame)
                           : strncmp(name, "m", n) == 0 ? SDLK_M
                           : strncmp(name, "period", n) == 0 ? SDLK_PERIOD
                           : SDLK_UNKNOWN;
+            event.key.scancode = SDL_GetScancodeFromKey(event.key.key, NULL);
             event.key.windowID = SDL_GetWindowID(window);
             SDL_PushEvent(&event);
             event.type = SDL_EVENT_KEY_UP;

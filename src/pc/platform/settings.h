@@ -33,7 +33,8 @@ typedef enum {
 } SettingId;
 
 void Settings_Load(void);
-void Settings_Save(void);
+/* Returns nonzero after settings were successfully written. */
+int Settings_Save(void);
 int Settings_Get(SettingId id);
 void Settings_Set(SettingId id, int value);
 const char *Settings_Key(SettingId id);

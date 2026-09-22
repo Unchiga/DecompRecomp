@@ -104,6 +104,11 @@ mask range. CD/XA remains a separate streamed input.
 Input. Keyboard, mouse and controllers are all live at once and OR together
 on port 1.
 
+**Game > Controls...** opens the keyboard/controller editor: a resizable window
+with a grouped binding table, the PlayStation pad picture, live input preview,
+rebinding, saved profiles and explicit controller selection for either port. See [Controls](controls-menu.md). The table below lists factory defaults;
+custom bindings are stored separately in `controls.txt`.
+
 | PlayStation | Keyboard | Xbox controller | Mouse |
 |---|---|---|---|
 | D-pad | Arrow keys | D-pad, left stick | wheel = up/down tap |

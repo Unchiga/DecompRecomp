@@ -5,6 +5,29 @@
 #include "pc/debug/symbols.h"
 #include "pc/debug/crash.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/time.h>
+
+static char **launch_argv;
+
+int Platform_RestartGame(void)
+{
+    struct itimerval stopped = {0}, previous;
+    struct sigaction ignored = {0}, old_action;
+    ignored.sa_handler = SIG_IGN;
+    sigemptyset(&ignored.sa_mask);
+    sigaction(SIGALRM, &ignored, &old_action);
+    setitimer(ITIMER_REAL, &stopped, &previous);
+    /* A restart must boot the game, not auto-load an old launch state. */
+    unsetenv("MEMORIES_LOAD_STATE");
+    execv("/proc/self/exe", launch_argv);
+    perror("memories-pc: restart");
+    sigaction(SIGALRM, &old_action, NULL);
+    setitimer(ITIMER_REAL, &previous, NULL);
+    return -1;
+}
 
 extern int Main_Init(void);
 
@@ -16,6 +39,7 @@ void Psx___main(void)
 int main(int argc, char **argv)
 {
     const char *exe = argc > 1 ? argv[1] : "game/SLUS_014.11";
+    launch_argv = argv;
     Log_Init();
     Symbols_Load();
     Crash_Init();

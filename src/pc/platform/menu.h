@@ -10,7 +10,7 @@
  * File  > Save state, Load state, Exit
  * Audio > Volume slider over the whole mix (src/pc/audio/spu.c)
  * View  > Scale 1x-4x
- * Mods  > the optional extras in src/pc/mods, one checked item each
+ * Game  > Mods opens the separate available/applied mods window
  * Debug > development helpers (src/pc/debug) */
 
 typedef struct MenuCanvas {
@@ -59,6 +59,7 @@ typedef enum {
     MENU_ITEM_SCALING_STRETCH,
     MENU_ITEM_ASPECT_4_3,
     MENU_ITEM_ASPECT_SQUARE,
+    MENU_ITEM_ASPECT_WIDESCREEN,
     MENU_ITEM_FILTER,
     MENU_ITEM_VSYNC
 } MenuItemId;
@@ -80,6 +81,9 @@ int Menu_AutoScale(int window_h);
 void Menu_Draw(MenuCanvas *canvas);
 void Menu_DrawText(MenuCanvas *canvas, int x, int y, const char *text, uint32_t colour);
 int Menu_TextWidth(const char *text);
+/* Auxiliary windows can fit their UI without changing the game menu scale. */
+void Menu_DrawTextScaled(MenuCanvas *canvas, int x, int y, const char *text, uint32_t colour, int scale);
+int Menu_TextWidthScaled(const char *text, int scale);
 void Menu_SetVisible(int visible);
 int Menu_IsOpen(void);
 /* The rectangle the menu currently covers (the bar, plus an open menu). */
