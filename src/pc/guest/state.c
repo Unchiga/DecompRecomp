@@ -154,8 +154,8 @@ int Memories_StateChunk(MemoriesState *state, const char *tag, const MemoriesSta
     }
     from = find_chunk(state, tag, &size);
     if (!from || size != total) {
-        fprintf(stderr, "memories-pc: state: %s '%s'; that part keeps its current state\n",
-                from ? "layout changed for" : "no chunk", tag);
+        fprintf(stderr, "memories-pc: state: %s '%s' (%lu bytes in the state, %lu in this build); that part keeps its current state\n",
+                from ? "layout changed for" : "no chunk", tag, (unsigned long)size, (unsigned long)total);
         return 0;
     }
     for (i = 0; i < count; i++) {
