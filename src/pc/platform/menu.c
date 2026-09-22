@@ -20,6 +20,7 @@
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
 #include "pc/render/texture_pack.h"
+#include "pc/render/soft_gpu.h"
 #include "paths.h"
 #include "pc/sdk/display.h"
 #ifdef _WIN32
@@ -112,7 +113,11 @@ static Menu menus[MENU_COUNT] = {
               {"Square pixels", 0, ITEM_RADIO, MENU_ITEM_ASPECT_SQUARE, SET_ASPECT, 1},
               {"Widescreen (16:9)", 0, ITEM_RADIO, MENU_ITEM_ASPECT_WIDESCREEN, SET_ASPECT, 2},
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
-              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 12},
+              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC},
+              {"Console resolution", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 1, ITEM_GROUP_BREAK},
+              {"Internal 2x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 2},
+              {"Internal 3x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 3},
+              {"Internal 4x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 4}}, 16},
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
@@ -497,6 +502,7 @@ void Menu_LoadSettings(void)
     Spu_SetBusVolume(SPU_BUS_STREAM, Settings_Get(SET_STREAM_VOLUME));
     Spu_SetInterpolation((SpuInterpolation)Settings_Get(SET_AUDIO_INTERPOLATION));
     Platform_SetScale(Settings_Get(SET_SCALE));
+    SoftGpu_SetScale(Settings_Get(SET_INTERNAL_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Platform_SetPresentCap(Settings_Get(SET_FPS));
     Mods_SetTexturePack(TexturePack_Load, TexturePack_Unload);
@@ -512,6 +518,7 @@ static void setting_changed(SettingId id, int value)
     case SET_STREAM_VOLUME: Spu_SetBusVolume(SPU_BUS_STREAM, value); break;
     case SET_AUDIO_INTERPOLATION: Spu_SetInterpolation((SpuInterpolation)value); break;
     case SET_SCALE: Platform_SetScale(value); break;
+    case SET_INTERNAL_SCALE: SoftGpu_SetScale(value); break;
     case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_FPS: Platform_SetPresentCap(value); break;
     case SET_MENU_SCALE: Platform_ApplyDisplaySettings(); break;

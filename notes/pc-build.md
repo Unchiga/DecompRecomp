@@ -560,7 +560,8 @@ ones loaded after it.
 
 ### Internal resolution
 
-`MEMORIES_INTERNAL_SCALE=N` (2 to 8) draws every primitive a second time,
+View > Console resolution / Internal 2x, 3x, 4x (the `internal_scale`
+setting, `MEMORIES_INTERNAL_SCALE=N`, up to 8) draws every primitive a second time,
 at N x N pixels per VRAM word, into a picture of the whole of VRAM in
 24-bit colour (`soft_gpu.c`, `picture_*`), which is what the window shows.
 VRAM itself stays exactly what the console's would be: the game reads it
@@ -574,8 +575,7 @@ texels otherwise. No dithering in the picture. `MEMORIES_DUMP_FRAME` with
 `MEMORIES_DUMP_PICTURE=1` writes the picture instead of the frame. Cost: a
 duel with 3D Monsters draws in about 4.5 ms a frame at 1x and 12.5 ms at
 2x on the development machine; 4x needs a faster inner loop. The X11
-backend shows VRAM as before (`Platform_PresentPicture` returns 0). Not in
-the Options menu yet.
+backend shows VRAM as before (`Platform_PresentPicture` returns 0).
 
 ### Deterministic PC checks
 
