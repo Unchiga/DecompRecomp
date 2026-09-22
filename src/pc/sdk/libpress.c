@@ -1,7 +1,7 @@
 /* LIBPRESS: PlayStation bitstream (v2) VLC decoding and a software MDEC.
  * DecDCTvlc2 produces genuine MDEC run-level words, DecDCTin selects that
- * buffer, and each DecDCTout request is decoded on the next interrupt tick,
- * after which the game's callback runs in interrupt context as on hardware.
+ * buffer, and DecDCTout requests are decoded on the next interrupt tick,
+ * each followed by the game's callback in interrupt context as on hardware.
  * The IDCT is floating point, so pixels can differ from the MDEC by a step. */
 #include "types.h"
 #include "pc/sdk/disc.h"
@@ -194,15 +194,26 @@ static int decode_block(float *block)
 
 static int clamp255(float value) { return value < 0 ? 0 : value > 255 ? 255 : (int)(value + 0.5f); }
 
-/* Interrupt context. One request is completed per call. */
+static void complete_request(void);
+
+/* Interrupt context. The game's callback queues each frame's next strip with
+ * DecDCTout, and the whole chain is completed in one call: the movie player
+ * waits for the frame with a spin count (0x800000) that lasts seconds on the
+ * console but milliseconds here, so a strip per tick let it give up and start
+ * the next frame with the right-hand strips never written. */
 void Memories_MdecService(void)
+{
+    int strips = 64; /* a 640-wide frame is 27 strips */
+    while (output && input && strips--) {
+        complete_request();
+    }
+}
+
+static void complete_request(void)
 {
     u8 *bytes;
     size_t produced = 0, wanted;
     void (*callback)(void);
-    if (!output || !input) {
-        return;
-    }
     if (cosines[0][0] == 0) {
         int u, x;
         for (u = 0; u < 8; u++) {
