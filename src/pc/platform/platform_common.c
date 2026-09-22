@@ -228,6 +228,12 @@ void Platform_VSyncHeartbeat(void)
     Win32_Heartbeat();
 #endif
     sigprocmask(SIG_SETMASK, &previous, NULL);
+#ifdef _WIN32
+    /* A VSync(-1) polling loop (the movie waiting for sectors) spends most
+     * of its time reading the clock, outside the executable, where the clock
+     * thread only leaves the tick pending. Take it here, as the waits do. */
+    Win32_ServiceInterrupt();
+#endif
 }
 
 void Platform_SetVBlankPeriod(unsigned us)
