@@ -532,6 +532,21 @@ tiles them): the monster keeps its facing through the swing and ends facing
 the camera on the opponent's turn. A battle presentation with the mod on has
 not been watched yet.
 
+### Images from the disc
+
+`python tools/pc/extract_images.py [family ...]` writes the game's images
+from `game/DATA/*.MRG` as PNG under `tmp/pc/images/`, named by where they
+come from, with `manifest.json` giving each one's provenance (archive, byte
+offset, size in VRAM words and rows, depth, palette offset): the identity a
+texture pack goes by, with names as aliases on top. The archives hold no
+image files, so the tool replays the game's own loaders, one family at a
+time; so far `cards`, the 722 cards' artwork from `func_800289BC` (WA
+sector `(n-1)*7 + 722`, seven sectors: the 102x96 8-bit picture, its
+256-entry palette, the name strip under it and the strip beside it), 2,166
+files. `--names cards.tsv` (card_number, name) puts the card's name in the
+file name. Next: monster textures (`MODEL.MRG`), dialogue portraits, and
+the screens' packages.
+
 ### Texture dump (what is on screen)
 
 `MEMORIES_DUMP_TEXTURES=<directory>` writes every texture the software GPU
