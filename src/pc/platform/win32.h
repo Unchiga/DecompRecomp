@@ -28,6 +28,8 @@ void Win32_ServiceInterrupt(void);
  * been called for `seconds`. Win32_Heartbeat marks each VSync. */
 void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds);
 void Win32_Heartbeat(void);
+/* How often the clock's two exception races were repaired (clock trace). */
+void Win32_ClockRepairs(unsigned *lost_redirects, unsigned *undone_faults);
 
 void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp);
 /* The executable image, and the calling thread's stack. */
@@ -44,6 +46,12 @@ const char *Win32_FontPath(int japanese);
 /* Starts the executable again with the same command line, without an
  * automatic state load, and exits. Returns -1 if it could not. */
 int Win32_Restart(void);
+
+/* The game stack has no exception handlers of Windows' own: an exception
+ * nothing handles there would end the process without a word. This fills
+ * `record` (two words at the top of the game stack, which state.c points
+ * the TEB's handler chain at) with a last handler that reports it. */
+void Win32_GameStackRecord(uint32_t *record);
 
 /* Called for a fatal exception raised by code in the executable. */
 typedef void (*Win32CrashReport)(unsigned long code, uintptr_t fault, uintptr_t eip, uintptr_t esp, uintptr_t ebp);

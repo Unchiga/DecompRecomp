@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
+#include <dbghelp.h>
 
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
@@ -29,6 +30,9 @@ static HANDLE main_thread;
 static volatile LONG held;       /* the main thread holds SIGALRM */
 static volatile LONG in_tick;    /* a tick is running on the main thread */
 static volatile LONG pending;    /* a tick could not be delivered */
+static volatile LONG redirected; /* the clock redirected the main thread, the tick has not run yet */
+static DWORD pushed_at;          /* where that redirect left the interrupted EIP */
+static volatile LONG lost_redirects, undone_faults;
 static void (*tick_handler)(uintptr_t, void *);
 static CONTEXT interrupted;      /* the registers a delivered tick interrupted */
 static uintptr_t image_low, image_high;
@@ -39,6 +43,7 @@ static unsigned stall_ms;
 
 void Win32_InterruptEntry(void);
 void Win32_InterruptBody(void);
+static void write_dump(const char *kind, EXCEPTION_POINTERS *pointers);
 
 /* Every register and the FPU/SSE state around the tick; the direction flag
  * is cleared for the C code. The interrupted EIP is the return address. */
@@ -61,6 +66,7 @@ __asm__(".text\n"
 
 void Win32_InterruptBody(void)
 {
+    redirected = 0;
     tick_handler(interrupted.Eip, &interrupted);
     in_tick = 0;
 }
@@ -117,11 +123,23 @@ static DWORD WINAPI run_clock(void *unused)
                 GetThreadContext(main_thread, &context);
                 ResumeThread(main_thread);
                 stall_report(&context);
+                write_dump("hang", NULL);
             }
         }
         if (SuspendThread(main_thread) == (DWORD)-1) continue;
         context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS;
         if (GetThreadContext(main_thread, &context)) {
+            /* A redirect made while an exception was being delivered can be
+             * dropped: the exception resumes the thread with the registers
+             * it captured. The tick then never runs and would hold in_tick
+             * for ever. While it does run, the thread is below the slot the
+             * redirect pushed; above it, the redirect was lost. */
+            if (redirected && context.Esp > pushed_at) {
+                redirected = 0;
+                in_tick = 0;
+                pending = 1;
+                lost_redirects++;
+            }
             if (!held && !in_tick && !(context.EFlags & 0x100) && context.Eip >= image_low && context.Eip < image_high) {
                 interrupted = context;
                 in_tick = 1;
@@ -129,7 +147,13 @@ static DWORD WINAPI run_clock(void *unused)
                 context.Esp -= 4;
                 *(DWORD *)(uintptr_t)context.Esp = context.Eip;
                 context.Eip = (DWORD)(uintptr_t)Win32_InterruptEntry;
-                SetThreadContext(main_thread, &context);
+                pushed_at = context.Esp;
+                redirected = 1;
+                if (!SetThreadContext(main_thread, &context)) {
+                    redirected = 0;
+                    in_tick = 0;
+                    pending = 1;
+                }
             } else {
                 pending = 1;
             }
@@ -145,8 +169,10 @@ int Win32_UndoInterruptedFault(void *context)
     /* The clock pushed the interrupted EIP before redirecting. */
     registers->Eip = *(const DWORD *)(uintptr_t)registers->Esp;
     registers->Esp += 4;
+    redirected = 0;
     pending = 1;
     in_tick = 0;
+    undone_faults++;
     return 1;
 }
 
@@ -159,6 +185,12 @@ void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds)
 void Win32_Heartbeat(void)
 {
     InterlockedIncrement(&heartbeat);
+}
+
+void Win32_ClockRepairs(unsigned *lost, unsigned *undone)
+{
+    *lost = (unsigned)lost_redirects;
+    *undone = (unsigned)undone_faults;
 }
 
 void Win32_ServiceInterrupt(void)
@@ -267,6 +299,49 @@ void Win32_StackRange(uintptr_t *low, uintptr_t *high)
     *high = top;
 }
 
+/* Beside every crash and hang report, a minidump with every thread's stack
+ * (tmp/pc/<kind>-<pid>.dmp; lldb -c reads it). */
+static void write_dump(const char *kind, EXCEPTION_POINTERS *pointers)
+{
+    char path[128];
+    HANDLE file;
+    MINIDUMP_EXCEPTION_INFORMATION exception;
+    snprintf(path, sizeof(path), "tmp/pc/%s-%lu.dmp", kind, GetCurrentProcessId());
+    file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+    exception.ThreadId = GetCurrentThreadId();
+    exception.ExceptionPointers = pointers;
+    exception.ClientPointers = FALSE;
+    MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file,
+                      (MINIDUMP_TYPE)(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory),
+                      pointers ? &exception : NULL, NULL, NULL);
+    CloseHandle(file);
+}
+
+static EXCEPTION_DISPOSITION __cdecl game_stack_handler(EXCEPTION_RECORD *record, void *frame, CONTEXT *context,
+                                                        void *dispatcher)
+{
+    EXCEPTION_POINTERS pointers;
+    (void)frame;
+    (void)dispatcher;
+    if (record->ExceptionFlags & (EXCEPTION_UNWINDING | EXCEPTION_EXIT_UNWIND)) return ExceptionContinueSearch;
+    pointers.ExceptionRecord = record;
+    pointers.ContextRecord = context;
+    if (crash_report) {
+        crash_report(record->ExceptionCode, record->NumberParameters >= 2 ? record->ExceptionInformation[1] : 0,
+                     context->Eip, context->Esp, context->Ebp);
+    }
+    write_dump("crash", &pointers);
+    TerminateProcess(GetCurrentProcess(), 3);
+    return ExceptionContinueSearch;
+}
+
+void Win32_GameStackRecord(uint32_t *record)
+{
+    record[0] = 0xffffffffu; /* end of the chain */
+    record[1] = (uint32_t)(uintptr_t)game_stack_handler;
+}
+
 /* Code in the executable installs no exception handlers of its own, so an
  * exception raised there that the guest fault handler (image.c) did not take
  * is fatal. Other modules' exceptions are theirs to handle. */
@@ -297,6 +372,7 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
         return EXCEPTION_CONTINUE_SEARCH;
     }
     if (crash_report) crash_report(record->ExceptionCode, fault, context->Eip, context->Esp, context->Ebp);
+    write_dump("crash", pointers);
     TerminateProcess(GetCurrentProcess(), 3);
     return EXCEPTION_CONTINUE_SEARCH;
 }

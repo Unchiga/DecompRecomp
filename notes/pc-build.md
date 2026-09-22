@@ -713,6 +713,24 @@ What differs from Linux, and why:
   other duplicate definition is still an error. PE cannot place sections at
   chosen addresses, so the fixed game sections are not there: save states
   work within one build but are not carried across rebuilds.
+- **Bitfield layout.** MinGW compilers lay bitfields out as MSVC does by
+  default, where fields of different declared types do not share a unit:
+  `GsOT_TAG` (`unsigned p:24; unsigned char num:8`) became 8 bytes and every
+  LIBGS ordering table was walked with the wrong stride, so semi-transparent
+  and shaded primitives were overwritten or lost (the title's lower
+  gradient, the yellow selection bar). The build passes `-mno-ms-bitfields`
+  to game and native units, and `libgte_extra.c` asserts the size.
+- **Clock races.** Besides the fault race above, a redirect made while an
+  exception is being delivered can be dropped by Windows; the tick then never
+  runs. The clock thread notices (the thread's stack pointer is back above
+  the slot it pushed) and releases the tick. Before this, the game froze in
+  `Platform_WaitVBlank` after a few minutes of duelling. Unhandled
+  exceptions on the game stack reach a last SEH record at its top
+  (`Win32_GameStackRecord`), and crash and hang reports come with a minidump
+  (`tmp/pc/*.dmp`).
+- **rename.** Windows' `rename` does not replace an existing file; states,
+  settings, controls and memory cards save through `MoveFileEx`
+  (`pc/compat/posix.h`).
 - **Narrow returns.** clang leaves the upper bits of a `char`/`short` return
   undefined, which GCC happens to fill. Two matching definitions are read
   wider by callers (`Ai_GetHandSize`, `MemCard_FindLoadedEntry`; an IR

@@ -35,7 +35,11 @@ CFLAGS = ["-m32", "-std=gnu11", "-fpermissive", "-w", "-O0", "-g", "-fno-strict-
           "-D_LANGUAGE_C", "-DLANGUAGE_C", "-Isrc"]
 if WINDOWS:
     # -fpermissive is GCC's; clang needs this one of its errors turned off.
-    CFLAGS = [f for f in CFLAGS if f not in ("-m32", "-fno-pie")] + ["-Wno-incompatible-pointer-types"]
+    # -mno-ms-bitfields: MinGW lays bitfields out as MSVC does, where fields
+    # of different declared types do not share a unit; the game's layouts are
+    # GCC's (GsOT_TAG's `unsigned p:24; unsigned char num:8` is 4 bytes, not
+    # 8, or every LIBGS ordering table has the wrong stride).
+    CFLAGS = [f for f in CFLAGS if f not in ("-m32", "-fno-pie")] + ["-Wno-incompatible-pointer-types", "-mno-ms-bitfields"]
 # -O0 for game units: original busy-waits poll non-volatile globals that the
 # VBlank handler updates, and must not be hoisted out of their loops.
 NATIVE_CFLAGS = ["-m32", "-std=gnu11", "-O2", "-g", "-Wall", "-fno-pie", "-fno-omit-frame-pointer", "-fno-strict-aliasing",
@@ -44,7 +48,8 @@ NATIVE_CFLAGS = ["-m32", "-std=gnu11", "-O2", "-g", "-Wall", "-fno-pie", "-fno-o
 if WINDOWS:
     NATIVE_CFLAGS = [f for f in NATIVE_CFLAGS if f not in ("-m32", "-fno-pie", "-I/usr/include/freetype2",
                                                            "-Wno-builtin-declaration-mismatch")] + [
-        f"-I{WIN32_DEPS}/sdl/include", f"-I{WIN32_DEPS}/include", f"-I{WIN32_DEPS}/include/freetype2"]
+        f"-I{WIN32_DEPS}/sdl/include", f"-I{WIN32_DEPS}/include", f"-I{WIN32_DEPS}/include/freetype2",
+        "-mno-ms-bitfields"]  # the game's structures, shared with native code (see CFLAGS)
 # Window backends (src/pc/platform): SDL3 when its 32-bit static build exists
 # (see notes/pc-build.md), else X11. --backend or MEMORIES_BACKEND picks.
 SDL_BUILD = "tmp/pc/sdl-m32"
@@ -433,7 +438,7 @@ def main():
              "-Wl,--allow-multiple-definition", f"{options.build}/guest_symbols.o",
              *[obj(s) for s in NATIVE + game], f"{options.build}/stubs.o", f"{options.build}/section_markers.o",
              f"{WIN32_DEPS}/sdl/lib/libSDL3.dll.a", "-lopengl32", f"{WIN32_DEPS}/lib/libfreetype.a",
-             f"{WIN32_DEPS}/lib/libpng16.a", f"{WIN32_DEPS}/lib/libzs.a", "-static", "-lpthread"])
+             f"{WIN32_DEPS}/lib/libpng16.a", f"{WIN32_DEPS}/lib/libzs.a", "-ldbghelp", "-static", "-lpthread"])
         shutil.copy(f"{WIN32_DEPS}/sdl/bin/SDL3.dll", options.build)
     else:
         run(["gcc", "-m32", "-no-pie", "-o", output,

@@ -31,6 +31,17 @@ static inline long memories_pread(int fd, void *buffer, size_t count, long long 
 }
 #define pread memories_pread
 
+/* POSIX rename replaces an existing file, which the port's atomic saves
+ * (states, settings, controls, memory cards) rely on; Windows' does not. */
+#ifndef _WINDOWS_
+__declspec(dllimport) int __stdcall MoveFileExA(const char *from, const char *to, unsigned long flags);
+#endif
+static inline int memories_rename(const char *from, const char *to)
+{
+    return MoveFileExA(from, to, 1 /* MOVEFILE_REPLACE_EXISTING */) ? 0 : -1;
+}
+#define rename memories_rename
+
 /* Only /proc/self/exe is asked for: the executable's path, with forward
  * slashes like the paths the port builds. Declared by hand: <windows.h>
  * clashes with the game's types. */
