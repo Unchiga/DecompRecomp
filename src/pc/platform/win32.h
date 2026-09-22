@@ -15,10 +15,20 @@ int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context));
  * the executable (sleeping, in a driver). Call from waits on the main thread. */
 void Win32_ServiceInterrupt(void);
 
+/* The hang watchdog, run from the clock thread so that it also sees a main
+ * thread stuck outside the executable (a driver, a lock), which the tick
+ * cannot reach: `report` gets the main thread's registers once VSync has not
+ * been called for `seconds`. Win32_Heartbeat marks each VSync. */
+void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds);
+void Win32_Heartbeat(void);
+
 void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp);
 /* The executable image, and the calling thread's stack. */
 void Win32_ImageRange(uintptr_t *low, uintptr_t *high);
 void Win32_StackRange(uintptr_t *low, uintptr_t *high);
+
+/* The DLL an address is in, as "name.dll"; 0 when it is in none. */
+int Win32_ModuleName(uintptr_t address, char *out, unsigned size, uintptr_t *offset);
 
 /* A font file under %WINDIR%\Fonts standing in for fontconfig's match:
  * a Japanese face when `japanese`, else a plain sans-serif. NULL if none. */

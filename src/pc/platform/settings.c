@@ -46,6 +46,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_WINDOW_Y] = {"window_y", NULL, "MEMORIES_WINDOW_Y", NULL, -1, -16384, 16384},
     [SET_MOD_3D_MONSTERS] = {"3d_monsters", "3d_monsters", "MEMORIES_3D_MONSTERS", "MEMORIES_MODS_MONSTERS", 0, 0, 1},
     [SET_MOD_HAND_CAMERA] = {"hand_camera", "hand_camera", "MEMORIES_HAND_CAMERA", NULL, 1, 0, 1},
+    /* 0 the console's Gaussian filter, 1 a sharper cubic (SpuInterpolation). */
+    [SET_AUDIO_INTERPOLATION] = {"audio_interpolation", NULL, "MEMORIES_AUDIO_INTERPOLATION", NULL, 0, 0, 1},
 };
 
 static int values[SET_COUNT];

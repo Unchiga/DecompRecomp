@@ -76,6 +76,10 @@ static void symbol_line(int index, uintptr_t address)
     const char *name = Symbols_Lookup(address, &offset);
     char text[256];
     int length;
+#ifdef _WIN32
+    char module[64];
+    if (!name && Win32_ModuleName(address, module, sizeof(module), &offset)) name = module;
+#endif
     if (name) length = snprintf(text, sizeof(text), "  #%d 0x%08lx %s+0x%lx\n",
                                 index, (unsigned long)address, name, (unsigned long)offset);
     else length = snprintf(text, sizeof(text), "  #%d 0x%08lx\n", index, (unsigned long)address);
@@ -212,15 +216,25 @@ void Crash_ReportHang(void *context)
     esp = (uintptr_t)user->uc_mcontext.gregs[REG_ESP];
     ebp = (uintptr_t)user->uc_mcontext.gregs[REG_EBP];
 #endif
-    (void)esp;
     report_fd = -1;
     snprintf(path, sizeof(path), "tmp/pc/hang-%ld.txt", (long)getpid());
     report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     {
         static const char message[] = "memories-pc: no VSync for 5 s\n";
+        const char *tail_lines[32];
+        int count, i;
         output(message, sizeof(message) - 1);
+        line("registers: EIP=0x%08lx ESP=0x%08lx EBP=0x%08lx\n", eip, esp, ebp);
+        walk(eip, ebp);
+        line("frame=%lu vblank=%lu clock=%ld%%\n", Memories_PresentedFrames(), Platform_VBlankCount(),
+             (uintptr_t)(long)Platform_ClockRate());
+        count = Log_Tail(32, tail_lines);
+        if (count) output("log tail:\n", 10);
+        for (i = 0; i < count; i++) {
+            output(tail_lines[i], strnlen(tail_lines[i], 512));
+            if (!strchr(tail_lines[i], '\n')) output("\n", 1);
+        }
     }
-    walk(eip, ebp);
     if (report_fd >= 0) close(report_fd);
     report_fd = -1;
 }

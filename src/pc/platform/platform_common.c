@@ -84,11 +84,15 @@ static void on_tick(uintptr_t eip, void *context)
 {
     uint64_t real_now = now_us();
     Profile_Sample(eip);
+#ifndef _WIN32 /* Windows watches from the clock thread (Win32_SetStallReporter) */
     if (watchdog_seconds && rate != 0 && !watchdog_reported &&
         real_now - last_vsync_real >= (uint64_t)watchdog_seconds * 1000000u) {
         watchdog_reported = 1;
         Crash_ReportHang(context);
     }
+#else
+    (void)context;
+#endif
     advance(real_now);
 }
 
@@ -126,6 +130,7 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
     }
     Profile_Init();
 #ifdef _WIN32
+    Win32_SetStallReporter(Crash_ReportHang, watchdog_seconds);
     return Win32_StartInterrupt(on_tick);
 #else
     memset(&action, 0, sizeof(action));
@@ -219,6 +224,9 @@ void Platform_VSyncHeartbeat(void)
     sigprocmask(SIG_BLOCK, &set, &previous);
     last_vsync_real = now_us();
     watchdog_reported = 0;
+#ifdef _WIN32
+    Win32_Heartbeat();
+#endif
     sigprocmask(SIG_SETMASK, &previous, NULL);
 }
 
@@ -294,6 +302,7 @@ void Platform_WaitVBlank(unsigned count_at_entry)
         } else {
             if (rate == 0) Platform_PumpEvents();
 #ifdef _WIN32
+            if (rate == 0) Win32_Heartbeat(); /* paused, not hung */
             Win32_ServiceInterrupt();
             if (vblank_count != count_at_entry) break;
 #endif

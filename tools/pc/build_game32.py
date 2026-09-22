@@ -460,6 +460,14 @@ def main():
             seen[parts[3]] = seen.get(parts[3], 0) + 1
             name = parts[3] if seen[parts[3]] == 1 else f"{parts[3]}#{seen[parts[3]]}"
             table.append(f"{parts[0]} {parts[1]} {name}\n")
+    if WINDOWS:
+        # PE symbols carry no sizes: a function runs to the next symbol, so
+        # crash and hang reports can name the routine an address is in.
+        rows = [row.split() for row in table]
+        for index, row in enumerate(rows):
+            if int(row[1], 16) == 0 and index + 1 < len(rows):
+                row[1] = f"{int(rows[index + 1][0], 16) - int(row[0], 16):08x}"
+        table = [" ".join(row) + "\n" for row in rows]
     build_id = hashlib.sha256("".join(table).encode()).hexdigest()[:8]
     for name in (build_id, digest.hexdigest()[:8]):  # the second serves states saved before build ids
         with open(f"{options.build}/symbols/{name}.txt", "w") as handle:

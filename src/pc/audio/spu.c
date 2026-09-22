@@ -45,6 +45,7 @@ static volatile int hold, mixing;
 _Static_assert(SPU_SFX_FIRST_VOICE == SD_VOICE_SLOT_FIRST_VOICE, "SFX voice split changed");
 static volatile int output_volume = 100;
 static volatile int output_muted;
+static volatile int interpolation; /* SpuInterpolation */
 static volatile int bus_volume[SPU_BUS_COUNT] = {100, 100, 100};
 
 #define CD_RING 65536u /* frames; power of two */
@@ -95,6 +96,7 @@ void Spu_SetMaster(int16_t l, int16_t r) { master_left = l; master_right = r; }
 void Spu_SetOutputVolume(int percent) { output_volume = percent < 0 ? 0 : percent > 100 ? 100 : percent; }
 int Spu_GetOutputVolume(void) { return output_volume; }
 void Spu_SetMuted(int muted) { output_muted = !!muted; }
+void Spu_SetInterpolation(SpuInterpolation mode) { interpolation = mode; }
 int Spu_Muted(void) { return output_muted; }
 void Spu_SetBusVolume(SpuBus bus, int percent)
 {
@@ -294,11 +296,22 @@ void Spu_Mix(int16_t *out, size_t frames)
             if (voice->phase == OFF) {
                 continue;
             }
-            /* Four-tap Gaussian interpolation over the newest samples. */
+            /* Four-tap Gaussian interpolation over the newest samples, as the
+             * console's SPU does; it rolls off the top octave. The cubic
+             * option (Catmull-Rom through the same four, between taps[1] and
+             * taps[2] like the Gaussian) keeps it. */
             fraction = (int)(voice->counter >> 4 & 0xff);
             taps = &voice->block[voice->position];
-            sample = (Spu_Gauss[0x0ff - fraction] * taps[0] + Spu_Gauss[0x1ff - fraction] * taps[1] +
-                      Spu_Gauss[0x100 + fraction] * taps[2] + Spu_Gauss[fraction] * taps[3]) >> 15;
+            if (interpolation == SPU_INTERPOLATION_CUBIC) {
+                int a = 3 * (taps[1] - taps[2]) + taps[3] - taps[0];
+                int b = 2 * taps[0] - 5 * taps[1] + 4 * taps[2] - taps[3];
+                int c = taps[2] - taps[0];
+                sample = taps[1] + ((((((a * fraction) >> 8) + b) * fraction >> 8) + c) * fraction >> 9);
+                sample = sample > 32767 ? 32767 : sample < -32768 ? -32768 : sample;
+            } else {
+                sample = (Spu_Gauss[0x0ff - fraction] * taps[0] + Spu_Gauss[0x1ff - fraction] * taps[1] +
+                          Spu_Gauss[0x100 + fraction] * taps[2] + Spu_Gauss[fraction] * taps[3]) >> 15;
+            }
             voice->counter += voice->pitch;
             voice->position += (int)(voice->counter >> 12);
             voice->counter &= 0xfff;

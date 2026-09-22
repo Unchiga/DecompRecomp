@@ -117,7 +117,9 @@ static Menu menus[MENU_COUNT] = {
                {"Movies", 0, ITEM_SLIDER, SLIDER_STREAM, SET_STREAM_VOLUME},
                {0, 0, ITEM_SEPARATOR, 0, -1},
                {"Mute all", "M", ITEM_CHECK, CHECK_MUTE, -1},
-               {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS}}, 7},
+               {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS},
+               {"Console sound (Gaussian)", 0, ITEM_RADIO, 0, SET_AUDIO_INTERPOLATION, 0, ITEM_GROUP_BREAK},
+               {"Sharper sound (cubic)", 0, ITEM_RADIO, 0, SET_AUDIO_INTERPOLATION, 1}}, 9},
     /* Game speed scales the game clock (music keeps its tempo); the frame
      * rate is how many of those game frames reach the window. Tab holds 400%. */
     {"Game", {{"Controls...", 0, ITEM_ACTION, ACT_CONTROLS, -1},
@@ -491,6 +493,7 @@ void Menu_LoadSettings(void)
     Spu_SetBusVolume(SPU_BUS_MUSIC, Settings_Get(SET_MUSIC_VOLUME));
     Spu_SetBusVolume(SPU_BUS_SFX, Settings_Get(SET_SFX_VOLUME));
     Spu_SetBusVolume(SPU_BUS_STREAM, Settings_Get(SET_STREAM_VOLUME));
+    Spu_SetInterpolation((SpuInterpolation)Settings_Get(SET_AUDIO_INTERPOLATION));
     Platform_SetScale(Settings_Get(SET_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Platform_SetPresentCap(Settings_Get(SET_FPS));
@@ -505,6 +508,7 @@ static void setting_changed(SettingId id, int value)
     case SET_MUSIC_VOLUME: Spu_SetBusVolume(SPU_BUS_MUSIC, value); break;
     case SET_SFX_VOLUME: Spu_SetBusVolume(SPU_BUS_SFX, value); break;
     case SET_STREAM_VOLUME: Spu_SetBusVolume(SPU_BUS_STREAM, value); break;
+    case SET_AUDIO_INTERPOLATION: Spu_SetInterpolation((SpuInterpolation)value); break;
     case SET_SCALE: Platform_SetScale(value); break;
     case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_FPS: Platform_SetPresentCap(value); break;

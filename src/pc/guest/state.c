@@ -6,6 +6,7 @@
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/debug/crash.h"
+#include "pc/debug/log.h"
 #include "pc/compat/signal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -633,6 +634,30 @@ void Memories_StatePoint(unsigned presented_frames)
     if (scripted_path && !scripted_done && presented_frames >= scripted_frame) {
         scripted_done = 1;
         save(scripted_path);
+    }
+    {
+        /* MEMORIES_AUTOSAVE=<seconds>: a rolling state every so many seconds
+         * of presented frames, in slots auto1..auto3 of the state folder, so
+         * that a problem report comes with a state from shortly before it. */
+        static unsigned autosave_every, autosave_next, autosave_index;
+        static int autosave_read;
+        if (!autosave_read) {
+            const char *every = getenv("MEMORIES_AUTOSAVE");
+            autosave_read = 1;
+            autosave_every = every ? (unsigned)atoi(every) * 60u : 0;
+            autosave_next = presented_frames + autosave_every;
+        }
+        if (autosave_every && presented_frames >= autosave_next) {
+            char folder[512];
+            const char *slash;
+            autosave_next = presented_frames + autosave_every;
+            slot_path(folder, sizeof(folder), 0); /* creates the folder */
+            slash = strrchr(folder, '/');
+            snprintf(path, sizeof(path), "%.*s/auto%u.state", slash ? (int)(slash - folder) : 1,
+                     slash ? folder : ".", autosave_index % 3 + 1);
+            autosave_index++;
+            if (!save(path)) LOG(LOG_STATE, "autosave %s at frame %u", path, presented_frames);
+        }
     }
     what = __atomic_exchange_n(&requested, 0, __ATOMIC_SEQ_CST);
     if (what) {

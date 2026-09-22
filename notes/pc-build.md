@@ -287,7 +287,7 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 | Menu | Items |
 |---|---|
 | File | Save/load state, slots 1-4, screenshot, reload settings, exit |
-| Audio | Master/music/SFX/movie sliders, mute and focus-loss mute |
+| Audio | Master/music/SFX/movie sliders, mute and focus-loss mute, Gaussian (console) or cubic (sharper) voice interpolation (`audio_interpolation`) |
 | View | Window scale and Menu size submenus, window mode, scaling/aspect/filter/VSync choices |
 | Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card) |
 | Mods | one checked item per entry of `src/pc/mods`: 3D Monsters, Hand camera |
@@ -668,6 +668,17 @@ Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
 beside the executable. Everything Windows-specific is behind `_WIN32`; the
 Linux build is unchanged.
 
+For play-testing, `tools/pc/run_debug_windows.bat` runs the game with
+problem reporting on. It keeps a rolling state every 30 s
+(`MEMORIES_AUTOSAVE=<seconds>`, slots `auto1`..`auto3` in
+`tmp/pc/debug/states`), traces in `tmp/pc/debug/trace.log` and the console in
+`tmp/pc/debug/console.txt`. `tmp/pc/hang-*.txt` / `crash-*.txt` hold named
+backtraces: PE symbols have no sizes, so the build sizes each function up to
+the next symbol, and addresses in a DLL are named by module. The hang
+watchdog runs on the clock thread (`Win32_SetStallReporter`), so it also
+reports a main thread stuck in a driver or a lock, which the tick cannot
+reach; a pause counts as alive.
+
 What differs from Linux, and why:
 
 - **Clock.** No signals: `platform/win32.c` runs a 1 kHz timer thread that
@@ -702,6 +713,12 @@ What differs from Linux, and why:
   other duplicate definition is still an error. PE cannot place sections at
   chosen addresses, so the fixed game sections are not there: save states
   work within one build but are not carried across rebuilds.
+- **Narrow returns.** clang leaves the upper bits of a `char`/`short` return
+  undefined, which GCC happens to fill. Two matching definitions are read
+  wider by callers (`Ai_GetHandSize`, `MemCard_FindLoadedEntry`; an IR
+  comparison of declared and defined return types over all game units found
+  only these), and `src/pc/overrides/narrow_returns.c` returns full words for
+  both. Before it, the opponent's turn in a duel ran off guest RAM.
 - **Libraries.** fontconfig is replaced by fonts from `%WINDIR%\Fonts`
   (`Win32_FontPath`), iconv by code page 932, and the few POSIX calls by
   `pc/compat/posix.h` and `pc/compat/mman.h`.

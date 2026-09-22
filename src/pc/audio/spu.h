@@ -41,6 +41,10 @@ void Spu_CdFlush(void);
 void Spu_SetOutputVolume(int percent);
 int Spu_GetOutputVolume(void);
 void Spu_SetMuted(int muted);
+/* How voices are resampled: the console's Gaussian filter (the default), or
+ * a sharper cubic that keeps the high frequencies the Gaussian rolls off. */
+typedef enum { SPU_INTERPOLATION_GAUSSIAN, SPU_INTERPOLATION_CUBIC } SpuInterpolation;
+void Spu_SetInterpolation(SpuInterpolation mode);
 int Spu_Muted(void);
 
 typedef enum { SPU_BUS_MUSIC, SPU_BUS_SFX, SPU_BUS_STREAM, SPU_BUS_COUNT } SpuBus;

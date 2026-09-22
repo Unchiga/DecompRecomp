@@ -29,6 +29,7 @@ typedef enum {
     SET_WINDOW_Y,
     SET_MOD_3D_MONSTERS,
     SET_MOD_HAND_CAMERA,
+    SET_AUDIO_INTERPOLATION,
     SET_COUNT
 } SettingId;
 

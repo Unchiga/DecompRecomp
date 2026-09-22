@@ -33,6 +33,9 @@ static void (*tick_handler)(uintptr_t, void *);
 static CONTEXT interrupted;      /* the registers a delivered tick interrupted */
 static uintptr_t image_low, image_high;
 static Win32CrashReport crash_report;
+static volatile LONG heartbeat;
+static void (*stall_report)(void *context);
+static unsigned stall_ms;
 
 void Win32_InterruptEntry(void);
 void Win32_InterruptBody(void);
@@ -96,7 +99,26 @@ static DWORD WINAPI run_clock(void *unused)
     }
     for (;;) {
         CONTEXT context;
+        static LONG seen_beat;
+        static unsigned quiet_ms;
+        static int stall_reported;
         WaitForSingleObject(timer, INFINITE);
+        if (heartbeat != seen_beat) {
+            seen_beat = heartbeat;
+            quiet_ms = 0;
+            stall_reported = 0;
+        } else if (stall_report && stall_ms && seen_beat && !stall_reported && ++quiet_ms >= stall_ms) {
+            /* Registers taken while suspended, reported after resuming: the
+             * report writes files, and the main thread may hold the C
+             * runtime's locks. */
+            stall_reported = 1;
+            if (SuspendThread(main_thread) != (DWORD)-1) {
+                context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+                GetThreadContext(main_thread, &context);
+                ResumeThread(main_thread);
+                stall_report(&context);
+            }
+        }
         if (SuspendThread(main_thread) == (DWORD)-1) continue;
         context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS;
         if (GetThreadContext(main_thread, &context)) {
@@ -114,6 +136,17 @@ static DWORD WINAPI run_clock(void *unused)
         }
         ResumeThread(main_thread);
     }
+}
+
+void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds)
+{
+    stall_ms = seconds * 1000u;
+    stall_report = report;
+}
+
+void Win32_Heartbeat(void)
+{
+    InterlockedIncrement(&heartbeat);
 }
 
 void Win32_ServiceInterrupt(void)
@@ -159,6 +192,22 @@ void Win32_ImageRange(uintptr_t *low, uintptr_t *high)
     const IMAGE_NT_HEADERS *headers = (const IMAGE_NT_HEADERS *)(base + ((const IMAGE_DOS_HEADER *)base)->e_lfanew);
     *low = (uintptr_t)base;
     *high = (uintptr_t)base + headers->OptionalHeader.SizeOfImage;
+}
+
+int Win32_ModuleName(uintptr_t address, char *out, unsigned size, uintptr_t *offset)
+{
+    HMODULE module;
+    char path[MAX_PATH];
+    const char *name;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCSTR)address, &module) ||
+        !GetModuleFileNameA(module, path, sizeof(path))) {
+        return 0;
+    }
+    name = strrchr(path, '\\');
+    snprintf(out, size, "%s", name ? name + 1 : path);
+    *offset = address - (uintptr_t)module;
+    return 1;
 }
 
 int Win32_Restart(void)
