@@ -262,7 +262,7 @@ def main():
     run(["gcc", "-m32", "-no-pie", "-o", output,
          *[f"-Wl,--section-start={name}=0x{address:08X}" for name, address in sorted(fixed.items())],
          *[obj(s) for s in game + NATIVE],
-         f"{options.build}/stubs.o", f"{options.build}/guest_symbols.ld", *(["-lm", f"{SDL_BUILD}/libSDL3.a", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig"] if options.backend == "sdl"
+         f"{options.build}/stubs.o", f"{options.build}/guest_symbols.ld", *(["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig"] if options.backend == "sdl"
            else ["-lm", "-lX11", "-lXext", "-lfreetype", "-lfontconfig", "-lasound", "-lpthread"])])
     # Save states are carried between builds with these tables
     # (src/pc/guest/state.c): every function in the executable, because the

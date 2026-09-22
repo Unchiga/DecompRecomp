@@ -51,8 +51,25 @@ static void s32(uint32_t a, uint32_t v) { *(uint32_t *)(uintptr_t)a = v; }
 static void s16(uint32_t a, uint16_t v) { *(uint16_t *)(uintptr_t)a = v; }
 static void s8(uint32_t a, uint8_t v) { *(uint8_t *)(uintptr_t)a = v; }
 
+/* The bank at 0x80180000 holds the natively linked main-menu overlay, but
+ * the credits (func_800507D0) load 16 SU sectors of MIPS there and call
+ * into them: interpret that region whenever no native module is resident. */
+static int native_module_resident_at(uint32_t bank)
+{
+    unsigned i;
+    for (i = 0; i < Memories_ModuleCount; i++) {
+        if (Memories_Modules[i].bank == bank && Memories_ModuleIsResident(bank, Memories_Modules[i].identifier)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int Memories_MipsInOverlay(uint32_t address)
 {
+    if (address >= 0x80180000u && address < 0x80188000u) {
+        return !native_module_resident_at(0x80180000u);
+    }
     return (address >= 0x8013A000u && address < 0x80168000u) || (address >= 0x8017A000u && address < 0x80180000u);
 }
 
@@ -115,6 +132,20 @@ static uint32_t call_native(State *s, uint32_t address)
     case 0x80086920u: return (uint32_t)Psx_ccos((int)s->r[4]);
     case 0x80086BB0u: return (uint32_t)Psx_csin((int)s->r[4]);
     case 0x8008E590u: return Memories_Rand();
+    /* The string routines, on guest pointers (guest RAM is mapped at its own address). */
+#define G(reg) ((void *)(uintptr_t)s->r[reg])
+#define GS(reg) ((const char *)(uintptr_t)s->r[reg])
+    case 0x8008E320u: memmove(G(5), G(4), s->r[6]); return 0; /* bcopy(src, dst, n) */
+    case 0x8008E390u: memcpy(G(4), G(5), s->r[6]); return s->r[4];
+    case 0x8008FA80u: memmove(G(4), G(5), s->r[6]); return s->r[4];
+    case 0x8008E5D0u: strcat(G(4), GS(5)); return s->r[4];
+    case 0x8008E680u: return (uint32_t)strcmp(GS(4), GS(5));
+    case 0x8008E6F0u: strcpy(G(4), GS(5)); return s->r[4];
+    case 0x8008E740u: return (uint32_t)strlen(GS(4));
+    case 0x8008E780u: return (uint32_t)strncmp(GS(4), GS(5), s->r[6]);
+    case 0x8008E800u: strncpy(G(4), GS(5), s->r[6]); return s->r[4];
+#undef G
+#undef GS
     case 0x8008E870u: /* printf: the modules' debug prints */
         LOG(LOG_MIPS_PRINTF, "overlay printf: %s", (const char *)(uintptr_t)s->r[4]);
         return 0;
@@ -235,7 +266,10 @@ int Memories_MipsTry(uint32_t address, const uint32_t *args, unsigned count, uin
         return -1;
     }
     memset(&s, 0, sizeof(s));
-    sp = (current_sp ? current_sp - 64 : stack_top) & ~0xFu;
+    /* Below the innermost live frame, or the stack's top, with room for the
+     * twelve argument slots and the callee's home slots for a0-a3: the
+     * credits module stores its arguments at sp+0 on entry. */
+    sp = ((current_sp ? current_sp : stack_top) - 64) & ~0xFu;
     s.pc = address;
     s.escape = &escape;
     s.r[29] = sp;

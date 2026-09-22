@@ -23,7 +23,7 @@
 
 static DRAWENV draw_env;
 static DISPENV disp_env;
-static int display_enabled, frames_presented;
+static int display_enabled, frames_presented, frames_shown;
 static uint32_t frame_words[MAX_FRAME_WORDS];
 static size_t pending_words;
 static void flush_drawing(void);
@@ -87,6 +87,7 @@ DISPENV *GetDispEnv(DISPENV *env)
 }
 
 unsigned Memories_PresentedFrames(void) { return (unsigned)frames_presented; }
+unsigned Memories_ShownFrames(void) { return (unsigned)frames_shown; }
 
 void Memories_DumpFrame(const char *path, int full_vram)
 {
@@ -126,7 +127,6 @@ void Memories_PresentDisplay(void)
 {
     const char *dump = getenv("MEMORIES_DUMP_FRAME");
     int w = disp_env.disp.w > 0 ? disp_env.disp.w : 320, h = disp_env.disp.h > 0 ? disp_env.disp.h : 240;
-    int skip_present = 0;
     flush_drawing();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
@@ -135,21 +135,12 @@ void Memories_PresentDisplay(void)
         Memories_DumpFrame(path ? path : "tmp/pc/frame.ppm", getenv("MEMORIES_DUMP_VRAM") != NULL);
         exit(0);
     }
-    if (display_enabled) {
-        int clock_rate = Platform_ClockRate();
-        if (clock_rate > 100 || clock_rate == -1) {
-            static uint64_t last_present_us;
-            struct timespec now;
-            uint64_t real_now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-            real_now = (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
-            skip_present = last_present_us && real_now - last_present_us < 16000;
-            if (!skip_present) last_present_us = real_now;
-        }
-        if (!skip_present) {
-            Platform_Present(SoftGpu_Vram(), SOFT_GPU_WIDTH, disp_env.disp.x, disp_env.disp.y, w, h,
-                             disp_env.isrgb24);
-        }
+    if (display_enabled && Platform_PresentDue()) {
+        frames_shown++;
+        Platform_Present(SoftGpu_Vram(), SOFT_GPU_WIDTH, disp_env.disp.x, disp_env.disp.y, w, h,
+                         disp_env.isrgb24);
+    } else {
+        Platform_PumpEvents(); /* input and the menu keep up on frames that are not shown */
     }
 }
 

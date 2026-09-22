@@ -34,15 +34,16 @@ static void panel(MenuCanvas *canvas, int x, int y, int w, int h)
 
 static void text(MenuCanvas *canvas, int x, int *y, const char *value)
 {
-    Menu_DrawText(canvas, x, *y + 8, value, 0xf2f2f4u);
-    *y += 17;
+    int s = Menu_Scale();
+    Menu_DrawText(canvas, x, *y + 8 * s, value, 0xf2f2f4u);
+    *y += 17 * s;
 }
 
 void Hud_Draw(MenuCanvas *canvas)
 {
     const FrameStats *stats = Memories_FrameStats();
     char line[512], rate[32] = "";
-    int level = Settings_Get(SET_SHOW_HUD), y, queued, lba, music = 0, sfx = 0, v;
+    int level = Settings_Get(SET_SHOW_HUD), y, queued, lba, music = 0, sfx = 0, v, s = Menu_Scale();
     unsigned underruns, bytes_per_second;
     const char *tail[8];
     int tail_count, i;
@@ -51,49 +52,60 @@ void Hud_Draw(MenuCanvas *canvas)
     if (Platform_ClockRate() == 0) snprintf(rate, sizeof(rate), " [paused]");
     else if (Platform_ClockRate() == -1) snprintf(rate, sizeof(rate), " [uncapped]");
     else if (Platform_ClockRate() != 100) snprintf(rate, sizeof(rate), " [%d%%]", Platform_ClockRate());
-    snprintf(line, sizeof(line), "%u.%u fps%s", stats->fps_tenths / 10, stats->fps_tenths % 10, rate);
+    snprintf(line, sizeof(line), "%u.%u fps%s, %u.%u shown", stats->fps_tenths / 10, stats->fps_tenths % 10, rate,
+             stats->shown_tenths / 10, stats->shown_tenths % 10);
     if (level == 1) {
-        bounds.w = Menu_TextWidth(line) + 16;
-        bounds.h = 24;
-        bounds.x = canvas->width - bounds.w - 6;
-        bounds.y = 4;
+        bounds.w = Menu_TextWidth(line) + 16 * s;
+        bounds.h = 24 * s;
+        bounds.x = canvas->width - bounds.w - 6 * s;
+        bounds.y = 4 * s;
         panel(canvas, bounds.x, bounds.y, bounds.w, bounds.h);
-        Menu_DrawText(canvas, bounds.x + 8, bounds.y + 12, line, 0xf2f2f4u);
+        Menu_DrawText(canvas, bounds.x + 8 * s, bounds.y + 12 * s, line, 0xf2f2f4u);
         return;
     }
-    bounds.x = 8;
-    bounds.y = Menu_Height() + 8;
-    bounds.w = canvas->width < 620 ? canvas->width - 16 : 612;
-    bounds.h = 300;
+    bounds.x = 8 * s;
+    bounds.y = Menu_Height() + 8 * s;
+    bounds.w = canvas->width < 620 * s ? canvas->width - 16 * s : 612 * s;
+    bounds.h = 300 * s;
     panel(canvas, bounds.x, bounds.y, bounds.w, bounds.h);
-    y = bounds.y + 8;
-    text(canvas, bounds.x + 10, &y, line);
+    y = bounds.y + 8 * s;
+    text(canvas, bounds.x + 10 * s, &y, line);
     snprintf(line, sizeof(line), "frame %u / VBlank %u", Memories_PresentedFrames(), Platform_VBlankCount());
-    text(canvas, bounds.x + 10, &y, line);
+    text(canvas, bounds.x + 10 * s, &y, line);
     snprintf(line, sizeof(line), "game %u us (max %u), present %u us (max %u)", stats->game_us,
              stats->game_max_us, stats->present_us, stats->present_max_us);
-    text(canvas, bounds.x + 10, &y, line);
-    snprintf(line, sizeof(line), "missed VBlanks %u/120; DrawOTag %u words, %u us", stats->missed_vblanks,
-             stats->draw_words, stats->draw_us);
-    text(canvas, bounds.x + 10, &y, line);
+    text(canvas, bounds.x + 10 * s, &y, line);
+    snprintf(line, sizeof(line), "missed VBlanks %u/120; DrawOTag %u words, %u us; present cap %d (%u us)",
+             stats->missed_vblanks, stats->draw_words, stats->draw_us, Platform_PresentCap(),
+             Platform_PresentPeriodUs());
+    text(canvas, bounds.x + 10 * s, &y, line);
     Platform_AudioStats(&queued, &underruns);
     snprintf(line, sizeof(line), "audio queued %d frames, underruns %u", queued, underruns);
-    text(canvas, bounds.x + 10, &y, line);
+    text(canvas, bounds.x + 10 * s, &y, line);
     Memories_DiscStats(&lba, &bytes_per_second);
     snprintf(line, sizeof(line), "disc LBA %d, %u bytes/s", lba, bytes_per_second);
-    text(canvas, bounds.x + 10, &y, line);
+    text(canvas, bounds.x + 10 * s, &y, line);
     for (v = 0; v < SPU_VOICES; v++) if (Spu_KeyStatus((unsigned)v)) {
         if (v < 20) music++; else sfx++;
     }
     snprintf(line, sizeof(line), "voices music %d, SFX %d; clock %d; state slot %d (loaded %d)",
              music, sfx, Platform_ClockRate(), Platform_StateSlot(), Memories_LastStateSlot());
-    text(canvas, bounds.x + 10, &y, line);
+    text(canvas, bounds.x + 10 * s, &y, line);
     tail_count = Log_Tail(8, tail);
     for (i = 0; i < tail_count; i++) {
         snprintf(line, sizeof(line), "%.90s", tail[i]);
         line[strcspn(line, "\n")] = 0;
-        text(canvas, bounds.x + 10, &y, line);
+        text(canvas, bounds.x + 10 * s, &y, line);
     }
+}
+
+unsigned Hud_Signature(void)
+{
+    const FrameStats *stats = Memories_FrameStats();
+    int level = Settings_Get(SET_SHOW_HUD);
+    if (!level) return 0;
+    if (level == 2) return Memories_PresentedFrames() * 4u + 2u;
+    return (stats->fps_tenths * 4096u + stats->shown_tenths) * 512u + (unsigned)(Platform_ClockRate() + 1) * 4u + 1u;
 }
 
 void Hud_Bounds(int *x, int *y, int *w, int *h)

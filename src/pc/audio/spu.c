@@ -3,6 +3,7 @@
 #include "game/sound_voice_constants.h"
 #include <string.h>
 #include "pc/guest/state.h"
+#include "pc/debug/log.h"
 #include <time.h>
 
 enum { OFF, ATTACK, DECAY, SUSTAIN, RELEASE };
@@ -22,6 +23,13 @@ typedef struct Voice {
 uint8_t Spu_Ram[SPU_RAM_SIZE];
 static Voice voices[SPU_VOICES];
 static volatile uint32_t pending_on, pending_off, pending_late_off;
+/* What the game has keyed, as of its last SpuSetKey. The hardware answers
+ * status and envelope reads at once, and the sound driver relies on that:
+ * it picks a free voice by envelope == 0 and spins on status after a
+ * key-off. The mixer applies keys a period later, so those reads come from
+ * the request, not the mixer, or two sounds land on one voice in one
+ * period and the first never plays (common at 200%+ game speed). */
+static volatile uint32_t keyed_mask;
 static volatile int16_t master_left = 0x3fff, master_right = 0x3fff, cd_left = 0x7fff, cd_right = 0x7fff;
 static volatile int cd_enabled = 1;
 static volatile int hold, mixing;
@@ -48,7 +56,7 @@ static int16_t cd_last[2], cd_next[2];
 void Spu_Reset(void)
 {
     memset(voices, 0, sizeof(voices));
-    pending_on = pending_off = pending_late_off = 0;
+    pending_on = pending_off = pending_late_off = keyed_mask = 0;
     Spu_CdFlush();
 }
 
@@ -59,8 +67,13 @@ void Spu_Reset(void)
 void Spu_KeyOn(uint32_t bits)
 {
     bits &= 0xffffff;
+    if (bits & pending_on) {
+        /* the earlier key-on will never sound: the voice was reused before the mixer ran */
+        LOG(LOG_SPU, "key-on %06x replaces a key-on not yet mixed", (unsigned)(bits & pending_on));
+    }
     __atomic_fetch_and(&pending_late_off, ~bits, __ATOMIC_SEQ_CST);
     __atomic_fetch_or(&pending_on, bits, __ATOMIC_SEQ_CST);
+    __atomic_fetch_or(&keyed_mask, bits, __ATOMIC_SEQ_CST);
 }
 
 void Spu_KeyOff(uint32_t bits)
@@ -70,6 +83,7 @@ void Spu_KeyOff(uint32_t bits)
     late = bits & pending_on;
     __atomic_fetch_or(&pending_late_off, late, __ATOMIC_SEQ_CST);
     __atomic_fetch_or(&pending_off, bits & ~late, __ATOMIC_SEQ_CST);
+    __atomic_fetch_and(&keyed_mask, ~bits, __ATOMIC_SEQ_CST);
 }
 void Spu_SetVolume(unsigned v, int16_t l, int16_t r) { voices[v].left = l; voices[v].right = r; }
 void Spu_SetPitch(unsigned v, uint16_t pitch) { voices[v].pitch = pitch > 0x3fff ? 0x3fff : pitch; }
@@ -89,11 +103,13 @@ void Spu_SetBusVolume(SpuBus bus, int percent)
 }
 int Spu_GetBusVolume(SpuBus bus) { return bus >= 0 && bus < SPU_BUS_COUNT ? bus_volume[bus] : 0; }
 void Spu_SetCd(int16_t l, int16_t r, int enabled) { cd_left = l; cd_right = r; cd_enabled = enabled; }
-int16_t Spu_Envelope(unsigned v) { return (int16_t)voices[v].level; }
+/* A voice keyed on but not yet mixed reads as in full attack: the driver
+ * takes envelope 0 as a free voice. */
+int16_t Spu_Envelope(unsigned v) { return pending_on >> v & 1 ? 0x7fff : (int16_t)voices[v].level; }
 
 int Spu_KeyStatus(unsigned v)
 {
-    int keyed = voices[v].keyed || (pending_on >> v & 1), sounding = voices[v].level > 0 || (pending_on >> v & 1);
+    int keyed = keyed_mask >> v & 1, sounding = voices[v].level > 0 || (pending_on >> v & 1);
     return keyed ? (sounding ? 1 : 3) : (sounding ? 2 : 0);
 }
 
@@ -354,6 +370,10 @@ void Spu_State(MemoriesState *state)
         {(void *)&cd_left, sizeof(cd_left)}, {(void *)&cd_right, sizeof(cd_right)},
         {(void *)&cd_enabled, sizeof(cd_enabled)}};
     if (Memories_StateChunk(state, "spu", fields, sizeof(fields) / sizeof(fields[0]))) {
+        unsigned v;
+        uint32_t keyed = pending_on;
+        for (v = 0; v < SPU_VOICES; v++) if (voices[v].keyed) keyed |= 1u << v;
+        keyed_mask = keyed & ~pending_off & ~pending_late_off;
         Spu_CdFlush(); /* streamed audio restarts from the disc position */
         cd_phase = 0;
         cd_last[0] = cd_last[1] = cd_next[0] = cd_next[1] = 0;

@@ -155,6 +155,16 @@ entries), and
 the disc service waits for CD-input room, so a stopped SPU hangs the game
 after the movie.
 
+Key-on and key-off requests are applied by the mixer at its next 256-frame
+period (5.8 ms), but the hardware answered `SpuGetKeyStatus` and
+`SpuGetVoiceEnvelope` at once, and the sound driver relies on that: it picks
+a free SFX voice by envelope 0 and spins on status after a key-off. So both
+reads answer from the request (`keyed_mask`; a pending key-on reads as full
+attack), not from the mixer. Before that, two sounds keyed within one mix
+period could land on the same voice and the first never played, which
+showed as missing sound effects at 200% and above; `MEMORIES_TRACE=spu`
+logs "replaces a key-on not yet mixed" whenever it still happens.
+
 ### MIPS-only effects
 
 Two kinds of duel code exist only as MIPS bytes inside the archives:
@@ -199,6 +209,27 @@ module the interpreter cannot run is reported once on stderr and falls back
 the same way. `MEMORIES_TRACE_MIPS_PRINTF=1` prints the modules' own
 `printf` format strings.
 
+### Credits
+
+The ending's credits (`Main_RunCredits` phase 2, `func_800507D0`) load 16
+SU sectors from `0x4C7` into `0x80180000`, where the main-menu overlay is
+otherwise linked natively, and call the loaded MIPS directly
+(`func_801807B0`, `func_80181C4C`, ...). `Memories_MipsInOverlay` therefore
+counts `0x80180000-0x80188000` as interpreted whenever no native module is
+resident in that bank (the bank's identifier word decides), and the
+outermost interpreted frame starts 64 bytes below the stack's top because
+the module stores its arguments at `sp+0` on entry. The module's external
+calls are `LoadImage2`, `IsIdleGPU`, `GsSortPoly`, `strlen` and
+`Krom2RawAdd2`; the retail string routines are bridged by address in
+`call_native` next to `memset`, and `Krom2RawAdd`/`Krom2RawAdd2`
+(`sdk/libapi_krom.c`) stand in for the BIOS kanji ROM the port has no copy
+of: each Shift-JIS character is rendered once with FreeType from the face
+fontconfig names for Japanese (Noto Sans CJK here) into the ROM's 16x15,
+30-byte, one-bit pattern, which the module reads through the returned host
+address. Checked from a state at the ending's last dialogue, mashing Cross
+(`MEMORIES_INPUT`) at 400%: names and the wireframe monsters through
+"Created by Konami Computer Entertainment Japan" with no interpreter failure.
+
 ### Window and menu bar
 
 Two window backends exist under `src/pc/platform`, chosen at build time
@@ -208,11 +239,12 @@ from PSY-Z's bundled SDL 3.4 as a 32-bit static library; `./build-pc.sh`
 runs that first). Both share the menu (`menu.c`), the interrupt clock and the
 scripted input (`platform_common.c`).
 
-**SDL3** (`sdl.c`, the default) is the portable one: window, keyboard,
+**SDL3/OpenGL** (`sdl.c`, the default) is the portable one: window, keyboard,
 mouse, controllers (`SDL_Gamepad`, so any pad SDL knows, hot-plugged, two
 ports) and audio (`SDL_AudioStream`, 256-frame periods) through the one
-library that exists for Linux, Windows and macOS. The picture is a 320x240
-streaming texture the GPU scales with nearest filtering, and the menu is a
+library that exists for Linux, Windows and macOS. An explicit OpenGL presenter
+is preferred, with SDL_Render as a fallback when a GL context is unavailable.
+The picture is a 320x240 streaming texture the GPU scales with nearest filtering, and the menu is a
 transparent ARGB texture blended over it, uploaded only where it changed; so
 the CPU never scales a frame. Window layout, the menu/HUD and pointer input
 use SDL logical coordinates; SDL scales the complete composition to the
@@ -251,13 +283,83 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 |---|---|
 | File | Save/load state, slots 1-4, screenshot, reload settings, exit |
 | Audio | Master/music/SFX/movie sliders, mute and focus-loss mute |
-| View | Window scale and mode, scaling/aspect/filter/VSync choices |
+| View | Window scale and Menu size submenus, window mode, scaling/aspect/filter/VSync choices |
+| Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card) |
 | Mods | one checked item per entry of `src/pc/mods`: 3D Monsters, Hand camera |
-| Debug | HUD levels, pause/step/speed, frame and VRAM dumps, and Give 3 of every card |
+| Debug | HUD levels, pause/step, frame and VRAM dumps |
 | Trace | Live frames, disc, SPU, input and state log-channel switches |
 
-`MEMORIES_TRACE_MENU=1` logs menu clicks. The menu never reaches the pad:
+`MEMORIES_TRACE_MENU=1` logs menu clicks and keys. The menu never reaches the pad:
 a click on the bar or in an open menu, and the wheel there, are the menu's.
+Menu changes from events (hover, clicks, keys, resizes) mark the menu dirty
+and it is repainted once with the next game frame, or at most 120 times a
+second while paused; a 1000 Hz mouse sweeping the bar used to present a
+frame per motion event. Events are pumped before a frame is composed, so the
+frame shows the input and menu state of that moment. The overlay is only
+recomposed when the menu is dirty or the HUD's text changes (`Hud_Signature`;
+the full-statistics level changes every frame), and a dropdown's shadow
+blends only the strips outside the box: composing every frame with twelve
+alpha passes over a 4K dropdown made the game crawl whenever a menu was
+open. `MEMORIES_TRACE=window` reports compositions per 120 frames.
+A row with a triangle opens a submenu beside it (one level: `ITEM_SUBMENU`,
+`submenus[]`), on hover, click, Enter or Right; Left or Esc closes it.
+
+The menu draws at a size multiple (`menu_scale`, `MEMORIES_MENU_SCALE`, View >
+Menu size): bar, rows, marks, font and the HUD all scale together, and the
+window is sized for the bar it gets. Automatic (0) follows the window height
+(`Menu_AutoScale`): 1 up to about 720 rows, 2 for a 4x window, 3 on a 4K
+display. `MEMORIES_SDL_SCRIPT` accepts `frame:shot` to save the composed
+window, which is how the menus are checked.
+
+### Speed, frame rate and vsync
+
+Three independent controls (`platform.h`, `platform_common.c`):
+
+- **Game speed** (`speed`, `MEMORIES_SPEED`, Game menu, 25-400 or -1) scales
+  the game clock: VBlanks, disc timing and SFX run that much faster, so 200%
+  is 119.88 game frames a second. Music sequencing runs on real time and
+  keeps its tempo. Tab holds 400% while pressed; P pauses; `.` steps a frame.
+  Uncapped (-1) fires a VBlank whenever the game waits for one.
+- **Frame rate** (`fps`, `MEMORIES_FPS`, Game menu) is how many of those game frames
+  reach the window: 0 (default) follows the display's refresh rate, -1 shows
+  every game frame, or a number. Presentation is paced on a fixed grid apart
+  from the game clock, so a cap of 60 at 400% shows every fourth frame and
+  the game never waits for the window. Frames that are not shown still poll
+  input and the menu.
+- **VSync** (`vsync`) blocks the present on the display. That may only pace
+  the game while game frames come no faster than the display refreshes;
+  above that (200% on a 60 Hz display, or uncapped) the backend presents
+  unsynced and the frame-rate cap alone limits presents. At 100% on a 60 Hz
+  display the game's VBlank is re-phased to the display so the two rates do
+  not beat.
+
+`VSync(0)` presents, then waits for the next VBlank after entry. It must
+not return at once because a VBlank passed since the previous call:
+`Graphics_SyncFrame` resets the game's own VBlank counter to -1 just before
+calling, and `Input_UpdatePads` takes a counter still at -1 as a lag frame
+and publishes every press a second time on the next frame. A catch-up
+variant was tried and doubled inputs at 300%. A frame that overruns its
+VBlank therefore costs a whole slot, as on the console; 200% and 400% hold
+their rates because presents are cheap on the accelerated path (below).
+
+The HUD (F3) shows game frames a second and shown frames a second; with
+`MEMORIES_TRACE=frames` the same appears every 120 frames with the clock
+rate, VBlank rate and sequencer rate.
+
+**Software OpenGL on Wayland.** The 32-bit build on an NVIDIA Wayland
+desktop gets Mesa's `llvmpipe` through EGL (there is no 32-bit NVIDIA EGL
+Wayland path), and a software renderer takes 6 ms and more to present a
+frame, which alone breaks 200%. `Platform_Open` therefore retries with the
+`x11` (XWayland) driver when the GL renderer is software, where the NVIDIA
+driver presents in about 0.2 ms. `SDL_VIDEODRIVER` pins a driver and skips
+the retry; `MEMORIES_TRACE=window` logs the renderer, the refresh rate and
+every vsync change. XWayland reports no refresh rate, so the rate the
+Wayland driver reported before the retry is kept. The pointer over an XWayland
+window is Xlib's core font cursor (tiny, unthemed) unless the 32-bit Xcursor
+library is installed: Xlib loads `libXcursor.so.1` itself to substitute the
+desktop theme at the size KDE publishes for Xwayland (`xrdb -query`:
+`Xcursor.size`). On Arch that is `lib32-libxcursor`; without it there is no
+fix from inside the game short of drawing its own pointer.
 
 ### Mods > Hand camera
 

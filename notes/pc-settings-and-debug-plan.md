@@ -354,7 +354,7 @@ All in `platform_common.c` unless stated. New `platform.h` declarations:
 
 ```c
 /* The virtual clock the interrupt handlers run on. Rate is a percentage of
- * real time: 100 normal, 0 paused, up to 800 turbo. -1 is uncapped: a
+ * real time: 100 normal, 0 paused, up to 400 turbo. -1 is uncapped: a
  * VBlank is delivered as soon as the game waits for one. Main thread. */
 void Platform_SetClockRate(int percent);
 int Platform_ClockRate(void);
@@ -407,9 +407,10 @@ time; `run_tick` in `libetc.c` already works on whatever it is given.
   unblock. This runs the handlers on the main thread outside a signal, which
   is allowed (same thread, between game instructions).
 - When `rate == 0` the game sits in `Platform_WaitVBlank`; the nap is fine.
-- **Audio and speed**: the SPU mixes in real time regardless; at 200 % the
-  sequencer issues notes twice as fast, so music plays at double tempo, as in
-  emulators. Nothing to do.
+- **Audio and speed**: the SPU mixes in real time. The platform tick supplies
+  both clocks: disc/game services consume accelerated virtual time, while the
+  root counter that drives the music sequencer consumes monotonic real time.
+  Music therefore keeps its normal tempo at 200-400% gameplay speed.
 - **Presents and speed**: in `Memories_VSync` mode 0, when `rate > 100 ||
   rate == -1`, skip `Memories_PresentDisplay`'s `Platform_Present` unless at
   least 16 ms of real time passed since the last present (frame skipping).
@@ -702,6 +703,8 @@ Debug
   Speed 50%                   (radio SET_SPEED=50)
   Speed 100%                  (radio SET_SPEED=100)
   Speed 200%                  (radio SET_SPEED=200)
+  Speed 300%                  (radio SET_SPEED=300)
+  Speed 400%                  (radio SET_SPEED=400)
   Speed uncapped              (radio SET_SPEED=-1)
   ----
   Trace: frames / disc / spu / input / state   (checks calling Log_Enable)
@@ -751,7 +754,7 @@ when the input script is altered.
 | `aspect` | SET_ASPECT | 0 | 0-1 | `MEMORIES_ASPECT` |
 | `filter` | SET_FILTER | 0 | 0-1 | `MEMORIES_FILTER` |
 | `vsync` | SET_VSYNC | 0 | 0-1 | `MEMORIES_VSYNC` |
-| `speed` | SET_SPEED | 100 | -1, 25-800 | `MEMORIES_SPEED` |
+| `speed` | SET_SPEED | 100 | -1, 25-400 | `MEMORIES_SPEED` |
 | `show_menu_fullscreen` | SET_SHOW_MENU_FULLSCREEN | 0 | 0-1 | |
 | `pause_on_focus_loss` | SET_PAUSE_ON_FOCUS_LOSS | 0 | 0-1 | |
 | `mute_on_focus_loss` | SET_MUTE_ON_FOCUS_LOSS | 0 | 0-1 | |

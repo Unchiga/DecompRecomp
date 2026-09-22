@@ -1,11 +1,8 @@
-/* The SDL3 backend: window, input, controllers and audio through one
- * library that exists for Linux, Windows and macOS, chosen over a hand-made
- * layer per system. The picture is a 320x240 (whatever the game presents)
- * streaming texture that the GPU scales with nearest filtering, and the
- * menu bar is a second, transparent texture blended over it, so the CPU
- * never scales a frame and menu activity uploads only the rectangle it
- * touched. Both textures are drawn to the window each time anything
- * changes; that is a couple of GPU quads.
+/* SDL3 owns the window, input, controllers and audio. Presentation uses an
+ * explicit OpenGL path by default, avoiding SDL_Render's per-frame texture
+ * management and making the accelerated path predictable across drivers.
+ * SDL_Render remains a fallback for machines where a GL context cannot be
+ * created. The picture and transparent menu are two GPU textures.
  *
  * The interrupt clock (platform_common.c) is a signal on the main thread,
  * so signals are blocked while SDL creates its threads, which inherit the
@@ -20,6 +17,7 @@
 #include "pc/debug/hud.h"
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_opengl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +28,9 @@
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *picture, *overlay;
+static SDL_GLContext gl_context;
+static GLuint gl_picture, gl_overlay;
+static int use_gl;
 static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
 static MenuCanvas canvas;
@@ -50,9 +51,25 @@ static int pointer_x, pointer_y, pointer_inside, cursor_hidden;
 static unsigned last_pointer_motion, current_frame;
 static int focus_clock_rate = 100;
 static char base_title[160];
+static float known_refresh; /* what the wayland driver reported before a fallback to x11 */
 
 static void show(void);
 static void repaint_menu(void);
+/* Menu changes from events are coalesced: a pointer sweeping the bar
+ * reports hundreds of motions a second, and each used to repaint and
+ * present a frame. Now they mark the menu dirty and it is repainted once,
+ * with the next game frame or at the end of an idle pump. */
+static int menu_dirty;
+static void save_window_image(void);
+static int window_shot_pending;
+
+/* The menu's size: the setting, or from the height the window has or is
+ * about to have. */
+static void update_menu_scale(int window_h)
+{
+    int wanted = Settings_Get(SET_MENU_SCALE);
+    Menu_SetScale(wanted ? wanted : Menu_AutoScale(window_h));
+}
 static void relayout(void);
 static void pump(void);
 
@@ -84,11 +101,48 @@ static uint64_t real_now_us(void)
     return (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
 }
 
+/* XWayland reports no refresh rate for the current or desktop mode, but its
+ * fullscreen mode list has them: take the fastest at the desktop's size.
+ * Unknown (0) makes the "display refresh" cap show every game frame and
+ * lets vsync pace the game only at 100% or slower. */
 static void update_display_refresh(void)
 {
     SDL_DisplayID display = SDL_GetDisplayForWindow(window);
     const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display);
-    Platform_SetPresentRefresh(mode ? mode->refresh_rate : 0.0f);
+    const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(display);
+    float refresh = mode ? mode->refresh_rate : 0.0f;
+    if (refresh <= 0.0f && desktop) refresh = desktop->refresh_rate;
+    if (refresh <= 0.0f) refresh = known_refresh;
+    if (refresh <= 0.0f && desktop) {
+        int count = 0, i;
+        SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(display, &count);
+        for (i = 0; modes && i < count; i++) {
+            if (modes[i]->w == desktop->w && modes[i]->h == desktop->h && modes[i]->refresh_rate > refresh) {
+                refresh = modes[i]->refresh_rate;
+            }
+        }
+        SDL_free(modes);
+    }
+    Platform_SetPresentRefresh(refresh);
+    LOG(LOG_WINDOW, "display refresh %.2f Hz", refresh);
+}
+
+/* A blocking vsync present may only pace the game while game frames come no
+ * faster than the display refreshes; faster than that it would hold the
+ * game to the refresh rate, so presents go out unsynced and the frame-rate
+ * cap alone limits them. Re-checked at every present: the speed can change
+ * at any time (Tab turbo). */
+static int swap_interval = -1;
+
+static void apply_swap_interval(void)
+{
+    int wanted = Settings_Get(SET_VSYNC) && Platform_VSyncPacesGame() ? 1 : 0;
+    if (wanted == swap_interval) return;
+    swap_interval = wanted;
+    if (use_gl) SDL_GL_SetSwapInterval(wanted);
+    else if (renderer) SDL_SetRenderVSync(renderer, wanted);
+    LOG(LOG_WINDOW, "vsync %s (game %.2f Hz, display %.2f Hz)", wanted ? "on" : "off",
+        Platform_GameHz(), Platform_PresentRefresh());
 }
 
 static void update_menu_visibility(void)
@@ -99,7 +153,7 @@ static void update_menu_visibility(void)
     menu_visible = wanted;
     Menu_SetVisible(wanted);
     relayout();
-    if (overlay) repaint_menu();
+    menu_dirty = 1;
 }
 
 static int screenshot_path(char *path, size_t size, const char *extension)
@@ -118,14 +172,8 @@ static int screenshot_path(char *path, size_t size, const char *extension)
     return snprintf(path, size, "%s/%s-%u.%s", directory, stamp, current_frame, extension) < (int)size;
 }
 
-void Platform_Screenshot(int window_image)
+static void save_surface(SDL_Surface *surface, const char *path)
 {
-    SDL_Surface *surface;
-    char path[1024];
-    if (!renderer || !picture_pixels || !screenshot_path(path, sizeof(path), "bmp")) return;
-    surface = window_image ? SDL_RenderReadPixels(renderer, NULL) :
-              SDL_CreateSurfaceFrom(picture_w, picture_h, SDL_PIXELFORMAT_XRGB8888,
-                                    picture_pixels, picture_w * 4);
     if (!surface) {
         fprintf(stderr, "memories-pc: screenshot failed: %s\n", SDL_GetError());
         return;
@@ -133,6 +181,51 @@ void Platform_Screenshot(int window_image)
     if (SDL_SaveBMP(surface, path)) fprintf(stderr, "memories-pc: screenshot: %s\n", path);
     else fprintf(stderr, "memories-pc: screenshot failed: %s\n", SDL_GetError());
     SDL_DestroySurface(surface);
+}
+
+/* GL: read the composed frame from the back buffer, before it is swapped. */
+static void save_window_image(void)
+{
+    SDL_Surface *surface;
+    char path[1024];
+    int w, h, y;
+    uint32_t *pixels, *row;
+    if (!screenshot_path(path, sizeof(path), "bmp") || !SDL_GetWindowSizeInPixels(window, &w, &h)) return;
+    surface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
+    if (surface) {
+        pixels = surface->pixels;
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        row = malloc((size_t)surface->pitch);
+        if (row) {
+            for (y = 0; y < h / 2; y++) {
+                uint8_t *a = (uint8_t *)surface->pixels + (size_t)y * surface->pitch;
+                uint8_t *b = (uint8_t *)surface->pixels + (size_t)(h - 1 - y) * surface->pitch;
+                memcpy(row, a, (size_t)surface->pitch);
+                memcpy(a, b, (size_t)surface->pitch);
+                memcpy(b, row, (size_t)surface->pitch);
+            }
+            free(row);
+        }
+    }
+    save_surface(surface, path);
+}
+
+void Platform_Screenshot(int window_image)
+{
+    SDL_Surface *surface;
+    char path[1024];
+    if ((!renderer && !use_gl) || !picture_pixels) return;
+    if (window_image && use_gl) {
+        window_shot_pending = 1; /* taken by the next show(), before its swap */
+        return;
+    }
+    if (!screenshot_path(path, sizeof(path), "bmp")) return;
+    {
+        surface = window_image ? SDL_RenderReadPixels(renderer, NULL) :
+                  SDL_CreateSurfaceFrom(picture_w, picture_h, SDL_PIXELFORMAT_XRGB8888,
+                                        picture_pixels, picture_w * 4);
+    }
+    save_surface(surface, path);
 }
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
@@ -299,15 +392,19 @@ int Platform_StartAudio(void (*mix)(int16_t *, size_t))
 static void relayout(void)
 {
     static int logged_window_w, logged_window_h, logged_output_w, logged_output_h;
-    int output_w, output_h, window_w, window_h, menu = menu_visible ? Menu_Height() : 0;
+    int output_w, output_h, window_w, window_h, menu;
     int pw = Settings_Get(SET_ASPECT) ? picture_w : picture_h * 4 / 3;
     int ph = picture_h, area_h, mode = Settings_Get(SET_SCALING);
     float factor;
-    if (!renderer || picture_w <= 0 || picture_h <= 0 ||
+    if ((!renderer && !use_gl) || picture_w <= 0 || picture_h <= 0 ||
         !SDL_GetWindowSize(window, &window_w, &window_h) ||
-        !SDL_GetRenderOutputSize(renderer, &output_w, &output_h) || window_w <= 0 || window_h <= 0) {
+        !(use_gl ? SDL_GetWindowSizeInPixels(window, &output_w, &output_h) :
+                    SDL_GetRenderOutputSize(renderer, &output_w, &output_h)) ||
+        window_w <= 0 || window_h <= 0) {
         return;
     }
+    update_menu_scale(window_h);
+    menu = menu_visible ? Menu_Height() : 0;
     area_h = window_h - menu;
     if (area_h < 1) area_h = 1;
     layout.win_w = window_w;
@@ -344,11 +441,26 @@ static void relayout(void)
         SDL_DestroyTexture(overlay);
         overlay = NULL;
     }
-    if (!overlay) {
-        overlay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
-                                    window_w, window_h);
-        SDL_SetTextureBlendMode(overlay, SDL_BLENDMODE_BLEND);
-        SDL_SetTextureScaleMode(overlay, SDL_SCALEMODE_LINEAR);
+    if (use_gl && gl_overlay && (canvas.width != window_w || canvas.height != window_h)) {
+        glDeleteTextures(1, &gl_overlay);
+        gl_overlay = 0;
+    }
+    if ((use_gl && !gl_overlay) || (!use_gl && !overlay)) {
+        if (use_gl) {
+            glGenTextures(1, &gl_overlay);
+            glBindTexture(GL_TEXTURE_2D, gl_overlay);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, window_w, window_h, 0,
+                         GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+        } else {
+            overlay = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                        window_w, window_h);
+            SDL_SetTextureBlendMode(overlay, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(overlay, SDL_SCALEMODE_LINEAR);
+        }
         overlay_pixels = realloc(overlay_pixels, (size_t)window_w * (size_t)window_h * 4);
         memset(overlay_pixels, 0, (size_t)window_w * (size_t)window_h * 4);
         canvas.pixels = overlay_pixels;
@@ -357,7 +469,13 @@ static void relayout(void)
         canvas.height = window_h;
         canvas.alpha = 1;
         Menu_Draw(&canvas);
-        SDL_UpdateTexture(overlay, NULL, overlay_pixels, window_w * 4);
+        if (use_gl) {
+            glBindTexture(GL_TEXTURE_2D, gl_overlay);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, window_w, window_h,
+                            GL_BGRA, GL_UNSIGNED_BYTE, overlay_pixels);
+        } else {
+            SDL_UpdateTexture(overlay, NULL, overlay_pixels, window_w * 4);
+        }
     }
 }
 
@@ -393,25 +511,51 @@ static void apply_display_settings(void)
         int x = Settings_Get(SET_WINDOW_X), y = Settings_Get(SET_WINDOW_Y);
         SDL_SetWindowFullscreen(window, false);
         SDL_SetWindowBordered(window, !Settings_Get(SET_BORDERLESS));
+        update_menu_scale(ph * scale + 26 * Menu_AutoScale(ph * scale));
         SDL_SetWindowSize(window, pw * scale, ph * scale + Menu_Height());
         SDL_SetWindowPosition(window, x == -1 ? SDL_WINDOWPOS_CENTERED : x,
                               y == -1 ? SDL_WINDOWPOS_CENTERED : y);
     }
-    if (picture) {
+    if (use_gl && gl_picture) {
+        glBindTexture(GL_TEXTURE_2D, gl_picture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                        Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    } else if (picture) {
         SDL_SetTextureScaleMode(picture, Settings_Get(SET_FILTER) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
     }
-    SDL_SetRenderVSync(renderer, Settings_Get(SET_VSYNC) ? 1 : 0);
+    apply_swap_interval();
     relayout();
     show();
 }
 
 static void resize(int w, int h)
 {
+    if (use_gl && gl_picture && (picture_w != w || picture_h != h)) {
+        glDeleteTextures(1, &gl_picture);
+        gl_picture = 0;
+    }
     if (picture && (picture_w != w || picture_h != h)) {
         SDL_DestroyTexture(picture);
         picture = NULL;
     }
-    if (!picture) {
+    if (use_gl && !gl_picture) {
+        glGenTextures(1, &gl_picture);
+        glBindTexture(GL_TEXTURE_2D, gl_picture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                        Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+        picture_pixels = realloc(picture_pixels, (size_t)w * (size_t)h * 4);
+        picture_w = w;
+        picture_h = h;
+    } else if (!use_gl && !picture) {
         picture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
         SDL_SetTextureScaleMode(picture, Settings_Get(SET_FILTER) ? SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
         picture_pixels = realloc(picture_pixels, (size_t)w * (size_t)h * 4);
@@ -435,8 +579,29 @@ static void upload_overlay(int x, int y, int w, int h)
     rect.y = y;
     rect.w = w;
     rect.h = h;
-    SDL_UpdateTexture(overlay, &rect, overlay_pixels + (size_t)y * (size_t)layout.win_w + (size_t)x,
-                      layout.win_w * 4);
+    if (use_gl) {
+        /* GL has no source-row pitch for this upload; rows are contiguous in
+         * the full-width canvas, so upload whole rows for the dirty span. */
+        glBindTexture(GL_TEXTURE_2D, gl_overlay);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, layout.win_w);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_BGRA, GL_UNSIGNED_BYTE,
+                        overlay_pixels + (size_t)y * (size_t)layout.win_w + (size_t)x);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    } else {
+        SDL_UpdateTexture(overlay, &rect, overlay_pixels + (size_t)y * (size_t)layout.win_w + (size_t)x,
+                          layout.win_w * 4);
+    }
+}
+
+static void gl_quad(GLuint texture, float x, float y, float w, float h)
+{
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f(x, y);
+    glTexCoord2f(1, 0); glVertex2f(x + w, y);
+    glTexCoord2f(1, 1); glVertex2f(x + w, y + h);
+    glTexCoord2f(0, 1); glVertex2f(x, y + h);
+    glEnd();
 }
 
 static void draw_overlay(int *x, int *y, int *w, int *h)
@@ -465,6 +630,33 @@ static void draw_overlay(int *x, int *y, int *w, int *h)
 static void show(void)
 {
     SDL_FRect physical;
+    if (use_gl) {
+        int output_w, output_h;
+        if (!gl_picture || !gl_overlay || !SDL_GetWindowSizeInPixels(window, &output_w, &output_h)) return;
+        glViewport(0, 0, output_w, output_h);
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrtho(0, layout.win_w, layout.win_h, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        glClearColor(0, 0, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_TEXTURE_2D);
+        glDisable(GL_BLEND);
+        glColor4f(1, 1, 1, 1);
+        gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        gl_quad(gl_overlay, 0, 0, (float)layout.win_w, (float)layout.win_h);
+        if (window_shot_pending) {
+            window_shot_pending = 0;
+            save_window_image(); /* the back buffer holds this frame until the swap */
+        }
+        apply_swap_interval();
+        SDL_GL_SwapWindow(window);
+        if (swap_interval == 1) Platform_NotifyPresent(real_now_us(), 1);
+        return;
+    }
     if (!renderer || !picture || !overlay) return;
     physical.x = layout.dst.x * layout.pixel_x;
     physical.y = layout.dst.y * layout.pixel_y;
@@ -474,15 +666,20 @@ static void show(void)
     SDL_RenderClear(renderer);
     SDL_RenderTexture(renderer, picture, NULL, &physical);
     SDL_RenderTexture(renderer, overlay, NULL, NULL);
+    apply_swap_interval();
     SDL_RenderPresent(renderer);
-    if (Settings_Get(SET_VSYNC)) Platform_NotifyPresent(real_now_us(), 1);
+    if (swap_interval == 1) Platform_NotifyPresent(real_now_us(), 1);
 }
 
-/* The menu changed under a still picture: repaint it where it was and
- * where it is, upload that much of the overlay, and show the window. */
-static void repaint_menu(void)
+/* Repaint the menu where it was and where it is, and upload that much of
+ * the overlay. */
+static unsigned compose_count; /* MEMORIES_TRACE=window: compositions per 120 frames */
+
+static void compose_menu(void)
 {
     int x, y, w, h, x0, y0, x1, y1, row;
+    menu_dirty = 0;
+    compose_count++;
     for (row = shown_menu.y; row < shown_menu.y + shown_menu.h && row < layout.win_h; row++) {
         memset(overlay_pixels + (size_t)row * (size_t)layout.win_w, 0, (size_t)layout.win_w * 4);
     }
@@ -496,7 +693,25 @@ static void repaint_menu(void)
     shown_menu.w = w;
     shown_menu.h = h;
     upload_overlay(x0, y0, x1 - x0, y1 - y0);
+}
+
+/* The menu changed under a still picture: repaint it and show the window. */
+static void repaint_menu(void)
+{
+    compose_menu();
     show();
+}
+
+/* The overlay only changes with the menu, or when the HUD's text does;
+ * otherwise the texture already holds it. */
+static void compose_menu_if_changed(void)
+{
+    static unsigned hud_signature;
+    unsigned now = Hud_Signature();
+    if (menu_dirty || now != hud_signature) {
+        hud_signature = now;
+        compose_menu();
+    }
 }
 
 static MenuKey menu_key(SDL_Keycode key)
@@ -551,9 +766,14 @@ static void pump(void)
         MenuEvent menu_event;
         translate(&event, &menu_event);
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
+            static unsigned logged_frame = ~0u;
             pointer_x = menu_event.x;
             pointer_y = menu_event.y;
             pointer_inside = 1;
+            if (current_frame - logged_frame >= 3) { /* a sample, not every motion */
+                logged_frame = current_frame;
+                LOG(LOG_MENU, "pointer at %d,%d", pointer_x, pointer_y);
+            }
             last_pointer_motion = current_frame;
             show_cursor();
             if (Settings_Get(SET_FULLSCREEN) && pointer_y < Menu_Height()) menu_reveal_frames = 120;
@@ -566,7 +786,12 @@ static void pump(void)
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F10) menu_reveal_frames = 120;
         update_menu_visibility();
         if (menu_event.type != MENU_EVENT_NONE && Menu_Event(&menu_event, &quit)) {
-            repaint_menu(); /* the menu answers now, not at the next frame */
+            static unsigned logged;
+            if (current_frame - logged >= 30) {
+                logged = current_frame;
+                LOG(LOG_WINDOW, "menu dirty from SDL event %#x (menu event %d)", (unsigned)event.type, (int)menu_event.type);
+            }
+            menu_dirty = 1;
             continue;
         }
         switch (event.type) {
@@ -574,7 +799,7 @@ static void pump(void)
         case SDL_EVENT_WINDOW_EXPOSED: show(); break;
         case SDL_EVENT_WINDOW_RESIZED: case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
             relayout();
-            repaint_menu();
+            menu_dirty = 1;
             break;
         case SDL_EVENT_WINDOW_MOVED:
             if (!Settings_Get(SET_FULLSCREEN)) {
@@ -637,7 +862,7 @@ static void pump(void)
             if (down && key == SDLK_F3) {
                 Settings_Set(SET_SHOW_HUD, (Settings_Get(SET_SHOW_HUD) + 1) % 3);
                 Settings_Save();
-                repaint_menu();
+                menu_dirty = 1;
                 break;
             }
             if (key == SDLK_TAB) {
@@ -683,6 +908,36 @@ static void pump(void)
     }
 }
 
+static void create_window(const char *title)
+{
+    update_menu_scale(240 * scale + 26 * Menu_AutoScale(240 * scale));
+    window = SDL_CreateWindow(title, 320 * scale, 240 * scale + Menu_Height(),
+                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_OPENGL);
+    gl_context = window ? SDL_GL_CreateContext(window) : NULL;
+    use_gl = gl_context != NULL;
+    if (!use_gl) {
+        if (window) SDL_DestroyWindow(window);
+        window = SDL_CreateWindow(title, 320 * scale, 240 * scale + Menu_Height(),
+                                  SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    }
+}
+
+static void destroy_window(void)
+{
+    if (gl_context) SDL_GL_DestroyContext(gl_context);
+    if (window) SDL_DestroyWindow(window);
+    gl_context = NULL;
+    window = NULL;
+    use_gl = 0;
+}
+
+static int software_gl_renderer(void)
+{
+    const char *name = (const char *)glGetString(GL_RENDERER);
+    return name && (strstr(name, "llvmpipe") || strstr(name, "softpipe") || strstr(name, "SwiftShader") ||
+                    strstr(name, "Software Rasterizer"));
+}
+
 int Platform_Open(const char *title)
 {
     sigset_t previous;
@@ -701,22 +956,44 @@ int Platform_Open(const char *title)
         fprintf(stderr, "memories-pc: SDL: %s; set MEMORIES_HEADLESS=1 to run without a window\n", SDL_GetError());
         return -1;
     }
-    window = SDL_CreateWindow(title, 320 * scale, 240 * scale + Menu_Height(),
-                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    create_window(title);
+    /* A software GL renderer cannot present a scaled 4K frame in the 4 ms a
+     * 400% game frame allows. The 32-bit build on an NVIDIA Wayland desktop
+     * gets llvmpipe through Mesa's EGL while the X11 (XWayland) path reaches
+     * the real driver, so retry there. SDL_VIDEODRIVER pins a choice. */
+    if (use_gl && software_gl_renderer() && !getenv("SDL_VIDEODRIVER") &&
+        SDL_GetCurrentVideoDriver() && !strcmp(SDL_GetCurrentVideoDriver(), "wayland")) {
+        const char *software = (const char *)glGetString(GL_RENDERER);
+        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+        fprintf(stderr, "memories-pc: OpenGL on wayland is %s (software); retrying with the x11 driver\n",
+                software ? software : "unknown");
+        known_refresh = mode ? mode->refresh_rate : 0.0f; /* XWayland will not know it */
+        destroy_window();
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "x11");
+        if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, NULL);
+            SDL_InitSubSystem(SDL_INIT_VIDEO);
+        }
+        create_window(title);
+    }
     if (window) {
         int x = Settings_Get(SET_WINDOW_X), y = Settings_Get(SET_WINDOW_Y);
         SDL_SetWindowPosition(window, x == -1 ? SDL_WINDOWPOS_CENTERED : x,
                               y == -1 ? SDL_WINDOWPOS_CENTERED : y);
     }
-    renderer = window ? SDL_CreateRenderer(window, NULL) : NULL;
+    renderer = window && !use_gl ? SDL_CreateRenderer(window, NULL) : NULL;
     restore_signals(&previous);
-    if (!renderer) {
+    if (!use_gl && !renderer) {
         fprintf(stderr, "memories-pc: SDL: %s\n", SDL_GetError());
         return -1;
     }
-    SDL_SetRenderVSync(renderer, 0); /* the game paces itself on its own VBlank */
     update_display_refresh();
-    LOG(LOG_WINDOW, "SDL renderer %s, video %s", SDL_GetRendererName(renderer), SDL_GetCurrentVideoDriver());
+    if (use_gl) {
+        LOG(LOG_WINDOW, "OpenGL renderer %s, video %s", glGetString(GL_RENDERER), SDL_GetCurrentVideoDriver());
+    } else {
+        LOG(LOG_WINDOW, "SDL fallback renderer %s, video %s", SDL_GetRendererName(renderer), SDL_GetCurrentVideoDriver());
+    }
     Menu_Init();
     apply_display_settings();
     menu_visible = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
@@ -728,9 +1005,10 @@ int Platform_Open(const char *title)
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
 {
     int i, j;
-    if (!renderer || w <= 0 || h <= 0) {
+    if ((!renderer && !use_gl) || w <= 0 || h <= 0) {
         return;
     }
+    pump(); /* before the frame, so its input and menu state are current */
     if (pending_scale) {
         scale = pending_scale;
         pending_scale = 0;
@@ -755,11 +1033,14 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
             }
         }
     }
-    SDL_UpdateTexture(picture, NULL, picture_pixels, w * 4);
-    draw_overlay(&shown_menu.x, &shown_menu.y, &shown_menu.w, &shown_menu.h);
-    upload_overlay(shown_menu.x, shown_menu.y, shown_menu.w, shown_menu.h);
+    if (use_gl) {
+        glBindTexture(GL_TEXTURE_2D, gl_picture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, picture_pixels);
+    } else {
+        SDL_UpdateTexture(picture, NULL, picture_pixels, w * 4);
+    }
+    compose_menu_if_changed();
     show();
-    pump();
 }
 
 int Platform_ShouldQuit(void) { return quit; }
@@ -770,7 +1051,22 @@ void Platform_SetStateSlot(int slot)
     state_slot = slot;
     update_title();
 }
-void Platform_PumpEvents(void) { if (window) pump(); }
+/* No frame is coming (paused, or a frame that is not shown): answer the
+ * menu now, at most once per call. */
+void Platform_PumpEvents(void)
+{
+    static uint64_t last_repaint_us;
+    uint64_t now;
+    if (!window) return;
+    pump();
+    /* A running game shows the change with its next frame; paused, the wait
+     * loop pumps every half millisecond, so keep hover repaints to ~120/s. */
+    if (menu_dirty && overlay_pixels && Platform_ClockRate() == 0 &&
+        (now = real_now_us()) - last_repaint_us >= 8000) {
+        last_repaint_us = now;
+        repaint_menu();
+    }
+}
 
 uint16_t Platform_Pad(int port)
 {
@@ -782,7 +1078,8 @@ int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port
 
 /* MEMORIES_SDL_SCRIPT="200:click:20:13,260:move:60:69,420:key:escape": events
  * pushed into SDL's queue at presented frames, for testing the menu without
- * a pointer (external synthetic X input does not reach SDL correctly). */
+ * a pointer (external synthetic X input does not reach SDL correctly).
+ * "300:shot" saves the composed window (menu included) like Shift+F12. */
 static void run_event_script(unsigned frame)
 {
     static const char *script;
@@ -805,7 +1102,9 @@ static void run_event_script(unsigned frame)
         snprintf(kind, sizeof(kind), "%.*s", (int)(n < 7 ? n : 7), script);
         script += n;
         memset(&event, 0, sizeof(event));
-        if (strcmp(kind, "key") == 0) {
+        if (strcmp(kind, "shot") == 0) {
+            Platform_Screenshot(1);
+        } else if (strcmp(kind, "key") == 0) {
             const char *name = script + 1;
             n = strcspn(name, ",");
             event.type = SDL_EVENT_KEY_DOWN;
@@ -860,10 +1159,15 @@ static void run_event_script(unsigned frame)
 void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
+    static unsigned composed_then;
     static int crash_tested;
     static int hang_tested;
     current_frame = frame;
     Log_Drain();
+    if (frame % 120 == 0) {
+        LOG(LOG_WINDOW, "overlay composed %u times in 120 frames", compose_count - composed_then);
+        composed_then = compose_count;
+    }
     if (!crash_tested && frame >= 60 && getenv("MEMORIES_CRASH_TEST")) {
         crash_tested = 1;
         *(volatile int *)(uintptr_t)0 = 1;

@@ -34,21 +34,46 @@ void Platform_PumpEvents(void);
 /* The scripted pad bits in force at a frame (platform_common.c). */
 uint16_t Platform_ScriptedBits(unsigned frame);
 
-/* A 1 kHz SIGALRM on the main thread stands in for the hardware interrupts;
- * handlers run between instructions of the game, like the originals.
- * `tick` runs every millisecond with a monotonic microsecond clock, `vblank`
- * at 59.94 Hz. Handlers must be async-signal-safe. */
-int Platform_StartTimers(void (*tick)(uint64_t now_us), void (*vblank)(void));
-void Platform_WaitVBlank(unsigned count_at_entry);
+/* The frame clock, in three independent parts (platform_common.c):
+ *
+ * 1. The game clock. A 1 kHz SIGALRM on the main thread stands in for the
+ *    console's interrupts; handlers run between instructions of the game,
+ *    like the originals. `tick` runs every millisecond with the accelerated
+ *    game clock and monotonic real time (time-based game services use
+ *    game_us, music sequencing uses real_us so the score keeps its tempo);
+ *    `vblank` fires at 59.94 Hz of game time. Handlers must be
+ *    async-signal-safe. The speed setting scales game time: percent of real
+ *    time, 0 paused, -1 uncapped (a VBlank whenever the game waits for one).
+ * 2. Presentation. Independently of the game clock, at most one game frame
+ *    per present period reaches the window: the cap is a frame rate, 0 for
+ *    the display's refresh rate, -1 for every game frame.
+ * 3. Display vsync (backend). A blocking vsync present can only pace the game
+ *    while game frames come no faster than the display refreshes; above that
+ *    the backend presents without blocking and the cap alone limits presents.
+ */
+int Platform_StartTimers(void (*tick)(uint64_t game_us, uint64_t real_us), void (*vblank)(void));
+/* Wait while the VBlank count still equals `count` (the caller's count at entry). */
+void Platform_WaitVBlank(unsigned count);
 unsigned Platform_VBlankCount(void);
-/* Virtual interrupt clock. Rate is percent of real time; zero pauses and -1
- * advances one VBlank whenever the game waits. */
 void Platform_SetClockRate(int percent);
 int Platform_ClockRate(void);
+/* Game frames per second at the current speed; 0 when paused or uncapped. */
+float Platform_GameHz(void);
 void Platform_StepFrame(void);
+void Platform_SetPresentCap(int fps);
+int Platform_PresentCap(void);
+/* Present period from the cap and the display refresh, in microseconds; 0 for every frame. */
+unsigned Platform_PresentPeriodUs(void);
+/* Whether the game frame about to be shown should reach the window. Main thread. */
+int Platform_PresentDue(void);
+/* Whether a blocking vsync present may pace the game at the current speed. */
+int Platform_VSyncPacesGame(void);
+/* The backend reports each vsynced present; at 100% on a 60 Hz display the
+ * game's VBlank is re-phased to the display so the two rates do not beat. */
 void Platform_NotifyPresent(uint64_t real_now_us, int vsynced);
 void Platform_SetVBlankPeriod(unsigned us);
 void Platform_SetPresentRefresh(float hz);
+float Platform_PresentRefresh(void);
 void Platform_VSyncHeartbeat(void);
 
 /* Start a 44.1 kHz stereo output thread that pulls from `mix`. Failure is not

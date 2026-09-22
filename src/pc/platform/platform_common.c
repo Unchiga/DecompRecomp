@@ -22,12 +22,14 @@
 
 static volatile unsigned vblank_count;
 static void (*vblank_handler)(void);
-static void (*tick_handler)(uint64_t);
+static void (*tick_handler)(uint64_t, uint64_t);
 static volatile int rate = 100;
 static uint64_t real_prev, virtual_now, next_vblank;
 static volatile unsigned vblank_period = 16683;
 static volatile int step_pending;
 static float present_refresh;
+static int present_cap;           /* frames per second; 0 display refresh; -1 every frame */
+static uint64_t present_next_us;  /* the present pacer's next slot */
 static uint64_t last_vsync_real;
 static unsigned watchdog_seconds = 5;
 static volatile int watchdog_reported;
@@ -55,12 +57,12 @@ static void advance(uint64_t real_now)
         /* Timer-driven disc waits still need progress, but a fixed tick keeps
          * their completion frame independent of host scheduling. */
         virtual_now += 1000;
-        if (tick_handler) tick_handler(virtual_now);
+        if (tick_handler) tick_handler(virtual_now, real_now);
         return;
     }
     if (rate > 0) virtual_now += elapsed * (uint64_t)rate / 100;
     if (rate == -1) virtual_now += elapsed;
-    if (tick_handler) tick_handler(virtual_now);
+    if (tick_handler) tick_handler(virtual_now, real_now);
     if (!next_vblank) next_vblank = virtual_now;
     while (virtual_now >= next_vblank) {
         next_vblank += vblank_period;
@@ -94,7 +96,7 @@ static void on_alarm(int number, siginfo_t *info, void *context)
  * backend has finished creating its own with the signal masked. With the
  * game's interrupt code running on a driver thread the main thread stalls
  * on that driver's locks. The process-wide timer is only a fallback. */
-int Platform_StartTimers(void (*tick)(uint64_t), void (*vblank)(void))
+int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
 {
     struct sigaction action;
     struct sigevent event;
@@ -141,13 +143,55 @@ unsigned Platform_VBlankCount(void)
 void Platform_SetClockRate(int percent)
 {
     if (percent < -1) percent = -1;
-    if (percent > 800) percent = 800;
+    if (percent > 400) percent = 400;
     if (percent > 0 && percent < 25) percent = 25;
     rate = percent;
 }
 
 int Platform_ClockRate(void) { return rate; }
 void Platform_StepFrame(void) { step_pending = 1; }
+
+float Platform_GameHz(void)
+{
+    return rate > 0 ? 1000000.0f / (float)vblank_period * (float)rate / 100.0f : 0.0f;
+}
+
+void Platform_SetPresentCap(int fps)
+{
+    present_cap = fps < -1 ? -1 : fps;
+    present_next_us = 0;
+}
+
+int Platform_PresentCap(void) { return present_cap; }
+
+unsigned Platform_PresentPeriodUs(void)
+{
+    if (present_cap == -1) return 0;
+    if (present_cap > 0) return (unsigned)(1000000.0f / (float)present_cap + 0.5f);
+    return present_refresh > 0.0f ? (unsigned)(1000000.0f / present_refresh + 0.5f) : 0u;
+}
+
+/* One present per period, on a fixed grid so a game frame that arrives a
+ * little before its slot (frames come from a 1 kHz clock, and the game rate
+ * may sit within a few microseconds of the cap) still takes it: a frame is
+ * due from half a period before its slot. A stall resets the grid. */
+int Platform_PresentDue(void)
+{
+    unsigned period = Platform_PresentPeriodUs();
+    uint64_t now = now_us();
+    if (!period) return 1;
+    if (!present_next_us || now >= present_next_us + period) present_next_us = now;
+    if (now + period / 2 < present_next_us) return 0;
+    present_next_us += period;
+    return 1;
+}
+
+int Platform_VSyncPacesGame(void)
+{
+    if (rate == -1) return 0;
+    if (present_refresh <= 0.0f) return rate <= 100; /* every display refreshes at 59.94 Hz or faster */
+    return Platform_GameHz() <= present_refresh + 0.5f;
+}
 
 void Platform_VSyncHeartbeat(void)
 {
@@ -174,12 +218,15 @@ void Platform_SetVBlankPeriod(unsigned us)
 void Platform_SetPresentRefresh(float hz)
 {
     present_refresh = hz;
+    present_next_us = 0;
 }
+
+float Platform_PresentRefresh(void) { return present_refresh; }
 
 void Platform_NotifyPresent(uint64_t real_now_us, int vsynced)
 {
     (void)real_now_us;
-    if (vsynced && present_refresh >= 59.0f && present_refresh <= 61.0f) {
+    if (vsynced && rate == 100 && present_refresh >= 59.0f && present_refresh <= 61.0f) {
         sigset_t set, previous;
         unsigned period = (unsigned)(1000000.0f / present_refresh + 0.5f);
         sigemptyset(&set);

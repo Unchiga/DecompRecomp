@@ -70,6 +70,12 @@ void Menu_LoadSettings(void);
 int Menu_Height(void);
 /* Prepare fonts and layout; needs no display. */
 void Menu_Init(void);
+/* The menu's size multiple: bar, rows, font and HUD scale together. The
+ * platform sets it from the setting, or from the window height when that is
+ * 0 (Menu_AutoScale), before it sizes a window or lays one out. */
+int Menu_Scale(void);
+void Menu_SetScale(int scale);
+int Menu_AutoScale(int window_h);
 /* Draw the bar and, when open, its menu. */
 void Menu_Draw(MenuCanvas *canvas);
 void Menu_DrawText(MenuCanvas *canvas, int x, int y, const char *text, uint32_t colour);

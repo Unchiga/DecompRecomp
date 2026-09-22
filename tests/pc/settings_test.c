@@ -33,6 +33,13 @@ int main(void)
     assert(Settings_Get(SET_MASTER_VOLUME) == 40);
     assert(Settings_Get(SET_MUSIC_VOLUME) == 70);
     assert(Settings_Get(SET_SFX_VOLUME) == 100);
+    Settings_Set(SET_SPEED, 999);
+    assert(Settings_Get(SET_SPEED) == 400);
+    assert(Settings_Get(SET_FPS) == 0);
+    Settings_Set(SET_FPS, -5);
+    assert(Settings_Get(SET_FPS) == -1);
+    Settings_Set(SET_FPS, 144);
+    assert(Settings_Get(SET_FPS) == 144);
     Settings_Set(SET_SFX_VOLUME, 65);
     Settings_Save();
     assert(contains(path, "master_volume=40\n"));

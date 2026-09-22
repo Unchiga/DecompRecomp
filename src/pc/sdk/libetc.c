@@ -16,7 +16,7 @@ static void (*vsync_callback)(void);
 static long (*counter_handler)(void);
 static volatile int critical, started, pads_started, counter_running;
 static volatile int pending_vblank, pending_tick;
-static volatile uint64_t counter_period_us, counter_next_us, last_now_us;
+static volatile uint64_t counter_period_us, counter_next_us, last_game_us, last_real_us;
 static unsigned char *pad_buffer[2];
 static unsigned last_vsync;
 static volatile unsigned counter_calls; /* MEMORIES_TRACE_FRAMES: sequencer ticks delivered */
@@ -29,24 +29,24 @@ void Memories_SetDrawStats(unsigned words, unsigned us)
     frame_stats.draw_us = us;
 }
 
-static void run_tick(uint64_t now)
+static void run_tick(uint64_t game_now, uint64_t real_now)
 {
     int budget = 8; /* after a stall, catch up a little and drop the rest */
-    Memories_DiscService(now);
+    Memories_DiscService(game_now);
     Memories_MdecService();
     if (!counter_running || !counter_handler || !counter_period_us) {
         return;
     }
     if (!counter_next_us) {
-        counter_next_us = now + counter_period_us;
+        counter_next_us = real_now + counter_period_us;
     }
-    while (now >= counter_next_us && budget--) {
+    while (real_now >= counter_next_us && budget--) {
         counter_next_us += counter_period_us;
         counter_calls++;
         counter_handler();
     }
-    if (now >= counter_next_us) {
-        counter_next_us = now + counter_period_us;
+    if (real_now >= counter_next_us) {
+        counter_next_us = real_now + counter_period_us;
     }
 }
 
@@ -67,13 +67,14 @@ static void run_vblank(void)
     }
 }
 
-static void on_tick(uint64_t now)
+static void on_tick(uint64_t game_now, uint64_t real_now)
 {
-    last_now_us = now;
+    last_game_us = game_now;
+    last_real_us = real_now;
     if (critical) {
         pending_tick = 1;
     } else {
-        run_tick(now);
+        run_tick(game_now, real_now);
     }
 }
 
@@ -98,7 +99,7 @@ void ExitCriticalSection(void)
     critical = 0;
     if (pending_tick) {
         pending_tick = 0;
-        run_tick(last_now_us);
+        run_tick(last_game_us, last_real_us);
     }
     if (pending_vblank) {
         pending_vblank = 0;
@@ -159,9 +160,16 @@ int VSyncCallback(void (*callback)(void))
     return 0;
 }
 
-/* mode 0: wait for the next VBlank; n > 1: wait until n have passed since the
- * previous call; negative: just the running count. Returns the elapsed time
- * in horizontal lines (263 per NTSC field), which callers compare to budgets. */
+/* mode 0: present, then wait for the next VBlank; n > 1: wait until n have
+ * passed since the previous call; negative: just the running count. Returns
+ * the elapsed time in horizontal lines (263 per NTSC field), which callers
+ * compare to budgets.
+ *
+ * Mode 0 must wait for a VBlank after entry, never return at once because
+ * one passed since the previous call: Graphics_SyncFrame resets the game's
+ * own VBlank counter to -1 just before calling, and Input_UpdatePads takes
+ * a counter that is still -1 afterwards as a lag frame and publishes every
+ * press a second time on the next frame (doubled inputs at 300%). */
 /* Entered through the assembly VSync, which records the caller's registers
  * for save states (src/pc/guest/state_i386.S). */
 int Memories_VSync(int mode)
@@ -176,7 +184,7 @@ int Memories_VSync(int mode)
         static struct timespec left;
         static struct timespec since;
         static unsigned frames, game_us, present_us, late, game_max, present_max;
-        static unsigned ticks_then, vblanks_then;
+        static unsigned ticks_then, vblanks_then, shown_then;
         clock_gettime(CLOCK_MONOTONIC, &t0);
         Memories_PresentDisplay();
         clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -194,7 +202,9 @@ int Memories_VSync(int mode)
                     Memories_PresentedFrames(), g, p);
             }
         }
-        late += Platform_VBlankCount() - last_vsync > 1;
+        /* VBlanks that passed with no game frame for them: those that got in
+         * during the game's frame, and during the present that just ran. */
+        if (Platform_VBlankCount() - last_vsync > 1) late += Platform_VBlankCount() - last_vsync - 1;
         if (++frames == 120) {
             double seconds = since.tv_sec ? (double)(t1.tv_sec - since.tv_sec) + (t1.tv_nsec - since.tv_nsec) / 1e9 : 0;
             frame_stats.game_us = game_us / 120;
@@ -203,18 +213,22 @@ int Memories_VSync(int mode)
             frame_stats.present_max_us = present_max;
             frame_stats.missed_vblanks = late;
             frame_stats.fps_tenths = seconds > 0 ? (unsigned)(1200.0 / seconds + 0.5) : 0;
+            frame_stats.shown_tenths =
+                seconds > 0 ? (unsigned)((Memories_ShownFrames() - shown_then) * 10.0 / seconds + 0.5) : 0;
             if (Log_Enabled(LOG_FRAMES)) {
-                LOG(LOG_FRAMES, "game %u us, present %u us per frame (max %u, %u); %u of 120 missed a VBlank",
+                LOG(LOG_FRAMES, "game %u us, present %u us per frame (max %u, %u); %u VBlanks missed in 120 frames",
                     game_us / 120, present_us / 120, game_max, present_max, late);
                 if (seconds > 0) {
-                    LOG(LOG_FRAMES, "clocks: %.2f sequencer ticks/s (period %llu us), %.2f VBlanks/s",
-                        (counter_calls - ticks_then) / seconds, (unsigned long long)counter_period_us,
-                        (Platform_VBlankCount() - vblanks_then) / seconds);
+                    LOG(LOG_FRAMES, "clocks: rate %d, %.2f game frames/s, %.2f shown/s, %.2f VBlanks/s, %.2f sequencer ticks/s (period %llu us)",
+                        Platform_ClockRate(), 120.0 / seconds, (Memories_ShownFrames() - shown_then) / seconds,
+                        (Platform_VBlankCount() - vblanks_then) / seconds,
+                        (counter_calls - ticks_then) / seconds, (unsigned long long)counter_period_us);
                 }
             }
             since = t1;
             ticks_then = counter_calls;
             vblanks_then = Platform_VBlankCount();
+            shown_then = Memories_ShownFrames();
             frames = game_us = present_us = late = game_max = present_max = 0;
         }
         Platform_WaitVBlank(now);

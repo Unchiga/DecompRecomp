@@ -30,12 +30,16 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_ASPECT] = {"aspect", NULL, "MEMORIES_ASPECT", NULL, 0, 0, 1},
     [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 1},
     [SET_VSYNC] = {"vsync", NULL, "MEMORIES_VSYNC", NULL, 0, 0, 1},
-    [SET_SPEED] = {"speed", NULL, "MEMORIES_SPEED", NULL, 100, -1, 800},
+    [SET_SPEED] = {"speed", NULL, "MEMORIES_SPEED", NULL, 100, -1, 400},
+    /* Presented frames per second: 0 follows the display's refresh rate, -1 shows every game frame. */
+    [SET_FPS] = {"fps", NULL, "MEMORIES_FPS", NULL, 0, -1, 1000},
     [SET_SHOW_MENU_FULLSCREEN] = {"show_menu_fullscreen", NULL, "MEMORIES_SHOW_MENU_FULLSCREEN", NULL, 0, 0, 1},
     [SET_PAUSE_ON_FOCUS_LOSS] = {"pause_on_focus_loss", NULL, "MEMORIES_PAUSE_ON_FOCUS_LOSS", NULL, 0, 0, 1},
     [SET_MUTE_ON_FOCUS_LOSS] = {"mute_on_focus_loss", NULL, "MEMORIES_MUTE_ON_FOCUS_LOSS", NULL, 0, 0, 1},
     [SET_HIDE_CURSOR] = {"hide_cursor", NULL, "MEMORIES_HIDE_CURSOR", NULL, 1, 0, 1},
     [SET_SHOW_HUD] = {"show_hud", NULL, "MEMORIES_SHOW_HUD", NULL, 0, 0, 2},
+    /* Menu and HUD size: 0 follows the window's height, else a multiple. */
+    [SET_MENU_SCALE] = {"menu_scale", NULL, "MEMORIES_MENU_SCALE", NULL, 0, 0, 4},
     [SET_WINDOW_X] = {"window_x", NULL, "MEMORIES_WINDOW_X", NULL, -1, -16384, 16384},
     [SET_WINDOW_Y] = {"window_y", NULL, "MEMORIES_WINDOW_Y", NULL, -1, -16384, 16384},
     [SET_MOD_3D_MONSTERS] = {"3d_monsters", "3d_monsters", "MEMORIES_3D_MONSTERS", "MEMORIES_MODS_MONSTERS", 0, 0, 1},

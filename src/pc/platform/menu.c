@@ -27,20 +27,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Geometry. */
-#define MENU_H 26
-#define ITEM_H 26
-#define BAR_PAD 12    /* left and right of a bar label */
-#define ITEM_PAD 12   /* dropdown edge to the mark column */
-#define MARK_W 22     /* the check or radio column */
-#define SHORTCUT_GAP 28
-#define DROP_PAD 4    /* dropdown border to the first item */
-#define SEP_H 9
-#define SLIDER_W 160
-#define SLIDER_H 4
-#define KNOB_R 6
-#define SHADOW 6
-#define FONT_PX 13
+/* Geometry, in multiples of `ui` (Menu_SetScale): 1 suits a 720p window,
+ * a 4K display wants 3. */
+static int ui = 1;
+#define MENU_H (26 * ui)
+#define ITEM_H (26 * ui)
+#define BAR_PAD (12 * ui)    /* left and right of a bar label */
+#define ITEM_PAD (12 * ui)   /* dropdown edge to the mark column */
+#define MARK_W (22 * ui)     /* the check or radio column */
+#define SHORTCUT_GAP (28 * ui)
+#define DROP_PAD (4 * ui)    /* dropdown border to the first item */
+#define SEP_H (9 * ui)
+#define SLIDER_W (160 * ui)
+#define SLIDER_H (4 * ui)
+#define KNOB_R (6 * ui)
+#define SHADOW (6 * ui)
+#define FONT_PX (13 * ui)
 
 /* Colours: a dark bar that stays out of the picture's way. */
 #define C_BAR 0x1e1f22u
@@ -58,7 +60,8 @@
 #define C_KNOB_EDGE 0x1e1f22u
 #define C_MARK 0x9a9ca3u
 
-typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR } ItemKind;
+/* ITEM_SUBMENU opens submenus[value] beside its row; one level deep. */
+typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR, ITEM_SUBMENU } ItemKind;
 enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
 enum {
@@ -81,7 +84,8 @@ typedef struct {
 } Item;
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
-enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_MODS, MENU_DEBUG, MENU_TRACE, MENU_COUNT };
+enum { MENU_FILE, MENU_AUDIO, MENU_VIEW, MENU_GAME, MENU_MODS, MENU_DEBUG, MENU_TRACE, MENU_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -99,12 +103,8 @@ static Menu menus[MENU_COUNT] = {
                {0, 0, ITEM_SEPARATOR, 0, -1},
                {"Mute all", "M", ITEM_CHECK, CHECK_MUTE, -1},
                {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS}}, 7},
-    {"View", {{"Window scale: 1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
-              {"Window scale: 2x", 0, ITEM_RADIO, MENU_ITEM_SCALE_2, SET_SCALE, 2},
-              {"Window scale: 3x", 0, ITEM_RADIO, MENU_ITEM_SCALE_3, SET_SCALE, 3},
-              {"Window scale: 4x", 0, ITEM_RADIO, MENU_ITEM_SCALE_4, SET_SCALE, 4},
-              {"Window scale: 5x", 0, ITEM_RADIO, MENU_ITEM_SCALE_5, SET_SCALE, 5},
-              {"Window scale: 6x", 0, ITEM_RADIO, MENU_ITEM_SCALE_6, SET_SCALE, 6},
+    {"View", {{"Window scale", 0, ITEM_SUBMENU, 0, -1, SUB_SCALE},
+              {"Menu size", 0, ITEM_SUBMENU, 0, -1, SUB_MENU_SIZE},
               {"Fullscreen", "F11", ITEM_CHECK, MENU_ITEM_FULLSCREEN, SET_FULLSCREEN, 0, ITEM_GROUP_BREAK},
               {"Borderless window", 0, ITEM_CHECK, MENU_ITEM_BORDERLESS, SET_BORDERLESS},
               {"Integer scaling", 0, ITEM_RADIO, MENU_ITEM_SCALING_INTEGER, SET_SCALING, 0, ITEM_GROUP_BREAK},
@@ -113,27 +113,57 @@ static Menu menus[MENU_COUNT] = {
               {"4:3 aspect", 0, ITEM_RADIO, MENU_ITEM_ASPECT_4_3, SET_ASPECT, 0, ITEM_GROUP_BREAK},
               {"Square pixels", 0, ITEM_RADIO, MENU_ITEM_ASPECT_SQUARE, SET_ASPECT, 1},
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
-              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 15},
+              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 11},
+    /* Game speed scales the game clock (music keeps its tempo); the frame
+     * rate is how many of those game frames reach the window. Tab holds 400%. */
+    {"Game", {{"Game speed", 0, ITEM_SUBMENU, 0, -1, SUB_SPEED},
+              {"Frame rate", 0, ITEM_SUBMENU, 0, -1, SUB_FPS},
+              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 3},
     {"Mods", {{0}}, 0},
     {"Debug", {{"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1},
                {"Full stats", 0, ITEM_CHECK, CHECK_HUD_FULL, -1},
                {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},
                {"Frame step", ".", ITEM_ACTION, ACT_FRAME_STEP, -1},
-               {"Speed 50%", 0, ITEM_RADIO, 0, SET_SPEED, 50, ITEM_GROUP_BREAK},
-               {"Speed 100%", 0, ITEM_RADIO, 0, SET_SPEED, 100},
-               {"Speed 200%", 0, ITEM_RADIO, 0, SET_SPEED, 200},
-               {"Speed uncapped", 0, ITEM_RADIO, 0, SET_SPEED, -1},
                {"Dump frame (PPM)", 0, ITEM_ACTION, ACT_DUMP_FRAME, -1, 0, ITEM_GROUP_BREAK},
-               {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1},
-               {"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1, 0, ITEM_GROUP_BREAK}}, 11},
+               {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1}}, 6},
     {"Trace", {{"Frames", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_FRAMES},
                {"Disc", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_DISC},
                {"SPU", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_SPU},
                {"Input", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_INPUT},
                {"State", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_STATE}}, 5},
 };
+static Menu submenus[SUB_COUNT] = {
+    {"Window scale", {{"1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
+                      {"2x", 0, ITEM_RADIO, MENU_ITEM_SCALE_2, SET_SCALE, 2},
+                      {"3x", 0, ITEM_RADIO, MENU_ITEM_SCALE_3, SET_SCALE, 3},
+                      {"4x", 0, ITEM_RADIO, MENU_ITEM_SCALE_4, SET_SCALE, 4},
+                      {"5x", 0, ITEM_RADIO, MENU_ITEM_SCALE_5, SET_SCALE, 5},
+                      {"6x", 0, ITEM_RADIO, MENU_ITEM_SCALE_6, SET_SCALE, 6}}, 6},
+    {"Menu size", {{"Automatic", 0, ITEM_RADIO, 0, SET_MENU_SCALE, 0},
+                   {"1x", 0, ITEM_RADIO, 0, SET_MENU_SCALE, 1, ITEM_GROUP_BREAK},
+                   {"2x", 0, ITEM_RADIO, 0, SET_MENU_SCALE, 2},
+                   {"3x", 0, ITEM_RADIO, 0, SET_MENU_SCALE, 3},
+                   {"4x", 0, ITEM_RADIO, 0, SET_MENU_SCALE, 4}}, 5},
+    {"Game speed", {{"50%", 0, ITEM_RADIO, 0, SET_SPEED, 50},
+                    {"100%", 0, ITEM_RADIO, 0, SET_SPEED, 100},
+                    {"150%", 0, ITEM_RADIO, 0, SET_SPEED, 150},
+                    {"200%", 0, ITEM_RADIO, 0, SET_SPEED, 200},
+                    {"300%", 0, ITEM_RADIO, 0, SET_SPEED, 300},
+                    {"400%", "Tab", ITEM_RADIO, 0, SET_SPEED, 400},
+                    {"Uncapped", 0, ITEM_RADIO, 0, SET_SPEED, -1}}, 7},
+    {"Frame rate", {{"Display refresh", 0, ITEM_RADIO, 0, SET_FPS, 0},
+                    {"30", 0, ITEM_RADIO, 0, SET_FPS, 30},
+                    {"60", 0, ITEM_RADIO, 0, SET_FPS, 60},
+                    {"120", 0, ITEM_RADIO, 0, SET_FPS, 120},
+                    {"144", 0, ITEM_RADIO, 0, SET_FPS, 144},
+                    {"240", 0, ITEM_RADIO, 0, SET_FPS, 240},
+                    {"Every game frame", 0, ITEM_RADIO, 0, SET_FPS, -1}}, 7},
+    {"Cheats", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
+};
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;
+/* The open submenu (index into submenus), its row in the bar menu, and its hot row. */
+static int open_sub = -1, sub_item = -1, hot_sub = -1;
 static int consumed_press[8];
 
 /* --- text ------------------------------------------------------------ */
@@ -193,6 +223,11 @@ static void load_font(void)
     FcResult result;
     FcChar8 *file = NULL;
     int c;
+    for (c = 0; c < 96; c++) {
+        free(glyphs[c].coverage);
+        memset(&glyphs[c], 0, sizeof(glyphs[c]));
+    }
+    font_loaded = 0;
     if (!FcInit() || FT_Init_FreeType(&library)) {
         return;
     }
@@ -229,6 +264,32 @@ static void load_font(void)
     font_loaded = 1;
     FcPatternDestroy(pattern);
     FcPatternDestroy(match);
+    FT_Done_Face(face);
+    FT_Done_FreeType(library);
+}
+
+static void layout_bar(void);
+
+int Menu_Scale(void) { return ui; }
+
+void Menu_SetScale(int scale)
+{
+    if (scale < 1) scale = 1;
+    if (scale > 4) scale = 4;
+    if (scale == ui) return;
+    ui = scale;
+    if (ready) {
+        load_font();
+        layout_bar();
+    }
+}
+
+/* 1 up to about 720 rows, 2 up to about 1200, 3 above: a 4x window is 2, a
+ * 4K display 3. */
+int Menu_AutoScale(int window_h)
+{
+    int scale = (window_h + 240) / 480;
+    return scale < 1 ? 1 : scale > 3 ? 3 : scale;
 }
 
 static MenuCanvas *canvas;
@@ -237,7 +298,7 @@ static int text_width(const char *text)
 {
     int width = 0;
     if (!font_loaded) {
-        return (int)strlen(text) * 12;
+        return (int)strlen(text) * 12 * ui;
     }
     for (; *text; text++) {
         unsigned char c = (unsigned char)*text;
@@ -331,7 +392,7 @@ static void disc(int cx, int cy, int radius, uint32_t colour)
 
 static void draw_bitmap_text(int x, int middle, const char *text, uint32_t colour)
 {
-    for (; *text; text++, x += 12) {
+    for (; *text; text++, x += 12 * ui) {
         int i;
         for (i = 0; i < bitmap_font_count; i++) {
             int row, column;
@@ -341,7 +402,7 @@ static void draw_bitmap_text(int x, int middle, const char *text, uint32_t colou
             for (row = 0; row < 7; row++) {
                 for (column = 0; column < 5; column++) {
                     if (bitmap_font[i].rows[row] & (0x10 >> column)) {
-                        fill(x + column * 2, middle - 7 + row * 2, 2, 2, colour, 255);
+                        fill(x + column * 2 * ui, middle - 7 * ui + row * 2 * ui, 2 * ui, 2 * ui, colour, 255);
                     }
                 }
             }
@@ -389,6 +450,7 @@ void Menu_LoadSettings(void)
     Spu_SetBusVolume(SPU_BUS_STREAM, Settings_Get(SET_STREAM_VOLUME));
     Platform_SetScale(Settings_Get(SET_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
+    Platform_SetPresentCap(Settings_Get(SET_FPS));
     Mods_SetEnabled(MODS_FIELD_MODELS, Settings_Get(SET_MOD_3D_MONSTERS));
     Mods_SetEnabled(MODS_HAND_CAMERA, Settings_Get(SET_MOD_HAND_CAMERA));
 }
@@ -402,6 +464,8 @@ static void setting_changed(SettingId id, int value)
     case SET_STREAM_VOLUME: Spu_SetBusVolume(SPU_BUS_STREAM, value); break;
     case SET_SCALE: Platform_SetScale(value); break;
     case SET_SPEED: Platform_SetClockRate(value); break;
+    case SET_FPS: Platform_SetPresentCap(value); break;
+    case SET_MENU_SCALE: Platform_ApplyDisplaySettings(); break;
     case SET_MOD_3D_MONSTERS: Mods_SetEnabled(MODS_FIELD_MODELS, value); break;
     case SET_MOD_HAND_CAMERA: Mods_SetEnabled(MODS_HAND_CAMERA, value); break;
     default: break;
@@ -412,9 +476,19 @@ static void setting_changed(SettingId id, int value)
 
 int Menu_Height(void) { return MENU_H; }
 
-void Menu_Init(void)
+static void layout_bar(void)
 {
     int i, at = 0;
+    for (i = 0; i < MENU_COUNT; i++) {
+        menus[i].w = text_width(menus[i].label) + BAR_PAD * 2;
+        menus[i].x = at;
+        at += menus[i].w;
+    }
+}
+
+void Menu_Init(void)
+{
+    int i;
     Menu *mods = &menus[MENU_MODS];
     load_font();
     for (i = 0; i < MODS_COUNT && i < 8; i++) {
@@ -424,11 +498,7 @@ void Menu_Init(void)
         mods->items[i].setting = i == MODS_FIELD_MODELS ? SET_MOD_3D_MONSTERS : SET_MOD_HAND_CAMERA;
     }
     mods->count = i;
-    for (i = 0; i < MENU_COUNT; i++) {
-        menus[i].w = text_width(menus[i].label) + BAR_PAD * 2;
-        menus[i].x = at;
-        at += menus[i].w;
-    }
+    layout_bar();
     Settings_Observe(setting_changed);
     ready = 1;
 }
@@ -436,11 +506,12 @@ void Menu_Init(void)
 void Menu_SetItemEnabled(int id, int enabled)
 {
     int menu, item;
-    for (menu = 0; menu < MENU_COUNT; menu++) {
-        for (item = 0; item < menus[menu].count; item++) {
-            if (menus[menu].items[item].id == id) {
-                if (enabled) menus[menu].items[item].flags &= ~ITEM_DISABLED;
-                else menus[menu].items[item].flags |= ITEM_DISABLED;
+    for (menu = 0; menu < MENU_COUNT + SUB_COUNT; menu++) {
+        Menu *m = menu < MENU_COUNT ? &menus[menu] : &submenus[menu - MENU_COUNT];
+        for (item = 0; item < m->count; item++) {
+            if (m->items[item].id == id) {
+                if (enabled) m->items[item].flags &= ~ITEM_DISABLED;
+                else m->items[item].flags |= ITEM_DISABLED;
             }
         }
     }
@@ -454,10 +525,16 @@ static int item_height(const Item *item)
     return item->kind == ITEM_SEPARATOR ? SEP_H : ITEM_H + (item->flags & ITEM_GROUP_BREAK ? SEP_H : 0);
 }
 
-/* The open menu's box, without its shadow. */
-static void drop_geometry(int which, int *x, int *y, int *w, int *h)
+/* Level 0 is the open bar menu, level 1 the open submenu. */
+static const Menu *level_menu(int level) { return level ? &submenus[open_sub] : &menus[open_menu]; }
+
+static int item_top(int level, int index);
+
+/* A menu's box, without its shadow; a submenu sits beside its parent row,
+ * or to its left when the window is too narrow. */
+static void drop_geometry(int level, int *x, int *y, int *w, int *h)
 {
-    const Menu *menu = &menus[which];
+    const Menu *menu = level_menu(level);
     int i, widest = 0, shortcuts = 0, height = DROP_PAD * 2;
     for (i = 0; i < menu->count; i++) {
         const Item *item = &menu->items[i];
@@ -468,25 +545,36 @@ static void drop_geometry(int which, int *x, int *y, int *w, int *h)
         }
         wide = text_width(item->label);
         if (item->kind == ITEM_SLIDER) {
-            wide += 12 + SLIDER_W + 12 + text_width("100");
+            wide += 12 * ui + SLIDER_W + 12 * ui + text_width("100");
         }
         widest = wide > widest ? wide : widest;
         if (item->shortcut) {
             int s = text_width(item->shortcut);
             shortcuts = s > shortcuts ? s : shortcuts;
+        } else if (item->kind == ITEM_SUBMENU) {
+            shortcuts = shortcuts > 8 * ui ? shortcuts : 8 * ui;
         }
     }
-    *x = menu->x;
-    *y = MENU_H;
     *w = ITEM_PAD + MARK_W + widest + (shortcuts ? SHORTCUT_GAP + shortcuts : 0) + ITEM_PAD;
-    if (*w < menu->w) {
-        *w = menu->w;
-    }
     *h = height;
+    if (level == 0) {
+        *x = menu->x;
+        *y = MENU_H;
+        if (*w < menu->w) {
+            *w = menu->w;
+        }
+    } else {
+        int px, py, pw, ph;
+        drop_geometry(0, &px, &py, &pw, &ph);
+        *x = px + pw - 2;
+        *y = item_top(0, sub_item) - DROP_PAD;
+        if (canvas && *x + *w + SHADOW > canvas->width && px - *w + 2 >= 0) *x = px - *w + 2;
+    }
 }
 
 void Menu_Bounds(int *x, int *y, int *w, int *h)
 {
+    int level;
     if (!visible) {
         *x = *y = *w = *h = 0;
         return;
@@ -495,42 +583,46 @@ void Menu_Bounds(int *x, int *y, int *w, int *h)
     *y = 0;
     *w = canvas ? canvas->width : 0;
     *h = MENU_H;
-    if (open_menu >= 0) {
+    for (level = 0; level < (open_sub >= 0 ? 2 : open_menu >= 0 ? 1 : 0); level++) {
         int dx, dy, dw, dh;
-        drop_geometry(open_menu, &dx, &dy, &dw, &dh);
-        *h = dy + dh + SHADOW - *y;
-        if (dx + dw + SHADOW > *w) {
-            *w = dx + dw + SHADOW;
-        }
+        drop_geometry(level, &dx, &dy, &dw, &dh);
+        if (dy + dh + SHADOW > *h) *h = dy + dh + SHADOW;
+        if (dx + dw + SHADOW > *w) *w = dx + dw + SHADOW;
     }
 }
 
-/* Row `index` of the open menu: its top, or -1 past the end. */
-static int item_top(int which, int index)
+/* Row `index` of a menu: its top. */
+static int item_top(int level, int index)
 {
     int x, y, w, h, i;
-    drop_geometry(which, &x, &y, &w, &h);
+    const Menu *menu = level_menu(level);
+    drop_geometry(level, &x, &y, &w, &h);
     y += DROP_PAD;
     for (i = 0; i < index; i++) {
-        y += item_height(&menus[which].items[i]);
+        y += item_height(&menu->items[i]);
     }
-    if (menus[which].items[index].flags & ITEM_GROUP_BREAK) y += SEP_H;
+    if (menu->items[index].flags & ITEM_GROUP_BREAK) y += SEP_H;
     return y;
 }
 
-static int item_at(int which, int px, int py)
+static int inside_drop(int level, int px, int py)
+{
+    int x, y, w, h;
+    drop_geometry(level, &x, &y, &w, &h);
+    return px >= x && px < x + w && py >= y && py < y + h;
+}
+
+static int item_at(int level, int px, int py)
 {
     int x, y, w, h, i;
-    if (which < 0) {
-        return -1;
-    }
-    drop_geometry(which, &x, &y, &w, &h);
+    const Menu *menu = level_menu(level);
+    drop_geometry(level, &x, &y, &w, &h);
     if (px < x || px >= x + w || py < y + DROP_PAD || py >= y + h - DROP_PAD) {
         return -1;
     }
     y += DROP_PAD;
-    for (i = 0; i < menus[which].count; i++) {
-        const Item *item = &menus[which].items[i];
+    for (i = 0; i < menu->count; i++) {
+        const Item *item = &menu->items[i];
         int height = item_height(item);
         if ((item->flags & ITEM_GROUP_BREAK) && py < y + SEP_H) return -1;
         if (py < y + height) {
@@ -555,42 +647,53 @@ static int bar_item_at(int x, int y)
     return -1;
 }
 
-static void slider_geometry(int which, int index, int *sx, int *middle)
+static void slider_geometry(int level, int index, int *sx, int *middle)
 {
     int x, y, w, h;
-    drop_geometry(which, &x, &y, &w, &h);
-    *sx = x + ITEM_PAD + MARK_W + text_width(menus[which].items[index].label) + 12;
-    *middle = item_top(which, index) + ITEM_H / 2;
+    drop_geometry(level, &x, &y, &w, &h);
+    *sx = x + ITEM_PAD + MARK_W + text_width(level_menu(level)->items[index].label) + 12 * ui;
+    *middle = item_top(level, index) + ITEM_H / 2;
+}
+
+/* A small triangle pointing right, for rows that open a submenu. */
+static void draw_arrow(int x, int middle, uint32_t colour)
+{
+    int span = 4 * ui, c;
+    for (c = 0; c < span; c++) {
+        int half = (span - c) * 7 * ui / (2 * span);
+        fill(x + c, middle - half, 1, 2 * half + 1, colour, 255);
+    }
 }
 
 /* --- drawing --------------------------------------------------------- */
 
 static void draw_check(int x, int middle, int checked)
 {
-    int size = 14, top = middle - size / 2;
+    int size = 14 * ui, top = middle - size / 2;
     if (checked) {
         int i;
         fill(x, top, size, size, C_ACCENT, 255);
         /* A tick: a short stroke down-right, a long one up-right. */
-        for (i = 0; i < 3; i++) {
-            fill(x + 3 + i, top + 7 + i, 2, 2, C_TEXT_ON_ACCENT, 255);
+        for (i = 0; i < 3 * ui; i++) {
+            fill(x + 3 * ui + i, top + 7 * ui + i, 2 * ui, 2 * ui, C_TEXT_ON_ACCENT, 255);
         }
-        for (i = 0; i < 6; i++) {
-            fill(x + 5 + i, top + 9 - i, 2, 2, C_TEXT_ON_ACCENT, 255);
+        for (i = 0; i < 6 * ui; i++) {
+            fill(x + 5 * ui + i, top + 9 * ui - i, 2 * ui, 2 * ui, C_TEXT_ON_ACCENT, 255);
         }
     } else {
-        outline(x, top, size, size, C_MARK);
+        int i;
+        for (i = 0; i < ui; i++) outline(x + i, top + i, size - 2 * i, size - 2 * i, C_MARK);
     }
 }
 
 static void draw_radio(int x, int middle, int on)
 {
     if (on) {
-        disc(x + 7, middle, 7, C_ACCENT);
-        disc(x + 7, middle, 3, C_TEXT_ON_ACCENT);
+        disc(x + 7 * ui, middle, 7 * ui, C_ACCENT);
+        disc(x + 7 * ui, middle, 3 * ui, C_TEXT_ON_ACCENT);
     } else {
-        disc(x + 7, middle, 7, C_MARK);
-        disc(x + 7, middle, 6, C_DROP);
+        disc(x + 7 * ui, middle, 7 * ui, C_MARK);
+        disc(x + 7 * ui, middle, 6 * ui, C_DROP);
     }
 }
 
@@ -610,16 +713,16 @@ static int item_state(const Item *item)
 
 void Menu_Draw(MenuCanvas *into)
 {
-    int i;
+    int i, level;
     canvas = into;
     if (!ready || !visible) {
         return;
     }
     if (canvas->alpha) {
         clear_alpha_rect(0, 0, canvas->width, MENU_H);
-        if (open_menu >= 0) {
+        for (level = 0; level < (open_sub >= 0 ? 2 : open_menu >= 0 ? 1 : 0); level++) {
             int x, y, w, h;
-            drop_geometry(open_menu, &x, &y, &w, &h);
+            drop_geometry(level, &x, &y, &w, &h);
             clear_alpha_rect(x, y, w + SHADOW, h + SHADOW);
         }
     }
@@ -636,19 +739,26 @@ void Menu_Draw(MenuCanvas *into)
         }
         draw_text(menu->x + BAR_PAD, MENU_H / 2, menu->label, ink);
     }
-    if (open_menu >= 0) {
-        const Menu *menu = &menus[open_menu];
-        int x, y, w, h, top;
-        drop_geometry(open_menu, &x, &y, &w, &h);
+    for (level = 0; level < (open_sub >= 0 ? 2 : open_menu >= 0 ? 1 : 0); level++) {
+        const Menu *menu = level_menu(level);
+        int x, y, w, h, top, hot_row = level ? hot_sub : hot_item;
+        drop_geometry(level, &x, &y, &w, &h);
+        /* The shadow: SHADOW copies of the box, each offset one more pixel,
+         * blended over each other. Only the part outside the box shows (the
+         * box is opaque), so blend just each copy's right and bottom strips:
+         * blending whole boxes was 12 alpha passes over a 4K dropdown every
+         * frame, and the game crawled while a menu was open. */
         for (i = SHADOW; i > 0; i--) {
-            fill(x + i, y + i, w, h, 0x000000u, (unsigned)(10 + (SHADOW - i) * 8));
+            unsigned alpha = (unsigned)(10 + (SHADOW - i) * 8 / ui);
+            fill(x + w, y + i, i, h, 0x000000u, alpha);
+            fill(x + i, y + h, w, i, 0x000000u, alpha);
         }
         fill(x, y, w, h, C_DROP, 255);
         outline(x, y, w, h, C_DROP_EDGE);
         top = y + DROP_PAD;
         for (i = 0; i < menu->count; i++) {
             const Item *item = &menu->items[i];
-            int middle, hot = i == hot_item;
+            int middle, hot = i == hot_row;
             int disabled = item->flags & ITEM_DISABLED;
             uint32_t ink = disabled ? C_TEXT_DIM : hot ? C_TEXT_ON_ACCENT : C_TEXT;
             uint32_t dim = disabled ? C_TEXT_DIM : hot ? C_TEXT_ON_ACCENT : C_TEXT_DIM;
@@ -663,7 +773,7 @@ void Menu_Draw(MenuCanvas *into)
             }
             middle = top + ITEM_H / 2;
             if (hot && !disabled) {
-                fill(x + 3, top, w - 6, ITEM_H, C_ACCENT, 255);
+                fill(x + 3 * ui, top, w - 6 * ui, ITEM_H, C_ACCENT, 255);
             }
             if (item->kind == ITEM_CHECK) {
                 draw_check(x + ITEM_PAD, middle, item_state(item));
@@ -673,13 +783,15 @@ void Menu_Draw(MenuCanvas *into)
             draw_text(x + ITEM_PAD + MARK_W, middle, item->label, ink);
             if (item->shortcut) {
                 draw_text(x + w - ITEM_PAD - text_width(item->shortcut), middle, item->shortcut, dim);
+            } else if (item->kind == ITEM_SUBMENU) {
+                draw_arrow(x + w - ITEM_PAD - 6 * ui, middle, ink);
             }
             if (item->kind == ITEM_SLIDER) {
                 int sx, sm, knob, filled;
                 char value[8];
                 int minimum = Settings_Min(item->setting), maximum = Settings_Max(item->setting);
                 int setting = Settings_Get(item->setting);
-                slider_geometry(open_menu, i, &sx, &sm);
+                slider_geometry(level, i, &sx, &sm);
                 knob = sx + KNOB_R + (setting - minimum) * (SLIDER_W - KNOB_R * 2) / (maximum - minimum);
                 filled = knob - sx;
                 fill(sx, sm - SLIDER_H / 2, SLIDER_W, SLIDER_H, C_TRACK, 255);
@@ -687,7 +799,7 @@ void Menu_Draw(MenuCanvas *into)
                 disc(knob, sm, KNOB_R, C_KNOB_EDGE);
                 disc(knob, sm, KNOB_R - 1, C_KNOB);
                 snprintf(value, sizeof(value), "%d", setting);
-                draw_text(sx + SLIDER_W + 12, middle, value, setting ? ink : dim);
+                draw_text(sx + SLIDER_W + 12 * ui, middle, value, setting ? ink : dim);
             }
             top += ITEM_H;
         }
@@ -701,14 +813,21 @@ static void set_slider(const Item *item, int value)
     Settings_Set(item->setting, value);
 }
 
-static void slider_from_pointer(int which, int index, int px)
+static void slider_from_pointer(int level, int index, int px)
 {
-    const Item *item = &menus[which].items[index];
+    const Item *item = &level_menu(level)->items[index];
     int sx, middle, span = SLIDER_W - KNOB_R * 2;
     int minimum = Settings_Min(item->setting), maximum = Settings_Max(item->setting);
-    slider_geometry(which, index, &sx, &middle);
+    slider_geometry(level, index, &sx, &middle);
     set_slider(item, minimum + ((px - sx - KNOB_R) * (maximum - minimum) + span / 2) /
                (span > 0 ? span : 1));
+}
+
+static void close_submenu(void)
+{
+    open_sub = -1;
+    sub_item = -1;
+    hot_sub = -1;
 }
 
 static void close_menu(void)
@@ -716,7 +835,22 @@ static void close_menu(void)
     open_menu = -1;
     hot_item = -1;
     grabbed = 0;
+    close_submenu();
 }
+
+static void open_submenu(int index)
+{
+    const Item *item = &menus[open_menu].items[index];
+    if (open_sub == item->value && sub_item == index) return;
+    close_submenu();
+    open_sub = item->value;
+    sub_item = index;
+    hot_item = index;
+}
+
+/* The row the keyboard works on: the submenu's when one is open. */
+static int active_level(void) { return open_sub >= 0 ? 1 : 0; }
+static int *active_hot(void) { return open_sub >= 0 ? &hot_sub : &hot_item; }
 
 static void activate(const Item *item, int *quit)
 {
@@ -765,9 +899,9 @@ static void activate(const Item *item, int *quit)
 }
 
 /* The next selectable row after `from` in `direction`, wrapping. */
-static int step_item(int which, int from, int direction)
+static int step_item(int level, int from, int direction)
 {
-    const Menu *menu = &menus[which];
+    const Menu *menu = level_menu(level);
     int i, index = from;
     for (i = 0; i < menu->count; i++) {
         index = (index + direction + menu->count) % menu->count;
@@ -799,28 +933,40 @@ int Menu_Event(const MenuEvent *event, int *quit)
         if (py < MENU_H) {
             if (event->button == 1) {
                 if (bar >= 0 && bar != open_menu) {
+                    close_menu();
                     open_menu = bar;
-                    hot_item = -1;
                 } else {
                     close_menu();
                 }
             }
-        } else {
-            int index = item_at(open_menu, px, py);
-            int x, y, w, h;
-            drop_geometry(open_menu, &x, &y, &w, &h);
-            if (px < x || px >= x + w || py < y || py >= y + h) {
-                close_menu(); /* a click outside an open menu only closes it */
-            } else if (index >= 0 && event->button == 1) {
-                const Item *item = &menus[open_menu].items[index];
+        } else if (open_sub >= 0 && inside_drop(1, px, py)) {
+            int index = item_at(1, px, py);
+            if (index >= 0 && event->button == 1) {
+                const Item *item = &submenus[open_sub].items[index];
                 if (item->kind == ITEM_SLIDER && !(item->flags & ITEM_DISABLED)) {
+                    hot_sub = index;
+                    slider_from_pointer(1, index, px);
+                    grabbed = 2;
+                } else {
+                    activate(item, quit);
+                }
+            }
+        } else if (inside_drop(0, px, py)) {
+            int index = item_at(0, px, py);
+            if (index >= 0 && event->button == 1) {
+                const Item *item = &menus[open_menu].items[index];
+                if (item->kind == ITEM_SUBMENU) {
+                    open_submenu(index);
+                } else if (item->kind == ITEM_SLIDER && !(item->flags & ITEM_DISABLED)) {
                     hot_item = index;
-                    slider_from_pointer(open_menu, index, px);
+                    slider_from_pointer(0, index, px);
                     grabbed = 1;
                 } else {
                     activate(item, quit);
                 }
             }
+        } else {
+            close_menu(); /* a click outside an open menu only closes it */
         }
         consumed_press[event->button] = 1;
         return 1;
@@ -836,31 +982,42 @@ int Menu_Event(const MenuEvent *event, int *quit)
         }
         return 1;
     case MENU_EVENT_WHEEL:
-        if (open_menu >= 0 && hot_item >= 0 &&
-            menus[open_menu].items[hot_item].kind == ITEM_SLIDER &&
-            !(menus[open_menu].items[hot_item].flags & ITEM_DISABLED)) {
-            const Item *item = &menus[open_menu].items[hot_item];
-            set_slider(item, Settings_Get(item->setting) + 5 * event->wheel);
-            Settings_Save();
-            return 1;
+        if (open_menu >= 0 && *active_hot() >= 0) {
+            const Item *item = &level_menu(active_level())->items[*active_hot()];
+            if (item->kind == ITEM_SLIDER && !(item->flags & ITEM_DISABLED)) {
+                set_slider(item, Settings_Get(item->setting) + 5 * event->wheel);
+                Settings_Save();
+                return 1;
+            }
         }
         return open_menu >= 0 || event->y < MENU_H;
     case MENU_EVENT_MOTION: {
         int px = event->x, py = event->y;
-        int bar = bar_item_at(px, py), was_hot = hot_item, was_bar = hover_bar;
+        int bar = bar_item_at(px, py), was_hot = hot_item, was_sub = hot_sub, was_open = open_sub;
+        int was_bar = hover_bar, index;
         if (grabbed) {
-            slider_from_pointer(open_menu, hot_item, px);
+            slider_from_pointer(grabbed - 1, grabbed == 2 ? hot_sub : hot_item, px);
             return 1;
         }
         hover_bar = bar;
         if (open_menu >= 0) {
             if (bar >= 0 && bar != open_menu) {
-                open_menu = bar; /* dragging along the bar opens the next menu */
-                hot_item = -1;
+                close_menu(); /* dragging along the bar opens the next menu */
+                open_menu = bar;
                 return 1;
             }
-            hot_item = item_at(open_menu, px, py);
-            return was_hot != hot_item || was_bar != hover_bar;
+            if (open_sub >= 0 && inside_drop(1, px, py)) {
+                hot_sub = item_at(1, px, py);
+            } else if ((index = item_at(0, px, py)) >= 0) {
+                hot_item = index;
+                if (menus[open_menu].items[index].kind == ITEM_SUBMENU) open_submenu(index);
+                else close_submenu();
+            } else if (open_sub < 0) {
+                hot_item = -1; /* with a submenu open its parent row stays lit */
+            } else {
+                hot_sub = -1;
+            }
+            return was_hot != hot_item || was_sub != hot_sub || was_open != open_sub || was_bar != hover_bar;
         }
         return was_bar != hover_bar;
     }
@@ -871,6 +1028,7 @@ int Menu_Event(const MenuEvent *event, int *quit)
         }
         return 0;
     case MENU_EVENT_KEY_DOWN:
+        LOG(LOG_MENU, "key %d open=%d sub=%d hot=%d/%d", (int)event->key, open_menu, open_sub, hot_item, hot_sub);
         if (open_menu < 0) {
             if (event->key == MENU_KEY_F10) {
                 open_menu = 0;
@@ -880,24 +1038,42 @@ int Menu_Event(const MenuEvent *event, int *quit)
             return 0;
         }
         switch (event->key) {
-        case MENU_KEY_ESCAPE: close_menu(); return 1;
-        case MENU_KEY_LEFT: case MENU_KEY_RIGHT:
-            if (hot_item >= 0 && menus[open_menu].items[hot_item].kind == ITEM_SLIDER) {
-                const Item *item = &menus[open_menu].items[hot_item];
+        case MENU_KEY_ESCAPE:
+            if (open_sub >= 0) close_submenu();
+            else close_menu();
+            return 1;
+        case MENU_KEY_LEFT: case MENU_KEY_RIGHT: {
+            int level = active_level(), *hot = active_hot();
+            const Item *item = *hot >= 0 ? &level_menu(level)->items[*hot] : NULL;
+            if (item && item->kind == ITEM_SLIDER) {
                 set_slider(item, Settings_Get(item->setting) + (event->key == MENU_KEY_RIGHT ? 5 : -5));
                 Settings_Save();
+            } else if (event->key == MENU_KEY_RIGHT && item && item->kind == ITEM_SUBMENU) {
+                open_submenu(*hot);
+                hot_sub = step_item(1, -1, 1);
+            } else if (event->key == MENU_KEY_LEFT && open_sub >= 0) {
+                close_submenu();
             } else {
-                open_menu = (open_menu + (event->key == MENU_KEY_RIGHT ? 1 : MENU_COUNT - 1)) % MENU_COUNT;
-                hot_item = step_item(open_menu, -1, 1);
+                int next = (open_menu + (event->key == MENU_KEY_RIGHT ? 1 : MENU_COUNT - 1)) % MENU_COUNT;
+                close_menu();
+                open_menu = next;
+                hot_item = step_item(0, -1, 1);
             }
             return 1;
-        case MENU_KEY_UP: hot_item = step_item(open_menu, hot_item < 0 ? 0 : hot_item, -1); return 1;
-        case MENU_KEY_DOWN: hot_item = step_item(open_menu, hot_item, 1); return 1;
-        case MENU_KEY_ENTER:
-            if (hot_item >= 0 && menus[open_menu].items[hot_item].kind != ITEM_SLIDER) {
-                activate(&menus[open_menu].items[hot_item], quit);
+        }
+        case MENU_KEY_UP: *active_hot() = step_item(active_level(), *active_hot() < 0 ? 0 : *active_hot(), -1); return 1;
+        case MENU_KEY_DOWN: *active_hot() = step_item(active_level(), *active_hot(), 1); return 1;
+        case MENU_KEY_ENTER: {
+            int level = active_level(), *hot = active_hot();
+            const Item *item = *hot >= 0 ? &level_menu(level)->items[*hot] : NULL;
+            if (item && item->kind == ITEM_SUBMENU) {
+                open_submenu(*hot);
+                hot_sub = step_item(1, -1, 1);
+            } else if (item && item->kind != ITEM_SLIDER) {
+                activate(item, quit);
             }
             return 1;
+        }
         default: return 1; /* the open menu swallows other keys */
         }
     case MENU_EVENT_KEY_UP:
