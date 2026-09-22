@@ -19,6 +19,7 @@
 #include "pc/debug/log.h"
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
+#include "pc/render/texture_pack.h"
 #include "paths.h"
 #include "pc/sdk/display.h"
 #ifdef _WIN32
@@ -498,6 +499,7 @@ void Menu_LoadSettings(void)
     Platform_SetScale(Settings_Get(SET_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Platform_SetPresentCap(Settings_Get(SET_FPS));
+    Mods_SetTexturePack(TexturePack_Load, TexturePack_Unload);
     Mods_Load(); /* the mods the settings say are applied, once they are read */
 }
 

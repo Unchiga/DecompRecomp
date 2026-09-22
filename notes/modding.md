@@ -53,6 +53,7 @@ Every mod has a `mod.json`:
 | `restart` | whether changing it needs a fresh process. Data overrides default to `true`, because the game reads most of what they change while it starts; code mods default to `false` |
 | `legacy_setting` | an older settings key to read the player's choice from, once |
 | `data` | what the mod changes on the disc, below |
+| `textures` | a directory inside the mod holding a texture pack, below |
 
 `version`, `author` and `description` are for people; the game does not read
 them.
@@ -85,6 +86,36 @@ Overrides stand in for the disc for every reader in the port: the drive
 model, the bulk reads a mod makes, and the file lookup itself. Nothing on the
 real disc image is touched, and removing the mod puts the game back exactly
 as it was.
+
+## Texture packs: images by origin
+
+A mod may carry a `textures` directory: PNGs named by where their images
+come from on the disc, with a `manifest.json` describing each one, exactly
+what `tools/pc/extract_images.py` writes (`notes/pc-build.md`, "Images from
+the disc"). Extract the family you want to repaint (`cards`, `portraits`,
+or `--assets` for what a capture drew), paint over the PNGs, and point a
+manifest at the directory:
+
+```json
+{
+    "id": "hd-portraits",
+    "name": "HD portraits",
+    "textures": "images"
+}
+```
+
+While the mod is applied, every upload the game makes from the disc is
+traced to its bytes (`src/pc/render/texture_dump.c`), and the words an image
+of the pack covers get its pixels in a shadow of VRAM; a primitive that
+samples them through the palette the image was extracted with takes them
+from the shadow instead (`texture_pack.c`). A pack image may be any size:
+it is resampled to the texture's own size on load, so until the renderer
+draws at a higher resolution a bigger image only changes what the pixels
+are. The palette rule is what keeps a sprite the game draws through several
+palettes (a selection bar, a greyed icon) looking right: only the palette
+the image was made for is replaced. One pack is active at a time; the
+extracted images themselves are the game's, so a pack ships painted images
+or a way to make them from the player's own disc, never the originals.
 
 ## Native mods
 

@@ -76,6 +76,7 @@ typedef struct {
     MemoriesModHost host;
     JsonDocument *manifest;
     const JsonValue *data;       /* the "data" array, applied when enabled */
+    char textures[PATH_MAX_];    /* a texture pack directory inside the mod, or empty */
 } Mod;
 
 /* One stretch of the disc a mod replaces, and one run of patched bytes
@@ -589,6 +590,16 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
     }
     mod->restart = Json_Bool(Json_Member(root, "restart"), 0);
     mod->default_enabled = Json_Bool(Json_Member(root, "enabled"), 0);
+    text = Json_String(Json_Member(root, "textures"), NULL);
+    if (text && *text) {
+        if (!Paths_Contained(text)) {
+            mod->broken = 1;
+            note(mod, "\"textures\": %s is outside the mod", text);
+        } else if (snprintf(mod->textures, sizeof(mod->textures), "%s/%s", directory, text) >= (int)sizeof(mod->textures)) {
+            mod->broken = 1;
+            note(mod, "\"textures\": %s is too long", text);
+        }
+    }
     mod->data = Json_Member(root, "data");
     if (mod->data && Json_TypeOf(mod->data) != JSON_ARRAY) {
         mod->broken = 1;
@@ -669,6 +680,15 @@ static void scan(const char *root, const char *origin)
 }
 
 /* Turn a mod on or off for real: its library, its overrides, its hook. */
+static int (*texture_pack_load)(const char *directory);
+static void (*texture_pack_unload)(void);
+
+void Mods_SetTexturePack(int (*load)(const char *directory), void (*unload)(void))
+{
+    texture_pack_load = load;
+    texture_pack_unload = unload;
+}
+
 static void activate(int index, int on)
 {
     Mod *mod = &mods[index];
@@ -681,10 +701,15 @@ static void activate(int index, int on)
             return;
         }
         apply_overrides(mod, index);
+        if (mod->textures[0]) {
+            if (!texture_pack_load) note(mod, "this build has no texture packs");
+            else if (!texture_pack_load(mod->textures)) note(mod, "texture pack %s did not load", mod->textures);
+        }
         mod->active = 1;
         if (mod->hooks.applied) mod->hooks.applied(1);
     } else {
         drop_overrides(index);
+        if (mod->textures[0] && texture_pack_unload) texture_pack_unload();
         mod->active = 0;
         if (mod->hooks.applied) mod->hooks.applied(0);
     }

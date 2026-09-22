@@ -13,6 +13,9 @@
 
 int TextureDump_Enabled;
 uint32_t *TextureDump_Tags;
+uint16_t *TextureDump_Shadow;
+void (*TextureDump_Paint)(int x, int y, int w, int h);
+int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
 static char directory[1024];
 static FILE *index_file, *assets_file;
 static int (*disc_file_info)(const char *path, int *lba, unsigned *size);
@@ -63,12 +66,29 @@ void TextureDump_Init(void)
     }
     snprintf(name, sizeof(name), "%s/assets.txt", directory);
     assets_file = fopen(name, "a");
-    TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
+    TextureDump_EnableTags();
     TextureDump_Enabled = 1;
     fprintf(stderr, "memories-pc: dumping textures to %s\n", directory);
 }
 
 /* --- provenance ---------------------------------------------------------- */
+
+int TextureDump_EnableTags(void)
+{
+    if (!TextureDump_Tags) {
+        TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
+    }
+    return TextureDump_Tags != NULL;
+}
+
+int TextureDump_EnableShadow(void)
+{
+    if (!TextureDump_EnableTags()) return 0;
+    if (!TextureDump_Shadow) {
+        TextureDump_Shadow = calloc((size_t)TEXTURE_SHADOW_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Shadow));
+    }
+    return TextureDump_Shadow != NULL;
+}
 
 static uint64_t fnv(uint64_t hash, const void *data, size_t length);
 
@@ -84,6 +104,11 @@ static unsigned delivery_head;
 void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsigned *size))
 {
     disc_file_info = file_info;
+}
+
+int TextureDump_DiscFile(const char *path, int *lba, unsigned *size)
+{
+    return disc_file_info ? disc_file_info(path, lba, size) : -2; /* -2: no disc yet */
 }
 
 void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector)
@@ -128,6 +153,12 @@ void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) *tag_at(x + i, y + j) = provenance((uintptr_t)&pixels[j * w + i]);
     }
+    if (TextureDump_Shadow) {
+        for (j = 0; j < h; j++) {
+            for (i = 0; i < w; i++) memset(TextureDump_Cell(x + i, y + j, 0), 0, 4 * sizeof(uint16_t));
+        }
+        if (TextureDump_Paint) TextureDump_Paint(x, y, w, h);
+    }
 }
 
 void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h)
@@ -135,7 +166,12 @@ void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h)
     int i, j;
     if (!TextureDump_Tags) return;
     for (j = 0; j < h; j++) {
-        for (i = 0; i < w; i++) *tag_at(dx + i, dy + j) = *tag_at(sx + i, sy + j);
+        for (i = 0; i < w; i++) {
+            *tag_at(dx + i, dy + j) = *tag_at(sx + i, sy + j);
+            if (TextureDump_Shadow) {
+                memcpy(TextureDump_Cell(dx + i, dy + j, 0), TextureDump_Cell(sx + i, sy + j, 0), 4 * sizeof(uint16_t));
+            }
+        }
     }
 }
 
@@ -144,7 +180,10 @@ void TextureDump_Cleared(int x, int y, int w, int h)
     int i, j;
     if (!TextureDump_Tags) return;
     for (j = 0; j < h; j++) {
-        for (i = 0; i < w; i++) *tag_at(x + i, y + j) = 0;
+        for (i = 0; i < w; i++) {
+            *tag_at(x + i, y + j) = 0;
+            if (TextureDump_Shadow) memset(TextureDump_Cell(x + i, y + j, 0), 0, 4 * sizeof(uint16_t));
+        }
     }
 }
 
