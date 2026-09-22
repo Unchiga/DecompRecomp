@@ -22,6 +22,30 @@ static uint16_t *texture_source;
 
 static uint16_t *banks[SOFT_GPU_BANKS];
 
+/* Where plot writes: VRAM, or a widescreen target while a primitive is drawn
+ * a second time into it. Dithering keeps VRAM's phase in a shifted target. */
+static uint16_t *target = vram;
+static int dither_shift;
+
+/* Widescreen targets. A full-screen drawing area (the game's double
+ * buffers) gets a VRAM-shaped companion in which the area is `margin` wider
+ * on each side: every primitive drawn to the area is drawn again there,
+ * shifted right by the margin and clipped to the wider box, so the geometry
+ * the GTE projects left and right of the 4:3 frame, which the hardware clips,
+ * has somewhere to land. VRAM itself is never widened, so nothing the game
+ * reads back changes.
+ * Fills, loads and copies into the area are mirrored into its centre. */
+#define WIDE_TARGETS 4
+typedef struct WideTarget {
+    int x1, y1, x2, y2, margin;
+    int drawn;        /* primitives since this target was last presented */
+    unsigned stamp;   /* last use, for reuse of the oldest slot */
+    uint16_t *pixels;
+} WideTarget;
+static WideTarget wide[WIDE_TARGETS];
+static int wide_on;
+static unsigned wide_clock;
+
 uint16_t *SoftGpu_Bank(int bank)
 {
     if (bank <= 0 || bank >= SOFT_GPU_BANKS) {
@@ -51,13 +75,120 @@ void SoftGpu_Reset(void)
 
 static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y)
 {
-    return &vram[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
+    return &target[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
 }
 
 /* The same word in whichever bank the current texture page names. */
 static inline __attribute__((always_inline)) uint16_t sample(int x, int y)
 {
     return texture_source[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
+}
+
+/* Copies what VRAM now holds in x,y,w,h into the centre of every
+ * widescreen target it overlaps. A fill spanning a target's whole width
+ * also fills its sides, as a cleared screen is cleared edge to edge. */
+static void wide_mirror(int x, int y, int w, int h, int fill, uint16_t colour)
+{
+    int t;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        const WideTarget *wt = &wide[t];
+        int x1 = x > wt->x1 ? x : wt->x1, x2 = x + w - 1 < wt->x2 ? x + w - 1 : wt->x2;
+        int y1 = y > wt->y1 ? y : wt->y1, y2 = y + h - 1 < wt->y2 ? y + h - 1 : wt->y2;
+        int row, column;
+        if (!wt->pixels || x1 > x2 || y1 > y2) {
+            continue;
+        }
+        for (row = y1; row <= y2; row++) {
+            uint16_t *out = wt->pixels + row * SOFT_GPU_WIDTH;
+            memcpy(out + x1 + wt->margin, vram + row * SOFT_GPU_WIDTH + x1, (size_t)(x2 - x1 + 1) * 2);
+            if (fill && x <= wt->x1 && x + w - 1 >= wt->x2) {
+                for (column = 0; column < wt->margin; column++) {
+                    out[wt->x1 + column] = colour;
+                    out[wt->x2 + wt->margin + 1 + column] = colour;
+                }
+            }
+        }
+    }
+}
+
+/* The target for the current drawing area, made on first use; NULL when
+ * widescreen is off or the area is not a full screen. */
+static WideTarget *wide_target(void)
+{
+    int w = gpu.clip_x2 - gpu.clip_x1 + 1, h = gpu.clip_y2 - gpu.clip_y1 + 1, margin, t, oldest = 0;
+    WideTarget *wt;
+    if (!wide_on || w < 256 || h < 192) {
+        return NULL;
+    }
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        wt = &wide[t];
+        if (wt->pixels && wt->x1 == gpu.clip_x1 && wt->y1 == gpu.clip_y1 && wt->x2 == gpu.clip_x2 &&
+            wt->y2 == gpu.clip_y2) {
+            wt->stamp = ++wide_clock;
+            return wt;
+        }
+        if (wide[t].stamp < wide[oldest].stamp) {
+            oldest = t;
+        }
+    }
+    margin = (w / 6 + 1) & ~1; /* w * 4/3 in all, rounded to even */
+    if (gpu.clip_x2 + 2 * margin >= SOFT_GPU_WIDTH) {
+        return NULL;
+    }
+    wt = &wide[oldest];
+    if (!wt->pixels && !(wt->pixels = malloc(sizeof(vram)))) {
+        return NULL;
+    }
+    memset(wt->pixels, 0, sizeof(vram));
+    wt->x1 = gpu.clip_x1;
+    wt->y1 = gpu.clip_y1;
+    wt->x2 = gpu.clip_x2;
+    wt->y2 = gpu.clip_y2;
+    wt->margin = margin;
+    wt->drawn = 0;
+    wt->stamp = ++wide_clock;
+    /* Start from what VRAM holds, so a target made mid-frame is not black. */
+    wide_mirror(wt->x1, wt->y1, w, h, 0, 0);
+    return wt;
+}
+
+void SoftGpu_SetWidescreen(int on)
+{
+    int t;
+    if (on == wide_on) {
+        return;
+    }
+    wide_on = on;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        free(wide[t].pixels);
+        memset(&wide[t], 0, sizeof(wide[t]));
+    }
+}
+
+int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w)
+{
+    int t;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        WideTarget *wt = &wide[t];
+        if (wt->pixels && wt->x1 == x && wt->y1 == y && wt->x2 - wt->x1 + 1 == w && wt->y2 - wt->y1 + 1 >= h) {
+            if (!wt->drawn) {
+                /* Nothing was drawn since it was last shown (a movie, or a
+                 * still loaded straight into VRAM): the sides are stale. */
+                int row;
+                for (row = y; row < y + h; row++) {
+                    uint16_t *out = wt->pixels + (row & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH;
+                    memset(out + wt->x1, 0, (size_t)wt->margin * 2);
+                    memset(out + wt->x2 + wt->margin + 1, 0, (size_t)wt->margin * 2);
+                }
+            }
+            wt->drawn = 0;
+            *pixels = wt->pixels;
+            *out_x = x;
+            *out_w = w + 2 * wt->margin;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
@@ -71,6 +202,7 @@ void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
             }
         }
     }
+    wide_mirror(x, y, w, h, 0, 0);
 }
 
 void SoftGpu_Store(int x, int y, int w, int h, uint16_t *pixels)
@@ -95,6 +227,7 @@ void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
             }
         }
     }
+    wide_mirror(dx, dy, w, h, 0, 0);
 }
 
 static uint16_t pack(uint32_t rgb24)
@@ -112,6 +245,7 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
             *pixel(x + i, y + j) = colour;
         }
     }
+    wide_mirror(x, y, w, h, 1, colour);
 }
 
 static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
@@ -169,7 +303,7 @@ static inline __attribute__((always_inline)) void plot(int x, int y, int r, int 
         source = 0;
     }
     if ((flags & 8) && gpu.dither) {
-        int offset = dither_matrix[y & 3][x & 3];
+        int offset = dither_matrix[y & 3][(x - dither_shift) & 3];
         r += offset;
         g += offset;
         b += offset;
@@ -456,12 +590,25 @@ size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
     while (at < count) {
         uint32_t word = words[at], command = word >> 24;
         size_t used = 1;
-        if (command >= 0x20 && command < 0x40) {
-            used = polygon(words + at, count - at);
-        } else if (command >= 0x40 && command < 0x60) {
-            used = lines(words + at, count - at);
-        } else if (command >= 0x60 && command < 0x80) {
-            used = rectangle(words + at, count - at);
+        if (command >= 0x20 && command < 0x80) {
+            size_t (*draw)(const uint32_t *, size_t) = command < 0x40 ? polygon : command < 0x60 ? lines : rectangle;
+            WideTarget *wt;
+            used = draw(words + at, count - at);
+            if (used && (wt = wide_target()) != NULL) {
+                /* Again into the widescreen target, shifted and unclipped
+                 * at the sides. The primitive's state words are idempotent. */
+                int clip_x2 = gpu.clip_x2, offset_x = gpu.offset_x;
+                gpu.clip_x2 += 2 * wt->margin;
+                gpu.offset_x += wt->margin;
+                target = wt->pixels;
+                dither_shift = wt->margin;
+                draw(words + at, count - at);
+                target = vram;
+                dither_shift = 0;
+                gpu.clip_x2 = clip_x2;
+                gpu.offset_x = offset_x;
+                wt->drawn++;
+            }
         } else if (command == 0x02) {
             used = count - at >= 3 ? 3 : 0;
             if (used) {

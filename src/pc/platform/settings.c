@@ -31,7 +31,7 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_FULLSCREEN] = {"fullscreen", NULL, "MEMORIES_FULLSCREEN", NULL, 0, 0, 2},
     [SET_BORDERLESS] = {"borderless", NULL, "MEMORIES_BORDERLESS", NULL, 0, 0, 1},
     [SET_SCALING] = {"scaling", NULL, "MEMORIES_SCALING", NULL, 0, 0, 2},
-    /* 0 is corrected 4:3, 1 uses source pixels, and 2 opens a 16:9 canvas. */
+    /* 0 is corrected 4:3, 1 uses source pixels, and 2 widens the view to 16:9. */
     [SET_ASPECT] = {"aspect", NULL, "MEMORIES_ASPECT", NULL, 0, 0, 2},
     [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 1},
     [SET_VSYNC] = {"vsync", NULL, "MEMORIES_VSYNC", NULL, 0, 0, 1},

@@ -778,10 +778,9 @@ static void relayout(void)
     static int logged_window_w, logged_window_h, logged_output_w, logged_output_h;
     int output_w, output_h, window_w, window_h, menu;
     int aspect = Settings_Get(SET_ASPECT);
-    /* Widescreen enlarges the canvas, not the PSX framebuffer. Fit and
-     * integer scaling retain the game's corrected 4:3 picture and centre it
-     * between side pillars; only the explicit Stretch mode fills the canvas. */
-    int pw = aspect == 1 ? picture_w : picture_h * 4 / 3;
+    /* Widescreen pictures arrive 4/3 as wide as the 4:3 ones (libgpu.c), so
+     * both keep the same pixel shape. */
+    int pw = aspect == 1 ? picture_w : aspect == 2 ? picture_h * 16 / 9 : picture_h * 4 / 3;
     int ph = picture_h, area_h, mode = Settings_Get(SET_SCALING);
     float factor;
     if ((!renderer && !use_gl) || picture_w <= 0 || picture_h <= 0 ||
@@ -1499,6 +1498,7 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
 }
 
 int Platform_ShouldQuit(void) { return quit; }
+int Platform_Widescreen(void) { return Settings_Get(SET_ASPECT) == 2; }
 int Platform_StateSlot(void) { return state_slot; }
 void Platform_SetStateSlot(int slot)
 {

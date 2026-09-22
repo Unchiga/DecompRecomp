@@ -44,6 +44,32 @@ int main(void)
     SoftGpu_Fill(0, 0, 4, 4, 0xff0000);
     SoftGpu_Move(0, 0, 1020, 510, 4, 4); /* wraps both axes */
     CHECK(AT(1023, 511) == 0x7c00 && AT(1, 1) == 0x7c00);
-    puts("Software GPU fill-rule, CLUT, clip and transfer checks passed");
+
+    {
+        /* Widescreen: a 320x240 drawing area at (0,256) gets a target 54
+         * wider each side. A sprite from x=-20 is clipped in VRAM but lands
+         * in the target's left side; a full-width fill fills the sides too. */
+        const uint32_t area[] = {0xe3000000u | (256 << 10), 0xe4000000u | 319 | (495 << 10),
+                                 0xe5000000u | (256 << 11)};
+        const uint32_t fill[] = {0x020000ffu, 0x01000000u, (240u << 16) | 320};
+        const uint32_t wide_sprite[] = {0x60ffffffu, 0x000507ecu, 0x0002001eu};
+        const uint16_t *pixels;
+        int x, w;
+        SoftGpu_SetWidescreen(1);
+        CHECK(SoftGpu_Gp0(area, 3) == 3);
+        CHECK(SoftGpu_Gp0(wide_sprite, 3) == 3); /* makes the target */
+        CHECK(SoftGpu_Gp0(fill, 3) == 3);
+        CHECK(SoftGpu_Gp0(wide_sprite, 3) == 3);
+        CHECK(SoftGpu_WideFrame(0, 256, 320, 240, &pixels, &x, &w) && x == 0 && w == 428);
+        CHECK(AT(0, 261) == 0x7fff && AT(9, 261) == 0x7fff && AT(10, 261) == 0x001f);
+        CHECK(pixels[261 * SOFT_GPU_WIDTH + 34] == 0x7fff && pixels[261 * SOFT_GPU_WIDTH + 33] == 0x001f);
+        CHECK(pixels[300 * SOFT_GPU_WIDTH + 0] == 0x001f && pixels[300 * SOFT_GPU_WIDTH + 427] == 0x001f);
+        CHECK(pixels[300 * SOFT_GPU_WIDTH + 54 + 100] == AT(100, 300));
+        /* Shown again with nothing drawn since: the stale sides go black. */
+        CHECK(SoftGpu_WideFrame(0, 256, 320, 240, &pixels, &x, &w) && pixels[300 * SOFT_GPU_WIDTH] == 0);
+        SoftGpu_SetWidescreen(0);
+        CHECK(!SoftGpu_WideFrame(0, 256, 320, 240, &pixels, &x, &w));
+    }
+    puts("Software GPU fill-rule, CLUT, clip, transfer and widescreen checks passed");
     return 0;
 }

@@ -28,6 +28,12 @@ const uint16_t *SoftGpu_Vram(void);
  * Returns NULL if the bank cannot be allocated. */
 #define SOFT_GPU_BANKS 16
 uint16_t *SoftGpu_Bank(int bank);
+/* Widescreen: full-screen drawing areas get a companion buffer 4/3 as wide
+ * (see soft_gpu.c). Turning it off frees them. */
+void SoftGpu_SetWidescreen(int on);
+/* The widened picture of the display area x,y,w,h, if it has a target:
+ * VRAM-shaped pixels, and the x and width to show. Returns 0 otherwise. */
+int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w);
 /* Save states: VRAM (index 0) and the drawing state (index 1). */
 void *SoftGpu_StateData(int index, size_t *size);
 #endif

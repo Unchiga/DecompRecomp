@@ -682,6 +682,8 @@ static void pump(void)
 
 }
 
+int Platform_Widescreen(void) { return 0; } /* the window is a fixed 4:3 */
+
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
 {
     int width, height;

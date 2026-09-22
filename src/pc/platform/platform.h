@@ -16,6 +16,9 @@ void Platform_OpenControls(void);
 int Platform_RestartGame(void);
 /* Show a VRAM rectangle (15-bit, or packed 24-bit RGB bytes) and pump events. */
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24);
+/* Nonzero when the window shows a 16:9 picture, which the game then draws
+ * into wider buffers (SoftGpu_SetWidescreen). */
+int Platform_Widescreen(void);
 int Platform_ShouldQuit(void);
 int Platform_StateSlot(void);
 void Platform_SetStateSlot(int slot);
