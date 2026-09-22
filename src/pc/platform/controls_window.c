@@ -88,6 +88,9 @@ static struct {
 } ui;
 static MenuCanvas *canvas;
 static int scale;
+/* Where the last draw put each pad button (the drawn shape, not its larger
+ * mouse target); ControlsWindow_Locate reports these for the picture. */
+static Rect pad_rect[CTRL_DEST_COUNT];
 static Rect device_drop; /* set while drawing; the device list hangs off it */
 
 static const uint32_t bg = 0xff1e1f22, panel = 0xff27282c, raised = 0xff34363b, hot = 0xff42454d,
@@ -95,7 +98,10 @@ static const uint32_t bg = 0xff1e1f22, panel = 0xff27282c, raised = 0xff34363b, 
                       dim = 0xff9a9ca3, faint = 0xff6c6e76, off = 0xff55575e,
                       accent = 0xff3b82f6, accent_hot = 0xff5a97f8, on_accent = 0xffffffff,
                       held = 0xff2f7d55, held_cell = 0xff26603f, on_held = 0xffeafff3,
-                      good = 0xff4cc38a, warn = 0xfff5b642;
+                      good = 0xff4cc38a, warn = 0xfff5b642,
+                      /* The pad picture's selection ring: bright grey-green,
+                       * clear of both the cyan artwork and the pressed fill. */
+                      marker = 0xff8ccda0;
 
 /* ------------------------------------------------------------------ */
 /*  Reading order for the table                                        */
@@ -372,10 +378,10 @@ void ControlsWindow_Init(void)
     ui.focus = KEYBOARD;
     ui.row = order[0];
     ui.selected_device = -1;
+    /* The message line starts empty: it reports what happened, and the hint
+     * line above it already says how to edit a binding. */
     if (ControlsRuntime_Error()[0])
         say(SAY_WARN, ControlsRuntime_Error());
-    else
-        say(SAY_INFO, "The game ignores these controls while this window is open.");
     ControlsRuntime_Block(1);
 }
 void ControlsWindow_Size(int *w, int *h)
@@ -392,6 +398,14 @@ int ControlsWindow_ShouldClose(void) { return ui.close; }
 int ControlsWindow_Locate(int id, int *x, int *y)
 {
     int sc = ui.draw_scale ? ui.draw_scale : 1;
+    if (id >= DIAGRAM && id < CHOICE && id - DIAGRAM < CTRL_DEST_COUNT) {
+        Rect *r = &pad_rect[id - DIAGRAM];
+        if (!r->w)
+            return 0;
+        *x = (r->x + r->w / 2) * sc;
+        *y = (r->y + r->h / 2) * sc;
+        return 1;
+    }
     for (int i = ui.count - 1; i >= 0; i--) {
         if (ui.hits[i].id != id)
             continue;
@@ -803,63 +817,108 @@ void ControlsWindow_Tick(void)
 /*  The pad picture                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Button regions use image coordinates normalized to a width of 1000.
+/* Button regions in image coordinates normalized to a width of 1000, measured
+ * from ps1-controller.png itself.
+ *
+ * Each button has two rectangles. `bx, by, bw, bh` is the button as it is
+ * drawn: what the selection ring encloses and what a press fills. `x, y, w, h`
+ * is where the mouse has to be, and those tile the picture instead of hugging
+ * the artwork, because the drawn buttons are small, some (the L2/R2 strips)
+ * only a few pixels tall, and neighbours would be a pixel apart. The D-pad
+ * and the face cluster are each split four ways along the lines between their
+ * buttons, the shoulders split just under the L2/R2 strip, and no two
+ * rectangles overlap, so every click lands on exactly one button.
+ *
  * The supplied digital pad has no stick clicks: L3/R3 stay in the list. */
 static const struct {
-    int destination, x, y, w, h;
-} controller_regions[] = {{8, 185, 84, 120, 25},   {9, 687, 84, 120, 25},  {10, 185, 116, 120, 32},
-                          {11, 687, 116, 120, 32}, {4, 223, 226, 45, 54},  {5, 276, 276, 48, 48},
-                          {6, 224, 334, 45, 49},   {7, 171, 278, 48, 44},  {12, 724, 204, 50, 49},
-                          {13, 793, 276, 50, 49},  {14, 724, 346, 50, 49}, {15, 652, 277, 50, 49},
-                          {0, 425, 343, 40, 23},   {3, 535, 344, 36, 23}};
+    int destination, x, y, w, h, bx, by, bw, bh;
+} controller_regions[] = {
+    {8, 165, 55, 165, 45, 192, 80, 110, 17},        /* L2, the upper strip */
+    {9, 668, 55, 165, 45, 695, 80, 110, 17},        /* R2 */
+    {10, 165, 100, 165, 59, 165, 97, 165, 62},      /* L1 */
+    {11, 668, 100, 165, 59, 668, 97, 165, 62},      /* R1 */
+    {4, 130, 162, 234, 98, 218, 222, 58, 64},       /* Up: the D-pad's top */
+    {5, 247, 260, 117, 81, 261, 272, 65, 57},       /* Right */
+    {6, 130, 341, 234, 98, 218, 315, 58, 64},       /* Down */
+    {7, 130, 260, 117, 81, 168, 272, 64, 57},       /* Left */
+    {12, 620, 162, 261, 104, 714, 194, 73, 73},     /* Triangle: the top */
+    {13, 750, 266, 131, 70, 785, 264, 73, 73},      /* Circle */
+    {14, 620, 336, 261, 103, 714, 334, 73, 73},     /* Cross */
+    {15, 620, 266, 130, 70, 642, 264, 73, 73},      /* Square */
+    {0, 400, 320, 99, 70, 418, 337, 52, 36},        /* Select */
+    {3, 500, 320, 99, 70, 526, 336, 58, 38}};       /* Start */
+#define REGION_COUNT ((unsigned)(sizeof(controller_regions) / sizeof(controller_regions[0])))
+
+/* The two rectangles of a region, placed on a picture drawn at (x, y, w). */
+static Rect region_hit(unsigned i, int x, int y, int w)
+{
+    return rect(x + controller_regions[i].x * w / 1000, y + controller_regions[i].y * w / 1000,
+                controller_regions[i].w * w / 1000, controller_regions[i].h * w / 1000);
+}
+static Rect region_button(unsigned i, int x, int y, int w)
+{
+    return rect(x + controller_regions[i].bx * w / 1000, y + controller_regions[i].by * w / 1000,
+                controller_regions[i].bw * w / 1000, controller_regions[i].bh * w / 1000);
+}
 
 static void controller(int x, int y, int w, uint16_t bits)
 {
-    for (unsigned i = 0; i < sizeof(controller_regions) / sizeof(controller_regions[0]); i++) {
+    /* Pressed buttons are filled first so the artwork's own outlines stay on
+     * top of the fill; the selection ring is drawn last, over everything. */
+    for (unsigned i = 0; i < REGION_COUNT; i++) {
         int dest = controller_regions[i].destination;
-        int bx = x + controller_regions[i].x * w / 1000, by = y + controller_regions[i].y * w / 1000;
-        int bw = controller_regions[i].w * w / 1000, bh = controller_regions[i].h * w / 1000;
+        Rect b = region_button(i, x, y, w);
+        pad_rect[dest] = b;
         if (bits & Controls_Actions[dest].bit)
-            ellipse(bx + bw / 2, by + bh / 2, bw / 2, bh / 2, held);
-        if (ui.row == dest)
-            box(bx - 2, by - 2, bw + 4, bh + 4, accent);
-        else if (ui.hover == DIAGRAM + dest)
-            box(bx - 2, by - 2, bw + 4, bh + 4, edge);
-        hit(DIAGRAM + dest, rect(bx, by, bw, bh));
+            ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, held);
+        hit(DIAGRAM + dest, region_hit(i, x, y, w));
     }
     if (!ControlsArt_Draw(canvas, x * scale, y * scale, w * scale)) {
         text_at(x + 20, y + 40, "Controller picture unavailable", dim);
         return;
     }
     /* Tiny PS1 face symbols retain the original line drawing's open buttons. */
-    for (unsigned i = 0; i < sizeof(controller_regions) / sizeof(controller_regions[0]); i++) {
+    for (unsigned i = 0; i < REGION_COUNT; i++) {
         int dest = controller_regions[i].destination;
-        int cx = x + (controller_regions[i].x + controller_regions[i].w / 2) * w / 1000;
-        int cy = y + (controller_regions[i].y + controller_regions[i].h / 2) * w / 1000;
-        int bw = controller_regions[i].w * w / 1000, bh = controller_regions[i].h * w / 1000;
+        Rect b = region_button(i, x, y, w);
+        int cx = b.x + b.w / 2, cy = b.y + b.h / 2;
         if (dest == 14)
+            /* The cross and the triangle read a pixel low and right of the
+             * circle they sit in; nudge both back. */
             for (int j = -4; j <= 4; j++) {
-                fill(cx + j, cy + j, 1, 1, text);
-                fill(cx + j, cy - j, 1, 1, text);
+                fill(cx - 1 + j, cy - 1 + j, 1, 1, text);
+                fill(cx - 1 + j, cy - 1 - j, 1, 1, text);
             }
         if (dest == 15)
             box(cx - 4, cy - 4, 9, 9, text);
         if (dest == 12) {
             for (int j = 0; j < 8; j++) {
-                fill(cx - j / 2, cy - 4 + j, 1, 1, text);
-                fill(cx + j / 2, cy - 4 + j, 1, 1, text);
+                fill(cx - 1 - j / 2, cy - 5 + j, 1, 1, text);
+                fill(cx - 1 + j / 2, cy - 5 + j, 1, 1, text);
             }
-            fill(cx - 4, cy + 4, 9, 1, text);
+            fill(cx - 5, cy + 3, 9, 1, text);
         }
         if (dest == 13)
             for (int j = -5; j <= 5; j++)
                 for (int k = -5; k <= 5; k++)
                     if (j * j + k * k >= 14 && j * j + k * k <= 23)
                         fill(cx + j, cy + k, 1, 1, text);
-        /* The shoulder labels only fit when the picture is large enough;
-         * at small sizes they would sit on top of each other. */
-        if (dest >= 8 && dest <= 11 && bh >= 12 && text_w(Controls_Actions[dest].name) + 4 <= bw)
-            text_at(cx - text_w(Controls_Actions[dest].name) / 2, cy, Controls_Actions[dest].name, dim);
+        /* L1/R1 are labelled inside their button; the L2/R2 strips are too
+         * thin, so their labels sit just above them, and both are dropped
+         * when the picture is too small to keep them apart. */
+        if (dest >= 8 && dest <= 11 && b.h >= 10 && text_w(Controls_Actions[dest].name) + 4 <= b.w)
+            text_at(cx - text_w(Controls_Actions[dest].name) / 2, dest <= 9 ? cy - 11 : cy,
+                    Controls_Actions[dest].name, dim);
+    }
+    /* Selection and hover, over the artwork so nothing hides them. */
+    for (unsigned i = 0; i < REGION_COUNT; i++) {
+        int dest = controller_regions[i].destination;
+        Rect b = region_button(i, x, y, w);
+        if (ui.row == dest)
+            for (int ring_px = 1; ring_px <= 3; ring_px++)
+                box(b.x - ring_px, b.y - ring_px, b.w + 2 * ring_px, b.h + 2 * ring_px, marker);
+        else if (ui.hover == DIAGRAM + dest)
+            box(b.x - 2, b.y - 2, b.w + 4, b.h + 4, edge);
     }
 }
 
@@ -908,7 +967,8 @@ static void draw_diagram(Rect r, uint16_t bits)
     fill(r.x + 12, y + 3, swatch, swatch, held);
     text_at(r.x + 12 + swatch + 6, y + 8, "pressed now", faint);
     int x = r.x + 12 + swatch + 6 + text_w("pressed now") + 18;
-    box(x, y + 3, swatch, swatch, accent);
+    box(x, y + 3, swatch, swatch, marker);
+    box(x + 1, y + 4, swatch - 2, swatch - 2, marker);
     text_at(x + swatch + 6, y + 8, "selected", faint);
     text_clip(r.x + 12, y + 26, "Click a button here to jump to its row.", r.w - 24, faint);
     if (legend_lines > 2)
@@ -1217,6 +1277,7 @@ void ControlsWindow_Draw(MenuCanvas *c)
     ui.draw_scale = scale;
     int w = ui.width = c->width / scale, h = ui.height = c->height / scale;
     ui.count = 0;
+    memset(pad_rect, 0, sizeof(pad_rect)); /* refilled only if the picture fits */
     fill(0, 0, w, h, bg);
 
     int device = current_device();

@@ -1,0 +1,10 @@
+{
+    "id": "3d-monsters",
+    "name": "3D Monsters",
+    "version": "1.0",
+    "author": "DecompRecomp",
+    "description": "Face-up monsters stand on their cards as the models the battle presentation uses, animating on the spot. The console had neither the RAM nor the VRAM for it.",
+    "library": "3d-monsters",
+    "enabled": false,
+    "legacy_setting": "3d_monsters"
+}

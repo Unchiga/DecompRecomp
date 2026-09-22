@@ -36,9 +36,6 @@ static int selected = -1, dragging = -1, pending = -1, pending_value, drag_moved
 static int unit, column_width, pointer_x, pointer_y, pointer_inside;
 static Rect drag_origin; /* the row the drag started on; leaving it starts the drag */
 static const char *status;
-static const SettingId mod_settings[MODS_COUNT] = {
-    SET_MOD_3D_MONSTERS, SET_MOD_HAND_CAMERA
-};
 
 #define PAD (16 * unit)
 #define ROW (28 * unit)
@@ -51,11 +48,20 @@ static const SettingId mod_settings[MODS_COUNT] = {
 #define HEADER_SEP_Y (62 * unit)
 #define LABEL_Y (82 * unit)
 #define RESTART_TAG "restart"
+#define ERROR_TAG "error"
 #define MSG_CONFIRM "Needs a restart. Unsaved progress will be lost."
 #define MSG_RESTART_FAILED "Restart failed. Relaunch the game to apply it."
 #define MSG_SAVE_FAILED "Could not save settings. Change cancelled."
 
-static int visible_rows(void) { return MODS_COUNT > 3 ? MODS_COUNT : 3; }
+static int visible_rows(void) { return Mods_Count() > 3 ? Mods_Count() : 3; }
+
+/* The tag at the right of a row, or null: a mod that could not load says so
+ * before it says it wants a restart. */
+static const char *row_tag(int mod)
+{
+    if (Mods_Status(mod)[0]) return ERROR_TAG;
+    return Mods_RequiresRestart(mod) ? RESTART_TAG : 0;
+}
 
 static int inside(const Rect *r, int x, int y)
 {
@@ -97,12 +103,13 @@ static int footer_width(void)
 
 void ModsWindow_Init(void)
 {
-    int i, tag, needed;
+    int i, needed;
     unit = Menu_Scale();
-    tag = Menu_TextWidth(RESTART_TAG);
     column_width = 220 * unit;
-    for (i = 0; i < MODS_COUNT; ++i) {
-        int w = Menu_TextWidth(Mods_Name(i)) + 2 * PANEL_PAD + 24 * unit + (Mods_RequiresRestart(i) ? tag + 12 * unit : 0);
+    for (i = 0; i < Mods_Count(); ++i) {
+        const char *tag = row_tag(i);
+        int w = Menu_TextWidth(Mods_Name(i)) + 2 * PANEL_PAD + 24 * unit +
+                (tag ? Menu_TextWidth(tag) + 12 * unit : 0);
         if (w > column_width) column_width = w;
     }
     needed = (footer_width() - 2 * PAD - GUTTER + 1) / 2;
@@ -176,7 +183,7 @@ static void arrow_button(MenuCanvas *c, const Rect *r, int direction, int enable
 static int nth_shown(int side, int row)
 {
     int i, n = 0;
-    for (i = 0; i < MODS_COUNT; ++i)
+    for (i = 0; i < Mods_Count(); ++i)
         if (!!Mods_Enabled(i) == side && n++ == row) return i;
     return -1;
 }
@@ -212,13 +219,13 @@ static void draw_panel(MenuCanvas *c, const Layout *l, int side)
         else if (dragging == mod && drag_moved) outline(c, &r, unit, C_EDGE);
         else if (dragging < 0 && pending < 0 && pointer_inside && inside(&r, pointer_x, pointer_y)) fill_rect(c, &r, C_HOVER);
         Menu_DrawText(c, r.x + 12 * unit, r.y + ROW / 2, Mods_Name(mod), on_accent ? C_TEXT_ON_ACCENT : C_TEXT);
-        if (Mods_RequiresRestart(mod))
-            Menu_DrawText(c, r.x + r.w - 12 * unit - Menu_TextWidth(RESTART_TAG), r.y + ROW / 2, RESTART_TAG,
+        if (row_tag(mod))
+            Menu_DrawText(c, r.x + r.w - 12 * unit - Menu_TextWidth(row_tag(mod)), r.y + ROW / 2, row_tag(mod),
                           on_accent ? C_TAG_ON_ACCENT : C_TEXT_FAINT);
         ++n;
     }
     if (!n) {
-        const char *empty = side ? "No mods applied" : "All mods applied";
+        const char *empty = !Mods_Count() ? "No mods found" : side ? "No mods applied" : "All mods applied";
         Menu_DrawText(c, p->x + (p->w - Menu_TextWidth(empty)) / 2, p->y + p->h / 2, empty, C_TEXT_FAINT);
     }
 }
@@ -258,7 +265,11 @@ void ModsWindow_Draw(MenuCanvas *c)
 
 static void apply(int mod, int value, int confirmed)
 {
-    if (mod < 0 || mod >= MODS_COUNT) return;
+    if (mod < 0 || mod >= Mods_Count()) return;
+    if (value && Mods_Status(mod)[0]) {   /* it cannot load; removing it still can */
+        status = Mods_Status(mod);
+        return;
+    }
     if (Mods_RequiresRestart(mod) && !confirmed) {
         pending = mod;
         pending_value = value;
@@ -266,14 +277,19 @@ static void apply(int mod, int value, int confirmed)
         return;
     }
     {
-        int old = Settings_Get(mod_settings[mod]);
-        Settings_Set(mod_settings[mod], value);
+        int old = Mods_Enabled(mod);
+        Mods_SetEnabled(mod, value);
         if (!Settings_Save()) {
-            Settings_Set(mod_settings[mod], old);
+            Mods_SetEnabled(mod, old);
             pending = -1;
             status = MSG_SAVE_FAILED;
             return;
         }
+    }
+    if (Mods_Status(mod)[0]) {   /* it was applied, and would not load */
+        status = Mods_Status(mod);
+        pending = -1;
+        return;
     }
     if (Mods_RequiresRestart(mod)) {
         if (Platform_RestartGame() < 0) status = MSG_RESTART_FAILED;
@@ -296,10 +312,11 @@ static int row_at(const Layout *l, int x, int y)
 /* Up/Down walk the lists in the order they are shown. */
 static void step_selection(int direction)
 {
-    int order[MODS_COUNT], count = 0, side, i, at = -1;
+    int order[MODS_MAX], count = 0, side, i, at = -1;
     for (side = 0; side < 2; ++side)
-        for (i = 0; i < MODS_COUNT; ++i)
+        for (i = 0; i < Mods_Count(); ++i)
             if (!!Mods_Enabled(i) == side) order[count++] = i;
+    if (!count) return;
     for (i = 0; i < count; ++i)
         if (order[i] == selected) at = i;
     selected = order[(at + direction + count) % count];

@@ -15,5 +15,8 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out);
 /* The first sector of a file, by its retail path ("\\DATA\\MODEL.MRG;1"),
  * or -1. */
 int Memories_DiscFileStart(const char *path);
+/* The same lookup, with the file's length in bytes as well. 0 when the file
+ * is there. Mod data overrides use it to size a replacement. */
+int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size);
 void Memories_DiscStats(int *head_lba, unsigned *bytes_per_second);
 #endif

@@ -24,7 +24,17 @@ picture always shows a PS1 controller using the supplied cyan outline artwork
 on a transparent background, regardless of the connected hardware; its buttons
 highlight the mapped PlayStation output, and the panel header names whatever is
 held. Clicking a button in the picture selects that PS1 action, and
-double-clicking it starts a rebind. Stick clicks (L3/R3) have no place on the
+double-clicking it starts a rebind. The selected button wears a
+three-pixel grey-green ring drawn over the artwork; pressed buttons are filled
+green underneath it so the outlines stay readable. Each button has two rectangles, both derived from
+ps1-controller.png: the drawn button, which is what the ring encloses and a
+press fills, and a larger mouse target. The targets tile the picture and never
+overlap - the D-pad and the face cluster are split four ways along the lines
+between their buttons, the shoulders split just under the L2/R2 strip, and
+Select/Start take the space around them - so a click always means one button
+even though the drawn buttons (the D-pad arrows, the few-pixel L2/R2 strips)
+are small. The window test checks that the targets stay disjoint and that a
+click on any drawn button selects it. Stick clicks (L3/R3) have no place on the
 artwork and are edited in the list. The Controller dropdown lists the actual
 connected PC controllers by name; it chooses the input device, not a diagram
 style.
@@ -72,10 +82,10 @@ and reconnect behavior should still be checked with the user's controllers.
 ## Storage
 
 Controls live outside guest saves and save states. The default file is
-`saves/controls.txt`. `MEMORIES_CONTROLS` overrides it; otherwise an explicit
-`MEMORIES_SETTINGS` places `controls.txt` beside that settings file. Apply writes
-a temporary file in the same directory, checks flush/close and atomically renames
-it. Missing files use defaults. Invalid version-1 files fall back to defaults
+`controls.txt` in the user directory (`src/pc/platform/paths.h`).
+`MEMORIES_CONTROLS` overrides it; otherwise an explicit `MEMORIES_SETTINGS`
+places `controls.txt` beside that settings file. Apply writes a temporary
+file in the same directory, checks flush/close and atomically renames it. Missing files use defaults. Invalid version-1 files fall back to defaults
 with a diagnostic. Unsupported versions are preserved and cannot be overwritten
 by Apply.
 

@@ -1,4 +1,5 @@
-/* Mods > 3D Monsters: the face-up monsters on the duel field stand on their
+/* The 3D Monsters mod (mod.json beside this file; notes/modding.md): the
+ * face-up monsters on the duel field stand on their
  * cards as the models the battle presentation uses, animating on the spot,
  * floating just above them, the player's turned to face the opponent and the
  * opponent's to face the player, whichever way the camera is round.
@@ -73,9 +74,7 @@
 #include "pc/compat/gte.h"
 #include "pc/render/packets.h"
 #include "pc/render/soft_gpu.h"
-#include "pc/debug/log.h"
-#include "pc/sdk/disc.h"
-#include "pc/mods/mods.h"
+#include "pc/mods/modapi.h"
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -145,30 +144,14 @@ typedef struct {
     int scale;
 } Monster;
 
+static const MemoriesModHost *host;
 static Monster cache[CACHE];
-static int enabled[MODS_COUNT];
 static u8 *record;             /* one MODEL.MRG record, read whole */
 static int mrg_start = -2;
 static unsigned frame;
 static int inside;
 
-const char *Mods_Name(int mod)
-{
-    return mod == MODS_FIELD_MODELS ? "3D Monsters" : mod == MODS_HAND_CAMERA ? "Hand camera (L1/R1 turn, L3/R3 zoom)" : "";
-}
-/* Both current mods are checked on every frame and support live changes. */
-int Mods_RequiresRestart(int mod) { (void)mod; return 0; }
-
-int Mods_Enabled(int mod) { return mod >= 0 && mod < MODS_COUNT && enabled[mod]; }
-
-void Mods_SetEnabled(int mod, int on)
-{
-    if (mod >= 0 && mod < MODS_COUNT) {
-        enabled[mod] = on != 0;
-    }
-}
-
-void Mods_Reset(void)
+static void reset(void)
 {
     int i;
     for (i = 0; i < CACHE; i++) {
@@ -180,11 +163,11 @@ static void say(const char *format, ...)
 {
     char message[512];
     va_list arguments;
-    if (!Log_Enabled(LOG_MODS)) return;
+    if (!host->log_enabled(host)) return;
     va_start(arguments, format);
     vsnprintf(message, sizeof(message), format, arguments);
     va_end(arguments);
-    LOG(LOG_MODS, "%s", message);
+    host->log(host, "%s", message);
 }
 
 static int tunable(const char *name, int fallback)
@@ -376,7 +359,7 @@ static int load_monster(Monster *monster, int card, int position)
         return 0;
     }
     if (mrg_start == -2) {
-        mrg_start = Memories_DiscFileStart("\\DATA\\MODEL.MRG;1");
+        mrg_start = host->disc_file_start(host, "\\DATA\\MODEL.MRG;1");
         say("MODEL.MRG starts at sector %d\n", mrg_start);
     }
     if (mrg_start < 0) {
@@ -386,7 +369,7 @@ static int load_monster(Monster *monster, int card, int position)
     if (!record && !(record = malloc(RECORD_SECTORS * SECTOR))) {
         return 0;
     }
-    sectors = Memories_DiscReadSectors(mrg_start + model * RECORD_SECTORS, RECORD_SECTORS, record);
+    sectors = host->disc_read(host, mrg_start + model * RECORD_SECTORS, RECORD_SECTORS, record);
     if (sectors != RECORD_SECTORS) {
         say("card %d: read %d of %d sectors\n", card, sectors, RECORD_SECTORS);
         return 0;
@@ -762,7 +745,7 @@ static void draw_monster(Monster *monster, int x, int z, int yaw)
 static int duel_field_up(void)
 {
     static int phase = -1, distance = -1, pitch = -1, angle = -1;
-    if (Log_Enabled(LOG_MODS) && (phase != (gDuel_wSceneStateFlags & DUEL_SCENE_PHASE_MASK) ||
+    if (host->log_enabled(host) && (phase != (gDuel_wSceneStateFlags & DUEL_SCENE_PHASE_MASK) ||
                       distance != D_800F2848.field_00 || pitch != D_800F2848.field_04 ||
                       angle != D_800F2848.angle)) {
         phase = gDuel_wSceneStateFlags & DUEL_SCENE_PHASE_MASK;
@@ -787,15 +770,14 @@ typedef struct {
 /* Records 0-14 are the player's, whose view is the quarter-turn camera. */
 #define DUEL_SIDE_PLAYER 0
 
-void Mods_DrawFrame(void)
+static void draw_frame(void)
 {
     static ModelSlot borrowed;
     Standing standing[DUEL_SIDE_COUNT * MONSTER_ZONES];
     u32 work_base;
     int count = 0, i, side, zone;
 
-    HandCamera_Frame();
-    if (inside || !enabled[MODS_FIELD_MODELS] || !duel_field_up()) {
+    if (inside || !duel_field_up()) {
         return;
     }
     frame++;
@@ -864,4 +846,13 @@ void Mods_DrawFrame(void)
     }
     SetGeomOffset(0, 0);
     inside = 0;
+}
+
+int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
+{
+    host = from;
+    mod->api = MEMORIES_MOD_API;
+    mod->frame = draw_frame;
+    mod->reset = reset;
+    return 1;
 }

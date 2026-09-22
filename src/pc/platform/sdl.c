@@ -9,6 +9,7 @@
  * mask. See platform.h for the contract. */
 #define _GNU_SOURCE
 #include "platform.h"
+#include "paths.h"
 #include "menu.h"
 #include "mods_window.h"
 #include "controls_window.h"
@@ -306,9 +307,10 @@ static int screenshot_path(char *path, size_t size, const char *extension)
     time_t now = time(NULL);
     struct tm local;
     char stamp[32];
+    char user[1024];
     if (!directory || !*directory) {
-        mkdir("saves", 0777);
-        directory = "saves/screenshots";
+        if (Paths_User(user, sizeof(user), "screenshots")) return 0;
+        directory = user;
     }
     mkdir(directory, 0777);
     localtime_r(&now, &local);

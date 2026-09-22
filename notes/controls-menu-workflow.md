@@ -261,7 +261,7 @@ disabled with an explanation. An explicit disconnected profile stays editable
 for clearing/defaults, but capture requires reconnection.
 
 Use a separate versioned `controls.txt` rather than stretching integer-only
-`Settings_*` to strings. Default is `saves/controls.txt`; `MEMORIES_CONTROLS` sets
+`Settings_*` to strings. Default is `controls.txt` in the user directory; `MEMORIES_CONTROLS` sets
 an explicit path. Otherwise place it beside `MEMORIES_SETTINGS` when that path
 is set, so isolated settings runs do not touch the user's default controls.
 Document the actual grammar in stage 2 before writing the parser. Use readable

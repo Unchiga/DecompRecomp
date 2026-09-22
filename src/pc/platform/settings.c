@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "paths.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 #include "pc/compat/posix.h"
 
 #define MAX_UNKNOWN 64
+#define MAX_NAMED 128
+#define MAX_KEY 64
 #define MAX_LINE 256
 #define MAX_OBSERVERS 8
 
@@ -44,23 +47,31 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_MENU_SCALE] = {"menu_scale", NULL, "MEMORIES_MENU_SCALE", NULL, 0, 0, 4},
     [SET_WINDOW_X] = {"window_x", NULL, "MEMORIES_WINDOW_X", NULL, -1, -16384, 16384},
     [SET_WINDOW_Y] = {"window_y", NULL, "MEMORIES_WINDOW_Y", NULL, -1, -16384, 16384},
-    [SET_MOD_3D_MONSTERS] = {"3d_monsters", "3d_monsters", "MEMORIES_3D_MONSTERS", "MEMORIES_MODS_MONSTERS", 0, 0, 1},
-    [SET_MOD_HAND_CAMERA] = {"hand_camera", "hand_camera", "MEMORIES_HAND_CAMERA", NULL, 1, 0, 1},
     /* 0 the console's Gaussian filter, 1 a sharper cubic (SpuInterpolation). */
     [SET_AUDIO_INTERPOLATION] = {"audio_interpolation", NULL, "MEMORIES_AUDIO_INTERPOLATION", NULL, 0, 0, 1},
 };
+
+/* A key the fixed list does not know: a mod's, or one this build dropped.
+ * Whole numbers are kept as values so a mod can read and write them; the
+ * rest of a settings file is carried through as the lines it arrived as. */
+typedef struct { char key[MAX_KEY]; int value; } Named;
 
 static int values[SET_COUNT];
 static int stored[SET_COUNT];
 static char unknown[MAX_UNKNOWN][MAX_LINE];
 static int unknown_count;
+static Named named[MAX_NAMED];
+static int named_count;
 static void (*observers[MAX_OBSERVERS])(SettingId, int);
 static int observer_count;
 
 static const char *settings_path(void)
 {
-    const char *path = getenv("MEMORIES_SETTINGS");
-    return path && *path ? path : "saves/settings.txt";
+    static char path[1024];
+    const char *named_path = getenv("MEMORIES_SETTINGS");
+    if (named_path && *named_path) return named_path;
+    if (!path[0] && Paths_User(path, sizeof(path), "settings.txt")) return "settings.txt";
+    return path;
 }
 
 static int clamp(SettingId id, int value)
@@ -97,12 +108,31 @@ static int parse_value(const char *text, int *value)
     return 1;
 }
 
+/* The named entry for a key, made if it is missing and there is room. */
+static Named *find_named(const char *key, int make)
+{
+    int i;
+    for (i = 0; i < named_count; i++) {
+        if (!strcmp(named[i].key, key)) return &named[i];
+    }
+    if (!make || named_count >= MAX_NAMED || strlen(key) >= MAX_KEY) return NULL;
+    snprintf(named[named_count].key, MAX_KEY, "%s", key);
+    named[named_count].value = 0;
+    return &named[named_count++];
+}
+
+static void set_named(const char *key, int value)
+{
+    Named *entry = find_named(key, 1);
+    if (entry) entry->value = value;
+}
+
 void Settings_Load(void)
 {
     FILE *file;
     char line[MAX_LINE];
     int id;
-    unknown_count = 0;
+    unknown_count = named_count = 0;
     for (id = 0; id < SET_COUNT; id++) values[id] = stored[id] = info[id].def;
     file = fopen(settings_path(), "r");
     if (file) {
@@ -121,6 +151,10 @@ void Settings_Load(void)
                 id = find_key(key);
                 if (id >= 0 && parse_value(equals, &value)) {
                     values[id] = stored[id] = clamp((SettingId)id, value);
+                    continue;
+                }
+                if (id < 0 && *key && parse_value(equals, &value) && strlen(key) < MAX_KEY) {
+                    set_named(key, value);
                     continue;
                 }
             }
@@ -146,7 +180,7 @@ int Settings_Save(void)
     char temporary[1024];
     FILE *file;
     int id, i;
-    if (!getenv("MEMORIES_SETTINGS")) mkdir("saves", 0777);
+
     if (snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return 0;
     file = fopen(temporary, "w");
     if (!file) return 0;
@@ -157,6 +191,7 @@ int Settings_Save(void)
             fprintf(file, "%s=%d\n", info[id].legacy_key, stored[id]);
         }
     }
+    for (i = 0; i < named_count; i++) fprintf(file, "%s=%d\n", named[i].key, named[i].value);
     for (i = 0; i < unknown_count; i++) fprintf(file, "%s\n", unknown[i]);
     {
         int failed = ferror(file);
@@ -185,6 +220,17 @@ void Settings_Set(SettingId id, int value)
 const char *Settings_Key(SettingId id) { return id >= 0 && id < SET_COUNT ? info[id].key : NULL; }
 int Settings_Min(SettingId id) { return id >= 0 && id < SET_COUNT ? info[id].min : 0; }
 int Settings_Max(SettingId id) { return id >= 0 && id < SET_COUNT ? info[id].max : 0; }
+
+int Settings_GetNamed(const char *key, int fallback)
+{
+    Named *entry = key ? find_named(key, 0) : NULL;
+    return entry ? entry->value : fallback;
+}
+
+void Settings_SetNamed(const char *key, int value)
+{
+    if (key && *key) set_named(key, value);
+}
 
 void Settings_Observe(void (*changed)(SettingId id, int value))
 {
