@@ -16,3 +16,11 @@ int Memories_SigProcMask(int how, const sigset_t *set, sigset_t *previous)
     }
     return 0;
 }
+
+/* A mod library loaded by mods.c (pc/compat/dlfcn.h) is registered with the
+ * game clock as code it may interrupt; a unit test has no clock. */
+void Win32_AddCodeModule(void *module);
+void Win32_AddCodeModule(void *module)
+{
+    (void)module;
+}
