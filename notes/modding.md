@@ -131,6 +131,15 @@ gcc -m32 -std=gnu11 -O2 -fPIC -shared -Isrc \
     -o my-mod/my-mod.so my-mod/*.c -lm
 ```
 
+On Windows the executable exports its symbols instead, and the build leaves
+its import library beside it; a mod is a DLL linked against that:
+
+```sh
+i686-w64-mingw32-clang -std=gnu11 -O2 -shared -Isrc -mno-ms-bitfields \
+    -DMEMORIES_PC -D_LANGUAGE_C -DLANGUAGE_C \
+    -o my-mod/my-mod.dll my-mod/*.c tmp/pc/game32/libmemories-pc.a -lm
+```
+
 `tools/pc/build_game32.py` does exactly this for every directory under
 `mods/` and copies the manifest and the mod's files next to the executable,
 so a mod developed in this repository needs no build wiring of its own.

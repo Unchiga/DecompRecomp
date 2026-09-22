@@ -7,16 +7,26 @@
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/debug/crash.h"
-#include <signal.h>
+#include "pc/debug/log.h"
+#include "pc/compat/signal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
+#include "pc/compat/mman.h"
 #include <sys/stat.h>
-#include <ucontext.h>
 #include <unistd.h>
+#include "pc/compat/posix.h"
+#ifdef _WIN32
+#include "pc/platform/win32.h"
+#else
+#include <ucontext.h>
+#endif
 
+#ifdef _WIN32
+#define STACK_BASE 0xB0000000u /* 32-bit Windows loads system DLLs around 0x70000000; mods use 0x90000000 */
+#else
 #define STACK_BASE 0x70000000u
+#endif
 #define STACK_SIZE 0x00800000u
 #define STACK_TOP (STACK_BASE + STACK_SIZE)
 #define SCRATCHPAD 0x1f800000u
@@ -47,7 +57,40 @@ struct MemoriesState {
 
 static Region *regions;
 static unsigned region_count;
+#ifdef _WIN32
+/* Windows has no ucontext. A context is the stack pointer of a suspended
+ * Memories_ContextSwitch (state_i386.S), which keeps the callee-saved
+ * registers on that stack. The thread's stack bounds and exception-handler
+ * chain live in its TEB and must follow the stack, as fibers do: exceptions
+ * raised on a stack outside those bounds cannot be dispatched. Bounds are
+ * the TEB's first three words: handler chain, stack base, stack limit. */
+void Memories_ContextSwitch(uint32_t *from_esp, const uint32_t *to_esp);
+static uint32_t service_context, game_context;
+static uint32_t process_bounds[3];
+static const uint32_t game_bounds[3] = {0xffffffffu, STACK_TOP, STACK_BASE}; /* no handlers */
+
+static void save_stack_bounds(uint32_t *bounds)
+{
+    __asm__ volatile("movl %%fs:0, %0\n\tmovl %%fs:4, %1\n\tmovl %%fs:8, %2"
+                     : "=r"(bounds[0]), "=r"(bounds[1]), "=r"(bounds[2]));
+}
+
+static void set_stack_bounds(const uint32_t *bounds)
+{
+    __asm__ volatile("movl %0, %%fs:0\n\tmovl %1, %%fs:4\n\tmovl %2, %%fs:8"
+                     :
+                     : "r"(bounds[0]), "r"(bounds[1]), "r"(bounds[2])
+                     : "memory");
+}
+
+static void leave_game_stack(void)
+{
+    set_stack_bounds(process_bounds);
+    Memories_ContextSwitch(&game_context, &service_context);
+}
+#else
 static ucontext_t service_context, game_context;
+#endif
 static int (*game_entry)(void);
 static int game_result;
 static volatile int requested, requested_slot = 1;
@@ -266,6 +309,9 @@ static void apply(void)
     Mods_Reset(); /* another game: whatever the mods were holding is not it */
     fprintf(stderr, "memories-pc: state loaded\n");
     hold_signals(0);
+#ifdef _WIN32
+    set_stack_bounds(game_bounds);
+#endif
     Memories_StateReturn(&entry, 263); /* one field, as VSync(0) reports it */
 }
 
@@ -539,7 +585,11 @@ static int load(const char *path)
     pending_image = image;
     pending_size = (size_t)length;
     /* Leave the game stack; the service context applies the state. */
+#ifdef _WIN32
+    leave_game_stack();
+#else
     swapcontext(&game_context, &service_context);
+#endif
     return 0; /* not reached: the state resumes in its own VSync caller */
 }
 
@@ -589,6 +639,30 @@ void Memories_StatePoint(unsigned presented_frames)
         scripted_done = 1;
         save(scripted_path);
     }
+    {
+        /* MEMORIES_AUTOSAVE=<seconds>: a rolling state every so many seconds
+         * of presented frames, in slots auto1..auto3 of the state folder, so
+         * that a problem report comes with a state from shortly before it. */
+        static unsigned autosave_every, autosave_next, autosave_index;
+        static int autosave_read;
+        if (!autosave_read) {
+            const char *every = getenv("MEMORIES_AUTOSAVE");
+            autosave_read = 1;
+            autosave_every = every ? (unsigned)atoi(every) * 60u : 0;
+            autosave_next = presented_frames + autosave_every;
+        }
+        if (autosave_every && presented_frames >= autosave_next) {
+            char folder[512];
+            const char *slash;
+            autosave_next = presented_frames + autosave_every;
+            slot_path(folder, sizeof(folder), 0); /* creates the folder */
+            slash = strrchr(folder, '/');
+            snprintf(path, sizeof(path), "%.*s/auto%u.state", slash ? (int)(slash - folder) : 1,
+                     slash ? folder : ".", autosave_index % 3 + 1);
+            autosave_index++;
+            if (!save(path)) LOG(LOG_STATE, "autosave %s at frame %u", path, presented_frames);
+        }
+    }
     what = __atomic_exchange_n(&requested, 0, __ATOMIC_SEQ_CST);
     if (what) {
         slot_path(path, sizeof(path), requested_slot);
@@ -604,6 +678,9 @@ void Memories_StatePoint(unsigned presented_frames)
 static void run_game(void)
 {
     game_result = game_entry();
+#ifdef _WIN32
+    leave_game_stack(); /* what uc_link does on Linux */
+#endif
 }
 
 static int add_region(const char *name, char *data, char *data_end, char *bss, char *bss_end)
@@ -644,6 +721,21 @@ int Memories_StateRunGame(int (*entry)(void))
         }
     }
     game_entry = entry;
+#ifdef _WIN32
+    {
+        /* What Memories_ContextSwitch pops: EDI ESI EBX EBP, then the return
+         * into run_game, whose own return address is never used. */
+        uint32_t *top = (uint32_t *)(uintptr_t)(STACK_TOP - 64);
+        top[0] = top[1] = top[2] = top[3] = 0;
+        top[4] = (uint32_t)(uintptr_t)run_game;
+        top[5] = 0;
+        game_context = (uint32_t)(uintptr_t)top;
+        save_stack_bounds(process_bounds);
+        set_stack_bounds(game_bounds);
+        /* Every load request re-enters here, on the process stack. */
+        Memories_ContextSwitch(&service_context, &game_context);
+    }
+#else
     getcontext(&game_context);
     game_context.uc_stack.ss_sp = stack;
     game_context.uc_stack.ss_size = STACK_SIZE;
@@ -651,6 +743,7 @@ int Memories_StateRunGame(int (*entry)(void))
     makecontext(&game_context, run_game, 0);
     /* Every load request re-enters here, on the process stack. */
     swapcontext(&service_context, &game_context);
+#endif
     if (pending_image) {
         apply();
     }

@@ -12,6 +12,9 @@
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"
 #include "pc/mods/mods.h"
+#ifdef _WIN32
+#include "pc/platform/win32.h"
+#endif
 
 static void (*vsync_callback)(void);
 static long (*counter_handler)(void);
@@ -225,6 +228,13 @@ int Memories_VSync(int mode)
                         (Platform_VBlankCount() - vblanks_then) / seconds,
                         (counter_calls - ticks_then) / seconds, (unsigned long long)counter_period_us);
                 }
+#ifdef _WIN32
+                {
+                    unsigned lost, undone;
+                    Win32_ClockRepairs(&lost, &undone);
+                    LOG(LOG_FRAMES, "clock repairs: %u lost redirects, %u interrupted faults", lost, undone);
+                }
+#endif
             }
             since = t1;
             ticks_then = counter_calls;

@@ -1,3 +1,15 @@
+#ifndef __linux__
+/* Off Linux SDL identifies controllers itself: no evdev identity. */
+#include "controls_linux.h"
+int ControlsLinux_Identity(const char *path, char *identity, unsigned capacity)
+{
+    (void)path;
+    if (capacity) {
+        identity[0] = 0;
+    }
+    return 0;
+}
+#else
 #include "controls_linux.h"
 #include <fcntl.h>
 #include <linux/input.h>
@@ -25,3 +37,4 @@ int ControlsLinux_Identity(const char *path, char *out, unsigned size)
                      serial[0] ? "serial" : "path", serial[0] ? serial : phys);
     return n >= 0 && (unsigned)n < size;
 }
+#endif

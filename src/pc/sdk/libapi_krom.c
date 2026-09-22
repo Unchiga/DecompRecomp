@@ -8,12 +8,19 @@
  * whatever sans-serif exists: the US credits are full-width Latin) and kept
  * for the run; the interpreter reads host memory through the address like
  * any guest address. A code that cannot be converted or rendered gets a
- * blank pattern rather than the ROM's -1, which the module never checks. */
+ * blank pattern rather than the ROM's -1, which the module never checks.
+ * On Windows the face is a Japanese system font (Win32_FontPath) and
+ * Shift-JIS converts through code page 932. */
 #include "pc/debug/log.h"
-#include <fontconfig/fontconfig.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#ifdef _WIN32
+#include "pc/platform/win32.h"
+#include <windows.h>
+#else
+#include <fontconfig/fontconfig.h>
 #include <iconv.h>
+#endif
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +40,30 @@ static int face_tried;
 static unsigned char *patterns[65536];
 static unsigned char blank[GLYPH_BYTES];
 
+#ifdef _WIN32
+static void open_face(void)
+{
+    const char *file = Win32_FontPath(1);
+    face_tried = 1;
+    if (FT_Init_FreeType(&library)) return;
+    if (file && FT_New_Face(library, file, 0, &face) == 0) {
+        FT_Set_Pixel_Sizes(face, 0, 14);
+        LOG(LOG_WINDOW, "kanji ROM glyphs from %s", file);
+    } else {
+        face = NULL;
+    }
+}
+
+/* Shift-JIS is Windows code page 932. */
+static uint32_t sjis_to_unicode(unsigned code)
+{
+    char in[2];
+    wchar_t out[2];
+    in[0] = (char)(code >> 8);
+    in[1] = (char)code;
+    return MultiByteToWideChar(932, MB_ERR_INVALID_CHARS, in, 2, out, 2) == 1 ? out[0] : 0;
+}
+#else
 static void open_face(void)
 {
     FcPattern *pattern, *match;
@@ -81,6 +112,7 @@ static uint32_t sjis_to_unicode(unsigned code)
     return (uint32_t)(unsigned char)out[0] | (uint32_t)(unsigned char)out[1] << 8 |
            (uint32_t)(unsigned char)out[2] << 16 | (uint32_t)(unsigned char)out[3] << 24;
 }
+#endif
 
 /* Render into a 16x15 cell: horizontally centred, baseline on row 11 so
  * ascenders and descenders both fit at a 14-pixel em. */

@@ -1,9 +1,18 @@
 /* The game's jmp_buf is the Psy-Q int[12] at a fixed guest address, too small
  * for the host libc's. Six words are enough for the i386 callee-saved state. */
+#ifdef _WIN32
+#define SYMBOL(name) _##name
+#define FUNCTION(name)
+#define END(name)
+#else
+#define SYMBOL(name) name
+#define FUNCTION(name) .type name, @function
+#define END(name) .size name, . - name
+#endif
     .text
-    .globl Psx_setjmp
-    .type Psx_setjmp, @function
-Psx_setjmp:
+    .globl SYMBOL(Psx_setjmp)
+    FUNCTION(Psx_setjmp)
+SYMBOL(Psx_setjmp):
     movl 4(%esp), %eax
     movl %ebx, 0(%eax)
     movl %esi, 4(%eax)
@@ -15,11 +24,11 @@ Psx_setjmp:
     movl %ecx, 20(%eax)
     xorl %eax, %eax
     ret
-    .size Psx_setjmp, .-Psx_setjmp
+    END(Psx_setjmp)
 
-    .globl Psx_longjmp
-    .type Psx_longjmp, @function
-Psx_longjmp:
+    .globl SYMBOL(Psx_longjmp)
+    FUNCTION(Psx_longjmp)
+SYMBOL(Psx_longjmp):
     movl 4(%esp), %edx
     movl 8(%esp), %eax
     testl %eax, %eax
@@ -31,5 +40,7 @@ Psx_longjmp:
     movl 12(%edx), %ebp
     movl 16(%edx), %esp
     jmp *20(%edx)
-    .size Psx_longjmp, .-Psx_longjmp
+    END(Psx_longjmp)
+#ifndef _WIN32
     .section .note.GNU-stack,"",@progbits
+#endif

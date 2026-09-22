@@ -1,23 +1,32 @@
 /* VSync is the save-state boundary (see state.h). The entry records what the
  * game caller expects back -- the callee-saved registers and where its return
  * address is -- and continues in the C implementation on the same frame. */
+#ifdef _WIN32
+#define SYMBOL(name) _##name
+#define FUNCTION(name)
+#define END(name)
+#else
+#define SYMBOL(name) name
+#define FUNCTION(name) .type name, @function
+#define END(name) .size name, . - name
+#endif
     .text
-    .globl VSync
-    .type VSync, @function
-VSync:
-    movl %ebx, Memories_StateEntry
-    movl %esi, Memories_StateEntry + 4
-    movl %edi, Memories_StateEntry + 8
-    movl %ebp, Memories_StateEntry + 12
-    movl %esp, Memories_StateEntry + 16
-    jmp Memories_VSync
-    .size VSync, . - VSync
+    .globl SYMBOL(VSync)
+    FUNCTION(VSync)
+SYMBOL(VSync):
+    movl %ebx, SYMBOL(Memories_StateEntry)
+    movl %esi, SYMBOL(Memories_StateEntry) + 4
+    movl %edi, SYMBOL(Memories_StateEntry) + 8
+    movl %ebp, SYMBOL(Memories_StateEntry) + 12
+    movl %esp, SYMBOL(Memories_StateEntry) + 16
+    jmp SYMBOL(Memories_VSync)
+    END(VSync)
 
 /* void Memories_StateReturn(const MemoriesStateEntry *entry, int value):
  * return `value` from the VSync call that `entry` describes. */
-    .globl Memories_StateReturn
-    .type Memories_StateReturn, @function
-Memories_StateReturn:
+    .globl SYMBOL(Memories_StateReturn)
+    FUNCTION(Memories_StateReturn)
+SYMBOL(Memories_StateReturn):
     movl 4(%esp), %ecx
     movl 8(%esp), %eax
     movl 0(%ecx), %ebx
@@ -26,5 +35,27 @@ Memories_StateReturn:
     movl 12(%ecx), %ebp
     movl 16(%ecx), %esp
     ret
-    .size Memories_StateReturn, . - Memories_StateReturn
+    END(Memories_StateReturn)
+
+#ifdef _WIN32
+/* void Memories_ContextSwitch(uint32_t *from_esp, const uint32_t *to_esp):
+ * the ucontext stand-in (state.c). Keeps the callee-saved registers on the
+ * stack being left and resumes the one whose stack pointer `to_esp` holds. */
+    .globl SYMBOL(Memories_ContextSwitch)
+SYMBOL(Memories_ContextSwitch):
+    movl 4(%esp), %eax
+    movl 8(%esp), %edx
+    pushl %ebp
+    pushl %ebx
+    pushl %esi
+    pushl %edi
+    movl %esp, (%eax)
+    movl (%edx), %esp
+    popl %edi
+    popl %esi
+    popl %ebx
+    popl %ebp
+    ret
+#else
     .section .note.GNU-stack, "", @progbits
+#endif

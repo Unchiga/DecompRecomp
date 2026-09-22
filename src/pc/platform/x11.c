@@ -163,7 +163,7 @@ void Platform_Screenshot(int window_image)
     if (!last.vram || last.w <= 0 || last.h <= 0) return;
     char user[1024];
     if (!directory || !*directory) {
-        if (Paths_User(user, sizeof(user), "screenshots")) return 0;
+        if (Paths_User(user, sizeof(user), "screenshots")) return;
         directory = user;
     }
     mkdir(directory, 0777);

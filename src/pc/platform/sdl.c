@@ -22,12 +22,13 @@
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
-#include <signal.h>
+#include "pc/compat/signal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include "pc/compat/posix.h"
 
 static SDL_Window *window;
 static SDL_Renderer *renderer;

@@ -311,7 +311,7 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 | Menu | Items |
 |---|---|
 | File | Save/load state, slots 1-4, screenshot, reload settings, exit |
-| Audio | Master/music/SFX/movie sliders, mute and focus-loss mute |
+| Audio | Master/music/SFX/movie sliders, mute and focus-loss mute, Gaussian (console) or cubic (sharper) voice interpolation (`audio_interpolation`) |
 | View | Window scale and Menu size submenus, window mode, scaling/aspect/filter/VSync choices |
 | Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card) |
 | Mods | opens the mods window, which lists every mod found in `mods/` beside the executable and in the user directory (`notes/modding.md`) |
@@ -668,6 +668,122 @@ array of incomplete type is declared after the layout instead),
 macros). The build also defines `_LANGUAGE_C`/`LANGUAGE_C`, which the MIPS
 front end predefined, and uses `-fpermissive` for GCC 2.8.1-era pointer
 conversions.
+
+## Windows
+
+The same driver builds `tmp/pc/game32/memories-pc.exe` on Windows 10/11 with
+the SDL backend. Status (2026-09-22, Windows 11, i686 on x64): headless and
+in the SDL/OpenGL window at 59.94 fps, with the menu bar, through the Konami
+logo, movie, title, main menu, name entry and the opening story into the
+deck (CHEST) screen. Audio output and the rest of the game are not checked
+yet on Windows.
+
+Setup, from a Git Bash or PowerShell with Python 3:
+
+```sh
+# llvm-mingw (https://github.com/mstorsjo/llvm-mingw), cmake and ninja on PATH
+python tools/pc/build_win32_deps.py   # zlib, libpng, FreeType, SDL3 into tmp/pc/win32-deps
+python tools/pc/build_game32.py
+tmp/pc/game32/memories-pc.exe game/SLUS_014.11
+```
+
+`make match` / `make match-overlays` (for the symbol addresses) still run on
+Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
+`tmp/overlays/*/build/*.elf` into the Windows checkout. `SDL3.dll` is copied
+beside the executable. Everything Windows-specific is behind `_WIN32`; the
+Linux build is unchanged.
+
+For play-testing, `tools/pc/run_debug_windows.bat` runs the game with
+problem reporting on. It keeps a rolling state every 30 s
+(`MEMORIES_AUTOSAVE=<seconds>`, slots `auto1`..`auto3` in
+`tmp/pc/debug/states`), traces in `tmp/pc/debug/trace.log` and the console in
+`tmp/pc/debug/console.txt`. `tmp/pc/hang-*.txt` / `crash-*.txt` hold named
+backtraces: PE symbols have no sizes, so the build sizes each function up to
+the next symbol, and addresses in a DLL are named by module. The hang
+watchdog runs on the clock thread (`Win32_SetStallReporter`), so it also
+reports a main thread stuck in a driver or a lock, which the tick cannot
+reach; a pause counts as alive.
+
+What differs from Linux, and why:
+
+- **Clock.** No signals: `platform/win32.c` runs a 1 kHz timer thread that
+  suspends the main thread and, if it is executing code of the executable
+  and does not hold SIGALRM, redirects it through an assembly trampoline
+  that saves every register and the FPU/SSE state, runs the tick and returns
+  to the interrupted instruction. Code outside the executable (C runtime,
+  SDL, drivers) is never interrupted; a tick missed there is taken by
+  `Win32_ServiceInterrupt` from `Platform_WaitVBlank`. `pc/compat/signal.h`
+  maps `sigprocmask`/`pthread_sigmask` on SIGALRM to that hold flag.
+- **Faults.** A vectored exception handler in `image.c` does what the
+  SIGSEGV/SIGTRAP handlers do (guest-call redirect, low-address fixup);
+  32-bit processes on 64-bit Windows can report the single step as
+  `STATUS_WX86_SINGLE_STEP`. Fatal exceptions raised in the executable are
+  reported by `crash.c` through `Win32_SetCrashReporter`.
+- **Physical RAM mirror.** Windows already occupies `0x10000..0x200000` when
+  the program starts (process parameters, locale tables, the WoW64 stack),
+  so the mirror cannot be mapped; `Memories_Resolve` returns the
+  `0x80000000` alias for physical RAM addresses, and the fault handler sends
+  any other access there through guest RAM (each site reported once).
+- **Stacks.** The game stack is at `0xB0000000` (32-bit Windows loads system
+  DLLs around `0x70000000`; the mods keep `0x90000000`). `state.c` switches stacks with
+  `Memories_ContextSwitch` (`state_i386.S`) and moves the TEB's stack bounds
+  and exception chain with it, as fibers do.
+- **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`
+  labels are renamed to match. No GNU linker script: pins are absolute
+  symbols from `guest_symbols.s`, and the game units' COMMON symbols for
+  pinned names are turned into references, since lld would prefer the
+  COMMON. Section renames edit the COFF headers (`rename_coff_sections`) and
+  `__start_`/`__stop_` come from `$a`/`$z` marker sections. Overrides win by
+  link order (`--allow-multiple-definition`, native objects first); any
+  other duplicate definition is still an error. PE cannot place sections at
+  chosen addresses, so the fixed game sections are not there: save states
+  work within one build but are not carried across rebuilds.
+- **Bitfield layout.** MinGW compilers lay bitfields out as MSVC does by
+  default, where fields of different declared types do not share a unit:
+  `GsOT_TAG` (`unsigned p:24; unsigned char num:8`) became 8 bytes and every
+  LIBGS ordering table was walked with the wrong stride, so semi-transparent
+  and shaded primitives were overwritten or lost (the title's lower
+  gradient, the yellow selection bar). The build passes `-mno-ms-bitfields`
+  to game and native units, and `libgte_extra.c` asserts the size.
+- **Clock races.** Besides the fault race above, a redirect made while an
+  exception is being delivered can be dropped by Windows; the tick then never
+  runs. It is released wherever it shows: by the exception handler, which
+  sees the redirect still marked while the registers it got are not at the
+  tick's entry; by the clock thread, when the main thread's stack pointer is
+  back above the slot it pushed; and by `Win32_ServiceInterrupt`, since a
+  wait on the main thread is not the tick. Before this, the game froze in
+  `Platform_WaitVBlank` after a few minutes of duelling. The game stack runs
+  with an empty SEH chain, so the crash reporter also takes any fatal
+  exception raised while the chain is empty, in a DLL too; a stack overflow
+  is reported from a thread of its own, the faulting one having too little
+  stack left. Crash and hang reports come with a minidump (`tmp/pc/*.dmp`,
+  `lldb -c` reads it). Other threads' unhandled exceptions go through
+  `SetUnhandledExceptionFilter`, and every exception nothing claimed is
+  logged once per address.
+- **Low accesses without a trap.** A plain 32-bit `mov` to or from a low
+  address is carried out by the fault handler through guest RAM
+  (`emulate_low_mov`) instead of rebase and single step: WoW64 mishandled
+  the trap for `movl 0x4c(%eax),%eax` (destination = base register) in
+  `func_800540B4` under the 3D Monsters mod, and the process died in the
+  exception dispatcher.
+- **Mods.** The executable exports its symbols (`--export-all-symbols`) and
+  the link leaves an import library, `libmemories-pc.a`, beside it; a mod's
+  DLL links against that, which is what `-rdynamic` does for a `.so` on
+  Linux. `mods.c` reads a replacement file into memory instead of mapping
+  it, and loads the DLL with `LoadLibrary` (`pc/compat/dlfcn.h`). Not yet
+  run on Windows.
+- **rename.** Windows' `rename` does not replace an existing file; states,
+  settings, controls and memory cards save through `MoveFileEx`
+  (`pc/compat/posix.h`).
+- **Narrow returns.** clang leaves the upper bits of a `char`/`short` return
+  undefined, which GCC happens to fill. Two matching definitions are read
+  wider by callers (`Ai_GetHandSize`, `MemCard_FindLoadedEntry`; an IR
+  comparison of declared and defined return types over all game units found
+  only these), and `src/pc/overrides/narrow_returns.c` returns full words for
+  both. Before it, the opponent's turn in a duel ran off guest RAM.
+- **Libraries.** fontconfig is replaced by fonts from `%WINDIR%\Fonts`
+  (`Win32_FontPath`), iconv by code page 932, and the few POSIX calls by
+  `pc/compat/posix.h` and `pc/compat/mman.h`.
 
 ## Launch the local graphics preview
 

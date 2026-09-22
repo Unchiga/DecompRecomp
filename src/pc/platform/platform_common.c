@@ -2,23 +2,28 @@
  * scripted test input. The 1 kHz SIGALRM stands in for the console's
  * interrupts and must fire on the main thread, between instructions of the
  * game (busy-waits poll what the handlers update); backends block signals
- * on every thread they create. Windows will need another mechanism. */
+ * on every thread they create. Windows interrupts the main thread from a
+ * timer thread instead (win32.c). */
 #define _GNU_SOURCE
 #include "platform.h"
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"
 #include "pc/debug/crash.h"
 #include "pc/debug/profile.h"
+#include "pc/compat/signal.h"
 #include <pthread.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/syscall.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
+#ifdef _WIN32
+#include "win32.h"
+#else
+#include <sys/syscall.h>
 #include <ucontext.h>
+#endif
 
 static volatile unsigned vblank_count;
 static void (*vblank_handler)(void);
@@ -75,20 +80,31 @@ static void advance(uint64_t real_now)
     }
 }
 
-static void on_alarm(int number, siginfo_t *info, void *context)
+static void on_tick(uintptr_t eip, void *context)
 {
-    ucontext_t *user = context;
     uint64_t real_now = now_us();
-    (void)number;
-    (void)info;
-    Profile_Sample((uintptr_t)user->uc_mcontext.gregs[REG_EIP]);
+    Profile_Sample(eip);
+#ifndef _WIN32 /* Windows watches from the clock thread (Win32_SetStallReporter) */
     if (watchdog_seconds && rate != 0 && !watchdog_reported &&
         real_now - last_vsync_real >= (uint64_t)watchdog_seconds * 1000000u) {
         watchdog_reported = 1;
         Crash_ReportHang(context);
     }
+#else
+    (void)context;
+#endif
     advance(real_now);
 }
+
+#ifndef _WIN32
+static void on_alarm(int number, siginfo_t *info, void *context)
+{
+    ucontext_t *user = context;
+    (void)number;
+    (void)info;
+    on_tick((uintptr_t)user->uc_mcontext.gregs[REG_EIP], context);
+}
+#endif
 
 /* The 1 kHz signal is aimed at the main thread itself (SIGEV_THREAD_ID), not
  * the process: a process-directed signal lands on any thread that does not
@@ -98,10 +114,12 @@ static void on_alarm(int number, siginfo_t *info, void *context)
  * on that driver's locks. The process-wide timer is only a fallback. */
 int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
 {
+#ifndef _WIN32
     struct sigaction action;
     struct sigevent event;
     struct itimerspec spec;
     timer_t timer;
+#endif
     tick_handler = tick;
     vblank_handler = vblank;
     deterministic_dump = getenv("MEMORIES_HEADLESS") != NULL && getenv("MEMORIES_DUMP_FRAME") != NULL;
@@ -111,6 +129,10 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
         if (watchdog && *watchdog) watchdog_seconds = (unsigned)strtoul(watchdog, NULL, 10);
     }
     Profile_Init();
+#ifdef _WIN32
+    Win32_SetStallReporter(Crash_ReportHang, watchdog_seconds);
+    return Win32_StartInterrupt(on_tick);
+#else
     memset(&action, 0, sizeof(action));
     action.sa_sigaction = on_alarm;
     action.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -133,6 +155,7 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
         fallback.it_interval.tv_usec = fallback.it_value.tv_usec = 1000;
         return setitimer(ITIMER_REAL, &fallback, NULL) ? -1 : 0;
     }
+#endif
 }
 
 unsigned Platform_VBlankCount(void)
@@ -201,6 +224,9 @@ void Platform_VSyncHeartbeat(void)
     sigprocmask(SIG_BLOCK, &set, &previous);
     last_vsync_real = now_us();
     watchdog_reported = 0;
+#ifdef _WIN32
+    Win32_Heartbeat();
+#endif
     sigprocmask(SIG_SETMASK, &previous, NULL);
 }
 
@@ -253,6 +279,9 @@ void Platform_WaitVBlank(unsigned count_at_entry)
                 deliver_vblank();
             }
             sigprocmask(SIG_SETMASK, &previous, NULL);
+#ifdef _WIN32
+            Win32_ServiceInterrupt();
+#endif
             if (vblank_count == count_at_entry) nanosleep(&nap, NULL);
             continue;
         }
@@ -272,6 +301,11 @@ void Platform_WaitVBlank(unsigned count_at_entry)
             sigprocmask(SIG_SETMASK, &previous, NULL);
         } else {
             if (rate == 0) Platform_PumpEvents();
+#ifdef _WIN32
+            if (rate == 0) Win32_Heartbeat(); /* paused, not hung */
+            Win32_ServiceInterrupt();
+            if (vblank_count != count_at_entry) break;
+#endif
             nanosleep(&nap, NULL);
         }
     }

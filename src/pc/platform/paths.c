@@ -6,12 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "pc/compat/posix.h" /* mkdir, and readlink of /proc/self/exe, on Windows */
 #include <sys/stat.h>
-#include <unistd.h>
-#ifdef _WIN32
-#include <direct.h>
-#define mkdir(path, mode) _mkdir(path)
-#endif
 
 #define PATH_MAX_ 1024
 #define APP_NAME "YFM ReDecomp"

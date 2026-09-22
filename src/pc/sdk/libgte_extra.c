@@ -10,6 +10,10 @@
 #include "pc/compat/gte.h"
 #include <stdint.h>
 
+/* The game's structures have GCC's bitfield layout; MinGW's default (MSVC's)
+ * makes this one 8 bytes and every LIBGS ordering table walk wrong. */
+_Static_assert(sizeof(GsOT_TAG) == 4, "GsOT_TAG needs GCC bitfield layout (-mno-ms-bitfields on MinGW)");
+
 /* --- LIBGPU --------------------------------------------------------- */
 
 u16 GetTPage(int tp, int abr, int x, int y)

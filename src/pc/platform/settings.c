@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "pc/compat/posix.h"
 
 #define MAX_UNKNOWN 64
 #define MAX_NAMED 128
@@ -46,6 +47,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_MENU_SCALE] = {"menu_scale", NULL, "MEMORIES_MENU_SCALE", NULL, 0, 0, 4},
     [SET_WINDOW_X] = {"window_x", NULL, "MEMORIES_WINDOW_X", NULL, -1, -16384, 16384},
     [SET_WINDOW_Y] = {"window_y", NULL, "MEMORIES_WINDOW_Y", NULL, -1, -16384, 16384},
+    /* 0 the console's Gaussian filter, 1 a sharper cubic (SpuInterpolation). */
+    [SET_AUDIO_INTERPOLATION] = {"audio_interpolation", NULL, "MEMORIES_AUDIO_INTERPOLATION", NULL, 0, 0, 1},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

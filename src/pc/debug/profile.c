@@ -1,6 +1,9 @@
 #include "profile.h"
 #include "symbols.h"
-#include <signal.h>
+#include "pc/compat/signal.h"
+#ifdef _WIN32
+#include "pc/platform/win32.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -60,13 +63,20 @@ static void write_profile(void)
 
 void Profile_Init(void)
 {
-    extern char __start_game_text[], __stop_game_text[], __executable_start[], etext[];
+    extern char __start_game_text[], __stop_game_text[];
+#ifndef _WIN32
+    extern char __executable_start[], etext[];
+#endif
     output_path = getenv("MEMORIES_PROFILE");
     if (!output_path || !*output_path) return;
     ranges[0].first = (uintptr_t)__start_game_text;
     ranges[0].last = (uintptr_t)__stop_game_text;
+#ifdef _WIN32
+    Win32_ImageRange(&ranges[1].first, &ranges[1].last);
+#else
     ranges[1].first = (uintptr_t)__executable_start;
     ranges[1].last = (uintptr_t)etext;
+#endif
     ranges[0].count = (ranges[0].last - ranges[0].first + 15) / 16;
     ranges[1].count = (ranges[1].last - ranges[1].first + 15) / 16;
     ranges[0].samples = calloc(ranges[0].count, sizeof(uint32_t));

@@ -27,6 +27,7 @@ typedef enum {
     SET_MENU_SCALE,
     SET_WINDOW_X,
     SET_WINDOW_Y,
+    SET_AUDIO_INTERPOLATION,
     SET_COUNT
 } SettingId;
 

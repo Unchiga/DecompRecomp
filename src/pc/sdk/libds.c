@@ -16,9 +16,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
+#include "pc/compat/signal.h"
 #include <time.h>
 #include <unistd.h>
+#include "pc/compat/posix.h"
 
 #define RAW_SECTOR 2352
 #define USER_DATA 24

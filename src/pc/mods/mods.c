@@ -29,17 +29,21 @@
 #include "pc/platform/platform.h"
 #include "pc/debug/log.h"
 #include "pc/sdk/disc.h"
+#include "pc/compat/dlfcn.h"
 #include <ctype.h>
 #include <dirent.h>
-#include <dlfcn.h>
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 #define ID_MAX 64
 #define NAME_MAX_ 96
@@ -269,13 +273,45 @@ static void publish_overrides(void)
     overrides_live = high >= low;
 }
 
+/* A replacement file, read-only, for as long as the mod is applied. Linux
+ * maps it; Windows has no mmap of a file the port could declare by hand
+ * without <windows.h>, and a replacement is at most a few MiB, so it is read
+ * into memory. */
+static void *map_file(int file, size_t size)
+{
+#ifdef _WIN32
+    unsigned char *image = malloc(size);
+    size_t got = 0;
+    if (!image) return NULL;
+    while (got < size) {
+        int chunk = _read(file, image + got, (unsigned)(size - got > 0x10000000u ? 0x10000000u : size - got));
+        if (chunk <= 0) { free(image); return NULL; }
+        got += (size_t)chunk;
+    }
+    return image;
+#else
+    void *image = mmap(NULL, size, PROT_READ, MAP_PRIVATE, file, 0);
+    return image == MAP_FAILED ? NULL : image;
+#endif
+}
+
+static void unmap_file(void *image, size_t size)
+{
+#ifdef _WIN32
+    (void)size;
+    free(image);
+#else
+    munmap(image, size);
+#endif
+}
+
 static void drop_overrides(int mod)
 {
     int i, kept = 0;
     overrides_live = 0;   /* the drive model stops looking before anything goes */
     for (i = 0; i < region_count; i++) {
         if (regions[i].mod != mod) { regions[kept++] = regions[i]; continue; }
-        if (regions[i].image) munmap(regions[i].image, regions[i].mapped);
+        if (regions[i].image) unmap_file(regions[i].image, regions[i].mapped);
     }
     region_count = kept;
     for (i = 0, kept = 0; i < patch_count; i++) {
@@ -353,7 +389,11 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
         return 0;
     }
     if (snprintf(path, sizeof(path), "%s/%s", mod->directory, replacement) >= (int)sizeof(path)) return 0;
+#ifdef _WIN32
+    file = open(path, O_RDONLY | O_BINARY);
+#else
     file = open(path, O_RDONLY);
+#endif
     if (file < 0 || fstat(file, &info) || info.st_size <= 0) {
         if (file >= 0) close(file);
         note(mod, "cannot read %s", replacement);
@@ -365,9 +405,9 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
     if ((size_t)info.st_size > (size_t)sectors * SECTOR) {
         say("%s: %s is larger than the file it replaces; the tail is ignored", mod->id, replacement);
     }
-    image = mmap(NULL, (size_t)info.st_size, PROT_READ, MAP_PRIVATE, file, 0);
+    image = map_file(file, (size_t)info.st_size);
     close(file);
-    if (image == MAP_FAILED) {
+    if (!image) {
         note(mod, "cannot map %s", replacement);
         return 0;
     }
