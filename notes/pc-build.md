@@ -296,7 +296,7 @@ refused by this compositor), so the menu was verified that way.
 
 **X11** (`x11.c`, `audio_alsa.c`, `gamepad_evdev.c`) is the Linux-only
 fallback with no dependency beyond Xlib: it is plain Xlib. The frame it shows is one ARGB32 buffer the port
-composes in software: the 320x240 picture scaled by an integer (View menu,
+composes in software: the 320x240 picture scaled by an integer (Video menu,
 `MEMORIES_SCALE`, 1-8) under a 26-pixel menu bar. The buffer lives in MIT-SHM
 memory the X server reads directly (`XShmPutImage`), so a frame costs a
 request rather than a copy of the whole picture down the socket, and the

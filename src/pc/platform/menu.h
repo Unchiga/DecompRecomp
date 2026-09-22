@@ -96,7 +96,7 @@ int Menu_Event(const MenuEvent *event, int *quit);
  * are dimmed, cannot be selected with the keyboard and ignore clicks. */
 void Menu_SetItemEnabled(int id, int enabled);
 
-/* Provided by the platform for the View menu. */
+/* Provided by the platform for the Video menu. */
 int Platform_Scale(void);
 void Platform_SetScale(int scale);
 #endif
