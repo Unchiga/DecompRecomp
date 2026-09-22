@@ -10,6 +10,11 @@ loader, and this tool replays the loaders it knows, family by family:
              (n-1)*7 + 722, seven sectors; the 102x96 8-bit picture, its
              256-entry palette, the strip under it and the strip beside it)
 
+  portraits  the 48x48 8-bit dialogue portraits with their 64-entry
+             palettes, 0x980 bytes a record: the campaign's 25 (WA offset
+             0xF35000, notes/dialog-portrait-bank.md) and Free Duel's 40
+             (0xF55000, notes/mrg-files.md)
+
 Every PNG is listed in <out>/manifest.json with its provenance: archive,
 byte offset, size in VRAM words and rows, depth, and the palette's offset,
 which is the identity a texture pack goes by. Names are aliases on top.
@@ -94,10 +99,12 @@ class Extractor:
         return self.archives[name]
 
     def image(self, archive: str, offset: int, words: int, rows: int, bpp: int,
-              clut_offset: int | None, path: str, alias: str) -> None:
+              clut_offset: int | None, path: str, alias: str, clut_entries: int | None = None) -> None:
         data = self.archive(archive)
-        entries = {4: 16, 8: 256, 16: 0}[bpp]
+        entries = clut_entries if clut_entries is not None else {4: 16, 8: 256, 16: 0}[bpp]
         palette = read_palette(data, clut_offset, entries) if entries else None
+        if palette is not None and len(palette) < 256:
+            palette = palette + [0] * (256 - len(palette))  # indices past a short palette
         width, height, rgba = decode(data, offset, words, rows, bpp, palette)
         full = os.path.join(self.out, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
@@ -122,12 +129,21 @@ class Extractor:
             self.image("WA_MRG.MRG", base + 0x2AE0, 0x08, 0x58, 8, clut, f"cards/{stem}.side.png",
                        f"card {card} strip beside")
 
+    def portraits(self) -> None:
+        """Campaign_LoadScenePackage and FreeDuel_Init: 0x980-byte records."""
+        for bank, base, count in (("campaign", 0xF35000, 25), ("freeduel", 0xF55000, 40)):
+            for index in range(count):
+                record = base + index * 0x980
+                self.image("WA_MRG.MRG", record, 24, 48, 8, record + 0x900, f"portraits/{bank}-{index:02d}.png",
+                           f"{bank} portrait {index} (F6 id 0x{0x41 + index:02x})" if bank == "campaign"
+                           else f"free duel portrait {index}", clut_entries=64)
+
     def save_manifest(self) -> None:
         with open(os.path.join(self.out, "manifest.json"), "w", encoding="utf-8") as handle:
             json.dump(self.manifest, handle, indent=1)
 
 
-FAMILIES = {"cards": Extractor.cards}
+FAMILIES = {"cards": Extractor.cards, "portraits": Extractor.portraits}
 
 
 def main() -> int:
