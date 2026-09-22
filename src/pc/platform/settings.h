@@ -1,10 +1,10 @@
 #ifndef MEMORIES_PC_SETTINGS_H
 #define MEMORIES_PC_SETTINGS_H
 
-/* The port's stored settings (saves/settings.txt; MEMORIES_SETTINGS names
- * another file). Every key has a default, a range and an environment
- * override MEMORIES_<KEY IN UPPER CASE> (legacy names are also honoured).
- * Settings are never part of save states. */
+/* The port's stored settings (settings.txt in the user directory, see
+ * paths.h; MEMORIES_SETTINGS names another file). Every key has a default, a
+ * range and an environment override MEMORIES_<KEY IN UPPER CASE> (legacy
+ * names are also honoured). Settings are never part of save states. */
 typedef enum {
     SET_MASTER_VOLUME,
     SET_MUSIC_VOLUME,
@@ -27,8 +27,6 @@ typedef enum {
     SET_MENU_SCALE,
     SET_WINDOW_X,
     SET_WINDOW_Y,
-    SET_MOD_3D_MONSTERS,
-    SET_MOD_HAND_CAMERA,
     SET_COUNT
 } SettingId;
 
@@ -41,5 +39,12 @@ const char *Settings_Key(SettingId id);
 int Settings_Min(SettingId id);
 int Settings_Max(SettingId id);
 void Settings_Observe(void (*changed)(SettingId id, int value));
+
+/* Keys outside the fixed list, kept in the same file and written back
+ * unchanged if nothing claims them: whether a mod is applied (`mod.<id>`)
+ * and a mod's own settings (`mod.<id>.<key>`). Unlike the fixed settings
+ * these have no range, so a mod validates its own values. */
+int Settings_GetNamed(const char *key, int fallback);
+void Settings_SetNamed(const char *key, int value);
 
 #endif

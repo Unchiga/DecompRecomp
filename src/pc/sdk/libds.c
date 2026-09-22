@@ -10,6 +10,7 @@
 #include "pc/sdk/disc.h"
 #include "pc/guest/image.h"
 #include "pc/debug/log.h"
+#include "pc/mods/mods.h"
 #include "pc/guest/state.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -73,6 +74,9 @@ static int read_raw(int lba, u8 *out)
 {
     int ok = disc >= 0 && pread(disc, out, RAW_SECTOR, (off_t)lba * RAW_SECTOR) == RAW_SECTOR;
     if (ok) disc_bytes_total += RAW_SECTOR;
+    /* A mod's data overrides stand in for what the disc holds, for every
+     * reader: the drive model, the bulk reads and the file lookup above. */
+    if (ok) Mods_DiscSector(lba, out + USER_DATA);
     return ok;
 }
 
@@ -550,7 +554,7 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out)
     return i;
 }
 
-int Memories_DiscFileStart(const char *path)
+int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size)
 {
     DslFILE file;
     char name[64];
@@ -559,5 +563,13 @@ int Memories_DiscFileStart(const char *path)
     if (!DsSearchFile(&file, name)) {
         return -1;
     }
-    return loc_to_lba(&file.pos);
+    if (lba) *lba = loc_to_lba(&file.pos);
+    if (size) *size = file.size;
+    return 0;
+}
+
+int Memories_DiscFileStart(const char *path)
+{
+    int lba = -1;
+    return Memories_DiscFileInfo(path, &lba, NULL) ? -1 : lba;
 }

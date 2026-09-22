@@ -82,10 +82,10 @@ and reconnect behavior should still be checked with the user's controllers.
 ## Storage
 
 Controls live outside guest saves and save states. The default file is
-`saves/controls.txt`. `MEMORIES_CONTROLS` overrides it; otherwise an explicit
-`MEMORIES_SETTINGS` places `controls.txt` beside that settings file. Apply writes
-a temporary file in the same directory, checks flush/close and atomically renames
-it. Missing files use defaults. Invalid version-1 files fall back to defaults
+`controls.txt` in the user directory (`src/pc/platform/paths.h`).
+`MEMORIES_CONTROLS` overrides it; otherwise an explicit `MEMORIES_SETTINGS`
+places `controls.txt` beside that settings file. Apply writes a temporary
+file in the same directory, checks flush/close and atomically renames it. Missing files use defaults. Invalid version-1 files fall back to defaults
 with a diagnostic. Unsupported versions are preserved and cannot be overwritten
 by Apply.
 

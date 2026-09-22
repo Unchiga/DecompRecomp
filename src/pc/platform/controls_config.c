@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "controls_config.h"
+#include "paths.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -19,7 +20,7 @@ static int path(char *out, size_t size)
         n = slash ? snprintf(out, size, "%.*s/controls.txt", (int)(slash - settings), settings)
                   : snprintf(out, size, "controls.txt");
     } else
-        n = snprintf(out, size, "saves/controls.txt");
+        return Paths_User(out, size, "controls.txt") == 0;
     return n >= 0 && (size_t)n < size;
 }
 void ControlsConfig_Token(ControlSource s, char *out, unsigned size)
@@ -202,8 +203,6 @@ int ControlsConfig_Save(const ControlsConfig *cfg, char *error, unsigned capacit
         }
         fclose(f);
     }
-    if (!strncmp(file, "saves/", 6))
-        (void)mkdir("saves", 0755);
     snprintf(temp, sizeof(temp), "%s.tmp.XXXXXX", file);
     fd = mkstemp(temp);
     if (fd < 0)

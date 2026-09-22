@@ -64,9 +64,10 @@ typedef enum {
     MENU_ITEM_VSYNC
 } MenuItemId;
 
-/* The stored settings (saves/settings.txt, MEMORIES_SETTINGS elsewhere;
- * MEMORIES_VOLUME and MEMORIES_SCALE override). Applied whether or not a
- * window opens, so headless runs honour them too. */
+/* The stored settings (settings.txt in the user directory, see paths.h;
+ * MEMORIES_SETTINGS elsewhere; MEMORIES_VOLUME and MEMORIES_SCALE override),
+ * and the mods they say are applied. Applied whether or not a window opens,
+ * so headless runs honour them too. */
 void Menu_LoadSettings(void);
 int Menu_Height(void);
 /* Prepare fonts and layout; needs no display. */

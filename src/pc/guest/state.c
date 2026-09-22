@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "state.h"
+#include "pc/platform/paths.h"
 #include "pc/mods/mods.h"
 #include "image.h"
 #include "pc/audio/spu.h"
@@ -157,10 +158,11 @@ static void hold_signals(int hold)
 static void slot_path(char *out, size_t size, int slot)
 {
     const char *directory = getenv("MEMORIES_STATE_DIR");
+    char relative[32];
     if (!directory) {
-        directory = "tmp/pc/states";
-        mkdir("tmp", 0777);
-        mkdir("tmp/pc", 0777);
+        snprintf(relative, sizeof(relative), "states/slot%d.state", slot);
+        if (!Paths_User(out, size, relative)) return;
+        directory = "."; /* the user directory is unusable; keep going beside the game */
     }
     mkdir(directory, 0777);
     snprintf(out, size, "%s/slot%d.state", directory, slot);

@@ -78,6 +78,54 @@ def symbols(objects):
             {"U": undefined, "C": tentative}.get(parts[-2], defined).add(parts[-1])
     return defined, tentative, undefined
 
+def build_mods(build):
+    """Each directory under mods/ becomes a mod directory beside the game.
+
+    A mod is its manifest and whatever it ships; if it has C, that is linked
+    into one shared library named after the directory, which the game dlopens
+    when the mod is applied (src/pc/mods/mods.c). Mods resolve the game's and
+    the port's symbols out of the executable at load time, so they are built
+    against the same headers and nothing else."""
+    out_root = f"{build}/mods"
+    os.makedirs(out_root, exist_ok=True)
+    # The header a mod author builds against, beside the game rather than
+    # only in the source tree, so a release carries it (notes/modding.md).
+    os.makedirs(f"{build}/include/pc/mods", exist_ok=True)
+    with open("src/pc/mods/modapi.h", "rb") as source:
+        header = source.read()
+    with open(f"{build}/include/pc/mods/modapi.h", "wb") as copy:
+        copy.write(header)
+    built = []
+    for manifest in sorted(glob.glob("mods/*/mod.json")):
+        source_dir = os.path.dirname(manifest)
+        name = os.path.basename(source_dir)
+        out_dir = f"{out_root}/{name}"
+        os.makedirs(out_dir, exist_ok=True)
+        for path in sorted(glob.glob(f"{source_dir}/**/*", recursive=True)):
+            if path.endswith(".c") or path.endswith(".h") or os.path.isdir(path):
+                continue
+            destination = os.path.join(out_dir, os.path.relpath(path, source_dir))
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if not os.path.exists(destination) or os.path.getmtime(destination) < os.path.getmtime(path):
+                with open(path, "rb") as source, open(destination, "wb") as copy:
+                    copy.write(source.read())
+        sources = sorted(glob.glob(f"{source_dir}/*.c"))
+        if not sources:
+            built.append(f"{name} (data)")
+            continue
+        library = f"{out_dir}/{name}.so"
+        objects = []
+        for source in sources:
+            obj = f"{build}/obj/{source.replace('/', '_')}.o"
+            objects.append(obj)
+            compile_unit((source, obj, NATIVE_CFLAGS + ["-fPIC"], None))
+        if not os.path.exists(library) or max(os.path.getmtime(o) for o in objects) > os.path.getmtime(library):
+            run(["gcc", "-m32", "-shared", "-o", library, *objects, "-lm"])
+        built.append(name)
+    if built:
+        print(f"{out_root}: " + ", ".join(built))
+
+
 def main():
     global NEWEST_HEADER
     parser = argparse.ArgumentParser(description=__doc__)
@@ -95,7 +143,7 @@ def main():
     if not os.path.exists(ELF):
         sys.exit(f"{ELF} is missing; run `make match` first")
     os.makedirs(options.build + "/obj", exist_ok=True)
-    headers = glob.glob("src/**/*.h", recursive=True) + [__file__, "config/pc/host_symbol_renames.txt"]
+    headers = glob.glob("src/**/*.h", recursive=True) + glob.glob("mods/**/*.h", recursive=True) + [__file__, "config/pc/host_symbol_renames.txt"]
     NEWEST_HEADER = max(os.path.getmtime(path) for path in headers)
     obj = lambda source: f"{options.build}/obj/{source.replace('/', '_')}.o"
     # main_menu is the only overlay with a private load address (0x80180000),
@@ -259,11 +307,15 @@ def main():
         handle.write(f"}};\nconst unsigned Memories_ModuleCount = {len(shared)};\n")
     run(["gcc", *NATIVE_CFLAGS, "-c", f"{options.build}/stubs.c", "-o", f"{options.build}/stubs.o"])
     output = f"{options.build}/memories-pc"
-    run(["gcc", "-m32", "-no-pie", "-o", output,
+    # -rdynamic puts the executable's symbols in its dynamic table, which is
+    # what lets a mod's library (build_mods) bind to the game and the port
+    # the way the resident code does. Nothing else needs it.
+    run(["gcc", "-m32", "-no-pie", "-rdynamic", "-o", output,
          *[f"-Wl,--section-start={name}=0x{address:08X}" for name, address in sorted(fixed.items())],
          *[obj(s) for s in game + NATIVE],
          f"{options.build}/stubs.o", f"{options.build}/guest_symbols.ld", *(["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig", "-lpng16"] if options.backend == "sdl"
-           else ["-lm", "-lX11", "-lXext", "-lfreetype", "-lfontconfig", "-lpng16", "-lasound", "-lpthread"])])
+           else ["-lm", "-lX11", "-lXext", "-lfreetype", "-lfontconfig", "-lpng16", "-lasound", "-lpthread", "-ldl"])])
+    build_mods(options.build)
     # Save states are carried between builds with these tables
     # (src/pc/guest/state.c): every function in the executable, because the
     # game keeps pointers to native routines as well as its own (HMD

@@ -235,6 +235,30 @@ address. Checked from a state at the ending's last dialogue, mashing Cross
 (`MEMORIES_INPUT`) at 400%: names and the wireframe monsters through
 "Created by Konami Computer Entertainment Japan" with no interpreter failure.
 
+### Where the player's files go
+
+Nothing the player owns lives beside the game any more. `platform/paths.c`
+resolves one user directory -- `Documents\My Games\YFM ReDecomp` on Windows,
+`$XDG_DATA_HOME/YFM ReDecomp` (`~/.local/share/YFM ReDecomp`) elsewhere,
+`MEMORIES_USER_DIR` instead of either -- and everything the port writes goes
+under it:
+
+| File | What it is |
+|---|---|
+| `settings.txt` | the settings (`MEMORIES_SETTINGS` names another file) |
+| `controls.txt` | the control bindings (`MEMORIES_CONTROLS`) |
+| `memcard1.mcd`, `memcard2.mcd` | the memory cards (`MEMORIES_MEMCARD1/2`) |
+| `states/slot1.state` ... | save states (`MEMORIES_STATE_DIR`) |
+| `screenshots/` | F12 and **File > Screenshot** (`MEMORIES_SCREENSHOT_DIR`) |
+| `mods/` | mods the player installed (`notes/modding.md`) |
+| `mod-data/<id>/` | whatever a mod stores, the only place one may write |
+
+What an older build left in `./saves` is carried over on the first launch
+that finds the destination missing (`Paths_MigrateLegacySaves`), so an
+existing card, settings and bindings survive the move. The game's own files
+(the disc image, `mods/` as shipped) stay where the release put them and are
+only read.
+
 ### Window and menu bar
 
 Two window backends exist under `src/pc/platform`, chosen at build time
@@ -290,7 +314,7 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 | Audio | Master/music/SFX/movie sliders, mute and focus-loss mute |
 | View | Window scale and Menu size submenus, window mode, scaling/aspect/filter/VSync choices |
 | Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card) |
-| Mods | one checked item per entry of `src/pc/mods`: 3D Monsters, Hand camera |
+| Mods | opens the mods window, which lists every mod found in `mods/` beside the executable and in the user directory (`notes/modding.md`) |
 | Debug | HUD levels, pause/step, frame and VRAM dumps |
 | Trace | Live frames, disc, SPU, input and state log-channel switches |
 
@@ -368,11 +392,12 @@ fix from inside the game short of drawing its own pointer.
 
 ### Mods > Hand camera
 
-On by default (`hand_camera=0` in `saves/settings.txt` turns it off). While
+On by default (`mod.hand-camera=0` in `settings.txt` in the user directory
+turns it off; older files' `hand_camera=0` is still read). While
 the hand is up (duel scene state 4, the human's hand actions), where the
 console ignores the shoulder buttons, L1 and R1 turn the camera around the
 mat and L3 and R3 (T and Y, or the stick clicks) zoom it in and out; L2 and
-R2 stay the game's own top-down look at the opponent's field: `src/pc/mods/hand_camera.c` moves the
+R2 stay the game's own top-down look at the opponent's field: `mods/hand-camera/hand_camera.c` moves the
 view state's own heading and distance (`D_800F2848.angle`, 20 units of a
 0x1000 turn a frame; `field_00`, 6 units a frame between 200 and 1400, the
 duel's own view being 600 away) and re-applies `ViewState_ApplyOrbit`, which
@@ -389,13 +414,13 @@ at 260, out again at 330.
 
 ### Mods > 3D Monsters
 
-A menu of extras the console could not run, drawn from `src/pc/mods` and off
-by default. The first is **3D Monsters**: every face-up monster on the duel
+A window of extras the console could not run, one directory each under
+`mods/` (`notes/modding.md`), off by default. The first is **3D Monsters**: every face-up monster on the duel
 field stands on its card as the model the battle presentation uses, animating
 on the spot, the near side turned to face the opponent. Ticking it in
-**Mods > 3D Monsters** takes effect on the next frame and is kept in
-`saves/settings.txt` beside the volume (`MEMORIES_MODS_MONSTERS=1` sets it for
-one run).
+**Game > Mods** takes effect on the next frame and is kept in `settings.txt`
+in the user directory as `mod.3d-monsters` (`MEMORIES_MOD_3D_MONSTERS=1` sets
+it for one run).
 
 What it costs the console, and why the port does not pay it: a monster's
 `MODEL.MRG` record is 276 sectors -- 96 of them model data, a quarter of the
@@ -559,8 +584,8 @@ bit-identical. How (details in `src/pc/guest/state.h`):
 
 `sdk/libmcrd.c` implements LIBMCRD over standard 128 KiB raw card images
 (`.mcd`/`.mcr`, the format emulators use, so saves can be exchanged with them).
-Slot 1 is `saves/memcard1.mcd`, created formatted when missing; slot 2 is
-`saves/memcard2.mcd` and exists only if the file does; `MEMORIES_MEMCARD1/2`
+Slot 1 is `memcard1.mcd` in the user directory, created formatted when
+missing; slot 2 is `memcard2.mcd` beside it and exists only if the file does; `MEMORIES_MEMCARD1/2`
 name other files. The image is re-read on every command and written through a
 temporary file. Commands complete after the time the hardware would take
 (about one 128-byte frame per VBlank), so the game's "accessing memory card"
@@ -576,8 +601,8 @@ Native pieces (all under `src/pc/`):
 | Area | File | Notes |
 |---|---|---|
 | GPU | `render/soft_gpu.c` | Software rasterizer: flat/Gouraud/textured polygons, sprites, lines, fills, VRAM transfers, 4/8/15-bit textures, texture window, four blend modes, mask bits, dithering. `pc_soft_gpu` checks the fill rule, CLUT path, clipping and wraparound. Replaces PSY-Z for the 32-bit build (no 32-bit SDL installed here) |
-| Mods | `mods/field_models.c` | **Mods > 3D Monsters**, described above: the duel field's face-up monsters as animated models, on their own arenas and software-GPU texture banks. Off by default; nothing in it runs while it is off |
-| Menu bar | `platform/menu_x11.c` | **File > Exit**, **Audio > Volume** and **Mods**, one checked item per extra (a 0-100 slider: drag it, click the track, or use the wheel over it). Drawn with plain Xlib, since the port has no toolkit; the window is `Menu_Height()` (22 px) taller than the picture and the picture sits below it. Labels use an X core font, falling back to a small built-in glyph table because a server started under Wayland often has no core fonts. The volume is kept in `saves/settings.txt` (see `MEMORIES_SETTINGS`) and applied through `Spu_SetOutputVolume`, which is the port's own control and deliberately outside save states. While a menu is open it owns every mouse event, including the wheel: otherwise the wheel stepped the game's cursor behind the menu and played its sound |
+| Mods | `src/pc/mods/mods.c`, `mods/3d-monsters/field_models.c` | The mod system (`notes/modding.md`) and **3D Monsters**, described above: the duel field's face-up monsters as animated models, on their own arenas and software-GPU texture banks. Off by default; nothing in it runs while it is off |
+| Menu bar | `platform/menu_x11.c` | **File > Exit**, **Audio > Volume** and **Mods**, one checked item per extra (a 0-100 slider: drag it, click the track, or use the wheel over it). Drawn with plain Xlib, since the port has no toolkit; the window is `Menu_Height()` (22 px) taller than the picture and the picture sits below it. Labels use an X core font, falling back to a small built-in glyph table because a server started under Wayland often has no core fonts. The volume is kept in `settings.txt` in the user directory (see `MEMORIES_SETTINGS`) and applied through `Spu_SetOutputVolume`, which is the port's own control and deliberately outside save states. While a menu is open it owns every mouse event, including the wheel: otherwise the wheel stepped the game's cursor behind the menu and played its sound |
 | Window/input | `platform/x11.c` | Plain Xlib. The 59.94 Hz VBlank is a `SIGALRM` tick on the main thread, standing in for the interrupt, so the game's busy-waits on VBlank counters work unchanged. Game units are built `-O0` so those non-volatile polls are not hoisted. The frame and the menu bar are composed in an offscreen pixmap and reach the window in one `XCopyArea`: an open menu hangs over the picture, so drawing both straight to the window made the menu flash once a frame |
 | LIBETC/pads | `sdk/libetc.c` | Callbacks, `VSync` (presents, then waits), critical sections that defer the tick, BIOS pad buffers |
 | LIBGPU | `sdk/libgpu.c` | Environments, `DrawOTag` through `Memories_GpuCollect`, image transfers. `DrawOTag` snapshots the list and it is rasterized at `DrawSync` or before the next VRAM access, where the hardware would have finished it. Drawing inside `DrawOTag` put ~8 ms between `VSync` and `Input_UpdatePads`; whenever a second VBlank got in there the pad code published each press twice (two cursor steps, two sounds) |

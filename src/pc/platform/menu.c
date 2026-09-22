@@ -19,6 +19,7 @@
 #include "pc/debug/log.h"
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
+#include "paths.h"
 #include "pc/sdk/display.h"
 #include <fontconfig/fontconfig.h>
 #include <ft2build.h>
@@ -467,6 +468,7 @@ void Menu_DrawTextScaled(MenuCanvas *into, int x, int middle, const char *text, 
 
 void Menu_LoadSettings(void)
 {
+    Paths_MigrateLegacySaves(); /* what older builds left in ./saves */
     Settings_Load();
     Spu_SetOutputVolume(Settings_Get(SET_MASTER_VOLUME));
     Spu_SetBusVolume(SPU_BUS_MUSIC, Settings_Get(SET_MUSIC_VOLUME));
@@ -475,8 +477,7 @@ void Menu_LoadSettings(void)
     Platform_SetScale(Settings_Get(SET_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Platform_SetPresentCap(Settings_Get(SET_FPS));
-    Mods_SetEnabled(MODS_FIELD_MODELS, Settings_Get(SET_MOD_3D_MONSTERS));
-    Mods_SetEnabled(MODS_HAND_CAMERA, Settings_Get(SET_MOD_HAND_CAMERA));
+    Mods_Load(); /* the mods the settings say are applied, once they are read */
 }
 
 static void setting_changed(SettingId id, int value)
@@ -490,12 +491,6 @@ static void setting_changed(SettingId id, int value)
     case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_FPS: Platform_SetPresentCap(value); break;
     case SET_MENU_SCALE: Platform_ApplyDisplaySettings(); break;
-    case SET_MOD_3D_MONSTERS:
-        if (!Mods_RequiresRestart(MODS_FIELD_MODELS)) Mods_SetEnabled(MODS_FIELD_MODELS, value);
-        break;
-    case SET_MOD_HAND_CAMERA:
-        if (!Mods_RequiresRestart(MODS_HAND_CAMERA)) Mods_SetEnabled(MODS_HAND_CAMERA, value);
-        break;
     default: break;
     }
 }

@@ -2,8 +2,9 @@
  *
  * A card is a 128 KiB raw image in the standard layout (the ".mcd"/".mcr"
  * format emulators use), so saves move freely between this port, emulators
- * and real cards. Slot 1 is saves/memcard1.mcd, created formatted when it is
- * missing; slot 2 is saves/memcard2.mcd and only exists if the file does.
+ * and real cards. Slot 1 is memcard1.mcd in the user directory (paths.h),
+ * created formatted when it is missing; slot 2 is memcard2.mcd beside it and
+ * only exists if the file does.
  * MEMORIES_MEMCARD1 / MEMORIES_MEMCARD2 name other files.
  *
  * Layout: fifteen 8 KiB data blocks after a directory block of 128-byte
@@ -17,6 +18,7 @@
 #include "types.h"
 #include "pc/guest/state.h"
 #include "pc/platform/platform.h"
+#include "pc/platform/paths.h"
 #include "pc/debug/log.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,7 +128,8 @@ static Card *open_card(long channel)
     if ((channel & 0xf) != 0) {
         return NULL; /* no multitap */
     }
-    snprintf(card->path, sizeof(card->path), "%s", named ? named : slot ? "saves/memcard2.mcd" : "saves/memcard1.mcd");
+    if (named) snprintf(card->path, sizeof(card->path), "%s", named);
+    else if (Paths_User(card->path, sizeof(card->path), slot ? "memcard2.mcd" : "memcard1.mcd")) return NULL;
     file = fopen(card->path, "rb");
     if (file) {
         size_t got = fread(card->image, 1, CARD_SIZE, file);
@@ -136,9 +139,6 @@ static Card *open_card(long channel)
         }
         card->present = 1;
     } else if (slot == 0) {
-        if (!named) {
-            mkdir("saves", 0777);
-        }
         format_image(card);
         card->present = store(card) == 0;
         if (card->present) {
