@@ -66,9 +66,7 @@ static unsigned region_count;
 void Memories_ContextSwitch(uint32_t *from_esp, const uint32_t *to_esp);
 static uint32_t service_context, game_context;
 static uint32_t process_bounds[3];
-/* The handler chain starts with the reporting record at the stack's top. */
-#define GAME_STACK_RECORD (STACK_TOP - 16)
-static const uint32_t game_bounds[3] = {GAME_STACK_RECORD, STACK_TOP, STACK_BASE};
+static const uint32_t game_bounds[3] = {0xffffffffu, STACK_TOP, STACK_BASE}; /* no handlers */
 
 static void save_stack_bounds(uint32_t *bounds)
 {
@@ -310,7 +308,6 @@ static void apply(void)
     fprintf(stderr, "memories-pc: state loaded\n");
     hold_signals(0);
 #ifdef _WIN32
-    Win32_GameStackRecord((uint32_t *)(uintptr_t)GAME_STACK_RECORD); /* the state held another build's */
     set_stack_bounds(game_bounds);
 #endif
     Memories_StateReturn(&entry, 263); /* one field, as VSync(0) reports it */
@@ -732,7 +729,6 @@ int Memories_StateRunGame(int (*entry)(void))
         top[5] = 0;
         game_context = (uint32_t)(uintptr_t)top;
         save_stack_bounds(process_bounds);
-        Win32_GameStackRecord((uint32_t *)(uintptr_t)GAME_STACK_RECORD);
         set_stack_bounds(game_bounds);
         /* Every load request re-enters here, on the process stack. */
         Memories_ContextSwitch(&service_context, &game_context);

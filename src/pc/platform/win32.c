@@ -318,29 +318,6 @@ static void write_dump(const char *kind, EXCEPTION_POINTERS *pointers)
     CloseHandle(file);
 }
 
-static EXCEPTION_DISPOSITION __cdecl game_stack_handler(EXCEPTION_RECORD *record, void *frame, CONTEXT *context,
-                                                        void *dispatcher)
-{
-    EXCEPTION_POINTERS pointers;
-    (void)frame;
-    (void)dispatcher;
-    if (record->ExceptionFlags & (EXCEPTION_UNWINDING | EXCEPTION_EXIT_UNWIND)) return ExceptionContinueSearch;
-    pointers.ExceptionRecord = record;
-    pointers.ContextRecord = context;
-    if (crash_report) {
-        crash_report(record->ExceptionCode, record->NumberParameters >= 2 ? record->ExceptionInformation[1] : 0,
-                     context->Eip, context->Esp, context->Ebp);
-    }
-    write_dump("crash", &pointers);
-    TerminateProcess(GetCurrentProcess(), 3);
-    return ExceptionContinueSearch;
-}
-
-void Win32_GameStackRecord(uint32_t *record)
-{
-    record[0] = 0xffffffffu; /* end of the chain */
-    record[1] = (uint32_t)(uintptr_t)game_stack_handler;
-}
 
 /* Code in the executable installs no exception handlers of its own, so an
  * exception raised there that the guest fault handler (image.c) did not take
@@ -366,9 +343,13 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
         return EXCEPTION_CONTINUE_SEARCH;
     }
     address = (uintptr_t)record->ExceptionAddress;
-    /* The executable, or a call into guest RAM that nothing resolved. */
+    /* The executable, or a call into guest RAM that nothing resolved, or
+     * anywhere at all while the thread has no exception handler to try:
+     * the game stack runs with an empty chain (state.c), so an exception
+     * raised there with none installed is the end of the process. */
     if ((address < image_low || address >= image_high) && !(address >= 0x80000000u && address < 0x80200000u) &&
-        !(address >= 0xa0000000u && address < 0xa0200000u) && address >= 0x00200000u) {
+        !(address >= 0xa0000000u && address < 0xa0200000u) && address >= 0x00200000u &&
+        __readfsdword(0) != 0xffffffffu) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     if (crash_report) crash_report(record->ExceptionCode, fault, context->Eip, context->Esp, context->Ebp);
@@ -377,10 +358,49 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+/* Any other thread's exception that nothing handled (audio, drivers). */
+static LONG WINAPI on_unhandled(EXCEPTION_POINTERS *pointers)
+{
+    const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
+    const CONTEXT *context = pointers->ContextRecord;
+    fprintf(stderr, "memories-pc: unhandled exception 0x%08lx at %p on thread %lu\n", record->ExceptionCode,
+            record->ExceptionAddress, GetCurrentThreadId());
+    if (crash_report) {
+        crash_report(record->ExceptionCode, record->NumberParameters >= 2 ? record->ExceptionInformation[1] : 0,
+                     context->Eip, context->Esp, context->Ebp);
+    }
+    write_dump("crash", pointers);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+/* Last in line: note each exception nobody took, once per address, so a
+ * process that ends without a report still says what it saw. */
+static LONG CALLBACK on_unclaimed(EXCEPTION_POINTERS *pointers)
+{
+    static void *seen[64];
+    static LONG count;
+    const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
+    LONG i, n = count;
+    if (record->ExceptionCode == 0x406d1388u || record->ExceptionCode == 0x40010006u ||
+        record->ExceptionCode == 0x4001000au) {
+        return EXCEPTION_CONTINUE_SEARCH; /* thread names and debug output */
+    }
+    for (i = 0; i < n && i < 64; i++) {
+        if (seen[i] == record->ExceptionAddress) return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (n < 64) seen[InterlockedIncrement(&count) - 1] = record->ExceptionAddress;
+    fprintf(stderr, "memories-pc: exception 0x%08lx at %p (data 0x%08lx) on thread %lu%s\n", record->ExceptionCode,
+            record->ExceptionAddress, record->NumberParameters >= 2 ? (unsigned long)record->ExceptionInformation[1] : 0ul,
+            GetCurrentThreadId(), GetCurrentThreadId() == main_id ? " (main)" : "");
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 void Win32_SetCrashReporter(Win32CrashReport report)
 {
+    SetUnhandledExceptionFilter(on_unhandled);
     crash_report = report;
     Win32_ImageRange(&image_low, &image_high);
     AddVectoredExceptionHandler(0, on_exception);
+    AddVectoredExceptionHandler(0, on_unclaimed);
 }
 #endif

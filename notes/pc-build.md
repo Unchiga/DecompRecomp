@@ -724,10 +724,18 @@ What differs from Linux, and why:
   exception is being delivered can be dropped by Windows; the tick then never
   runs. The clock thread notices (the thread's stack pointer is back above
   the slot it pushed) and releases the tick. Before this, the game froze in
-  `Platform_WaitVBlank` after a few minutes of duelling. Unhandled
-  exceptions on the game stack reach a last SEH record at its top
-  (`Win32_GameStackRecord`), and crash and hang reports come with a minidump
-  (`tmp/pc/*.dmp`).
+  `Platform_WaitVBlank` after a few minutes of duelling. The game stack runs
+  with an empty SEH chain, so the crash reporter also takes any fatal
+  exception raised while the chain is empty, in a DLL too; crash and hang
+  reports come with a minidump (`tmp/pc/*.dmp`, `lldb -c` reads it). Other
+  threads' unhandled exceptions go through `SetUnhandledExceptionFilter`, and
+  every exception nothing claimed is logged once per address.
+- **Low accesses without a trap.** A plain 32-bit `mov` to or from a low
+  address is carried out by the fault handler through guest RAM
+  (`emulate_low_mov`) instead of rebase and single step: WoW64 mishandled
+  the trap for `movl 0x4c(%eax),%eax` (destination = base register) in
+  `func_800540B4` under the 3D Monsters mod, and the process died in the
+  exception dispatcher.
 - **rename.** Windows' `rename` does not replace an existing file; states,
   settings, controls and memory cards save through `MoveFileEx`
   (`pc/compat/posix.h`).
