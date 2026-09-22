@@ -150,6 +150,35 @@ static DWORD *context_register(CONTEXT *context, int number)
     }
 }
 
+/* The common low access, a plain 32-bit MOV to or from [base + disp], is
+ * done here through guest RAM instead of the rebase-and-single-step path:
+ * 32-bit processes on 64-bit Windows can mishandle the trap when the
+ * instruction's destination is its own base register. Returns 1 if done. */
+static int emulate_low_mov(CONTEXT *context, uint32_t address)
+{
+    const unsigned char *code = (const unsigned char *)(uintptr_t)context->Eip;
+    unsigned modrm, mod, reg, rm;
+    uint32_t *guest;
+    if ((code[0] != 0x8b && code[0] != 0x89) || address > MEMORIES_GUEST_RAM_SIZE - 4) {
+        return 0;
+    }
+    modrm = code[1];
+    mod = modrm >> 6;
+    reg = (modrm >> 3) & 7;
+    rm = modrm & 7;
+    if (mod == 3 || rm == 4 || (mod == 0 && rm == 5)) {
+        return 0; /* register operand, SIB byte or absolute address */
+    }
+    guest = (uint32_t *)(uintptr_t)(MEMORIES_GUEST_RAM + address);
+    if (code[0] == 0x8b) {
+        *context_register(context, (int)reg) = *guest;
+    } else {
+        *guest = *context_register(context, (int)reg);
+    }
+    context->Eip += 2u + (mod == 1 ? 1u : mod == 2 ? 4u : 0u);
+    return 1;
+}
+
 /* First in line for every exception in the process: take the guest's own
  * faults, leave everything else to the next handler (win32.c reports what
  * the executable raised). */
@@ -186,6 +215,9 @@ static LONG CALLBACK on_guest_exception(EXCEPTION_POINTERS *pointers)
         int reg = low_access_register((const unsigned char *)(uintptr_t)context->Eip, context->Esi);
         if (reg >= 0 && *context_register(context, reg) < MEMORIES_GUEST_RAM_SIZE) {
             report_low_access(context->Eip, address);
+            if (emulate_low_mov(context, address)) {
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
             low_fixup.active = 1;
             low_fixup.reg = reg;
             low_fixup.original = *context_register(context, reg);

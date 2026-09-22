@@ -752,11 +752,20 @@ What differs from Linux, and why:
   tick's entry; by the clock thread, when the main thread's stack pointer is
   back above the slot it pushed; and by `Win32_ServiceInterrupt`, since a
   wait on the main thread is not the tick. Before this, the game froze in
-  `Platform_WaitVBlank` after a few minutes of duelling. Unhandled
-  exceptions on the game stack reach an SEH record at its top
-  (`Win32_GameStackRecord`), chained to a copy of ntdll's final record so
-  that SEHOP accepts the chain; a stack overflow is reported from a thread
-  of its own. Crash and hang reports come with a minidump (`tmp/pc/*.dmp`).
+  `Platform_WaitVBlank` after a few minutes of duelling. The game stack runs
+  with an empty SEH chain, so the crash reporter also takes any fatal
+  exception raised while the chain is empty, in a DLL too; a stack overflow
+  is reported from a thread of its own, the faulting one having too little
+  stack left. Crash and hang reports come with a minidump (`tmp/pc/*.dmp`,
+  `lldb -c` reads it). Other threads' unhandled exceptions go through
+  `SetUnhandledExceptionFilter`, and every exception nothing claimed is
+  logged once per address.
+- **Low accesses without a trap.** A plain 32-bit `mov` to or from a low
+  address is carried out by the fault handler through guest RAM
+  (`emulate_low_mov`) instead of rebase and single step: WoW64 mishandled
+  the trap for `movl 0x4c(%eax),%eax` (destination = base register) in
+  `func_800540B4` under the 3D Monsters mod, and the process died in the
+  exception dispatcher.
 - **Mods.** The executable exports its symbols (`--export-all-symbols`) and
   the link leaves an import library, `libmemories-pc.a`, beside it; a mod's
   DLL links against that, which is what `-rdynamic` does for a `.so` on
