@@ -11,6 +11,13 @@
  * as SIGALRM does on Linux. `context` describes the interrupted registers
  * (see Win32_ContextRegisters). Returns 0 on success. */
 int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context));
+/* For the exception handlers, first thing: the clock can redirect the main
+ * thread while an exception it raised is still on its way to user mode, and
+ * the exception then arrives with its registers at the tick's entry. This
+ * puts them back where the exception really is (the tick is left pending)
+ * and returns 1 when it did; the handler then goes on as usual. */
+int Win32_UndoInterruptedFault(void *context);
+
 /* Runs a tick the clock could not deliver because the main thread was outside
  * the executable (sleeping, in a driver). Call from waits on the main thread. */
 void Win32_ServiceInterrupt(void);

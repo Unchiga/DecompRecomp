@@ -138,6 +138,18 @@ static DWORD WINAPI run_clock(void *unused)
     }
 }
 
+int Win32_UndoInterruptedFault(void *context)
+{
+    CONTEXT *registers = context;
+    if (registers->Eip != (DWORD)(uintptr_t)Win32_InterruptEntry) return 0;
+    /* The clock pushed the interrupted EIP before redirecting. */
+    registers->Eip = *(const DWORD *)(uintptr_t)registers->Esp;
+    registers->Esp += 4;
+    pending = 1;
+    in_tick = 0;
+    return 1;
+}
+
 void Win32_SetStallReporter(void (*report)(void *context), unsigned seconds)
 {
     stall_ms = seconds * 1000u;
@@ -263,6 +275,7 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
     const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
     const CONTEXT *context = pointers->ContextRecord;
     uintptr_t fault = 0, address;
+    Win32_UndoInterruptedFault(pointers->ContextRecord);
     switch (record->ExceptionCode) {
     case EXCEPTION_ACCESS_VIOLATION:
     case EXCEPTION_IN_PAGE_ERROR:

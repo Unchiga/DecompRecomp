@@ -19,8 +19,8 @@
 #endif
 
 #ifdef _WIN32
-#define GAME_STACK_LOW 0x90000000u /* state.c */
-#define GAME_STACK_HIGH 0x90800000u
+#define GAME_STACK_LOW 0xB0000000u /* state.c */
+#define GAME_STACK_HIGH 0xB0800000u
 #else
 #define GAME_STACK_LOW 0x70000000u
 #define GAME_STACK_HIGH 0x70800000u

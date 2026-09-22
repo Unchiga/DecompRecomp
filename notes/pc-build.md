@@ -699,8 +699,8 @@ What differs from Linux, and why:
   so the mirror cannot be mapped; `Memories_Resolve` returns the
   `0x80000000` alias for physical RAM addresses, and the fault handler sends
   any other access there through guest RAM (each site reported once).
-- **Stacks.** The game stack is at `0x90000000` (32-bit Windows loads system
-  DLLs around `0x70000000`). `state.c` switches stacks with
+- **Stacks.** The game stack is at `0xB0000000` (32-bit Windows loads system
+  DLLs around `0x70000000`; the mods keep `0x90000000`). `state.c` switches stacks with
   `Memories_ContextSwitch` (`state_i386.S`) and moves the TEB's stack bounds
   and exception chain with it, as fibers do.
 - **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`

@@ -10,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #ifdef _WIN32
+#include "pc/platform/win32.h"
 #include <windows.h>
 #else
 #include <signal.h>
@@ -158,6 +159,7 @@ static LONG CALLBACK on_guest_exception(EXCEPTION_POINTERS *pointers)
     CONTEXT *context = pointers->ContextRecord;
     uint32_t address;
     void *target;
+    Win32_UndoInterruptedFault(context); /* then handled as the faulting instruction's own */
     /* A 32-bit process on 64-bit Windows may see the trap as WoW64's own
      * STATUS_WX86_SINGLE_STEP. */
     if (record->ExceptionCode == EXCEPTION_SINGLE_STEP || record->ExceptionCode == 0x4000001eu) {

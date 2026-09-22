@@ -20,7 +20,7 @@
 #endif
 
 #ifdef _WIN32
-#define STACK_BASE 0x90000000u /* 32-bit Windows loads system DLLs around 0x70000000 */
+#define STACK_BASE 0xB0000000u /* 32-bit Windows loads system DLLs around 0x70000000; mods use 0x90000000 */
 #else
 #define STACK_BASE 0x70000000u
 #endif
