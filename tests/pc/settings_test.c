@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "pc/compat/posix.h"
 #include <unistd.h>
 
 static int contains(const char *path, const char *wanted)

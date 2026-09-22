@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "pc/compat/posix.h"
 #include <unistd.h>
 
 #define CARD_LBA 5000

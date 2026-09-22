@@ -687,6 +687,9 @@ python tools/pc/build_game32.py
 tmp/pc/game32/memories-pc.exe game/SLUS_014.11
 ```
 
+`play.bat` (double-click, or `play.bat trace` / `play.bat load [slot]`) does
+the last two steps, and the first when the libraries are missing.
+
 `make match` / `make match-overlays` (for the symbol addresses) still run on
 Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
 `tmp/overlays/*/build/*.elf` into the Windows checkout. `SDL3.dll` is copied
@@ -770,8 +773,16 @@ What differs from Linux, and why:
   the link leaves an import library, `libmemories-pc.a`, beside it; a mod's
   DLL links against that, which is what `-rdynamic` does for a `.so` on
   Linux. `mods.c` reads a replacement file into memory instead of mapping
-  it, and loads the DLL with `LoadLibrary` (`pc/compat/dlfcn.h`). Not yet
-  run on Windows.
+  it, and loads the DLL with `LoadLibrary` (`pc/compat/dlfcn.h`). Pinned
+  guest names are absolute symbols, which a PE export table cannot carry, so
+  a mod DLL also links `guest_symbols.o`, and `-static -lpthread` as the
+  executable does. Both shipped mods load on Windows (2026-09-22, headless
+  to the title screen with `MEMORIES_TRACE=mods`); in-game behaviour is not
+  checked yet.
+- **Tests.** On MinGW every CMake test links `-static`: otherwise a 32-bit
+  test loads whichever `libwinpthread-1.dll` PATH finds first, often a
+  64-bit one, and fails to start with 0xc000007b. Run them with a native
+  Windows `ctest`; an MSYS one mangles the test paths.
 - **rename.** Windows' `rename` does not replace an existing file; states,
   settings, controls and memory cards save through `MoveFileEx`
   (`pc/compat/posix.h`).

@@ -11,6 +11,7 @@
 #include <direct.h>
 #include <io.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* No permission bits on Windows; folders get the default ones. */
@@ -30,6 +31,22 @@ static inline long memories_pread(int fd, void *buffer, size_t count, long long 
     return _read(fd, buffer, (unsigned)count);
 }
 #define pread memories_pread
+
+/* The C runtime has no setenv/unsetenv; _putenv_s takes an empty value as
+ * removal. Used by the port's restart and by the tests, which set the
+ * MEMORIES_* switches the code under test reads. */
+static inline int memories_setenv(const char *name, const char *value, int overwrite)
+{
+    if (!overwrite && getenv(name)) return 0;
+    return _putenv_s(name, value) ? -1 : 0;
+}
+#define setenv memories_setenv
+
+static inline int memories_unsetenv(const char *name)
+{
+    return _putenv_s(name, "") ? -1 : 0;
+}
+#define unsetenv memories_unsetenv
 
 /* POSIX rename replaces an existing file, which the port's atomic saves
  * (states, settings, controls, memory cards) rely on; Windows' does not. */
