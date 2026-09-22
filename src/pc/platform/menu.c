@@ -72,7 +72,7 @@ enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, ACT_GIVE_CARDS,
     ACT_MODS, ACT_CONTROLS, ACT_RELOAD_SETTINGS, ACT_PAUSE, ACT_FRAME_STEP, ACT_DUMP_FRAME, ACT_DUMP_VRAM,
-    SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, SLIDER_STREAM, CHECK_MUTE,
+    SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, CHECK_MUTE,
     CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT,
     CHECK_TRACE = 300  /* value is a LogChannel */
 };
@@ -115,12 +115,11 @@ static Menu menus[MENU_COUNT] = {
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
-               {"Movies", 0, ITEM_SLIDER, SLIDER_STREAM, SET_STREAM_VOLUME},
                {0, 0, ITEM_SEPARATOR, 0, -1},
                {"Mute all", "M", ITEM_CHECK, CHECK_MUTE, -1},
                {"Mute on focus loss", 0, ITEM_CHECK, 0, SET_MUTE_ON_FOCUS_LOSS},
                {"Console sound (Gaussian)", 0, ITEM_RADIO, 0, SET_AUDIO_INTERPOLATION, 0, ITEM_GROUP_BREAK},
-               {"Sharper sound (cubic)", 0, ITEM_RADIO, 0, SET_AUDIO_INTERPOLATION, 1}}, 9},
+               {"Sharper sound (cubic)", 0, ITEM_RADIO, 0, SET_AUDIO_INTERPOLATION, 1}}, 8},
     /* Game speed scales the game clock (music keeps its tempo); the frame
      * rate is how many of those game frames reach the window. Tab holds 400%. */
     {"Game", {{"Controls...", 0, ITEM_ACTION, ACT_CONTROLS, -1},

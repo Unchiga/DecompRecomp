@@ -311,7 +311,7 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 | Menu | Items |
 |---|---|
 | File | Save/load state, slots 1-4, screenshot, reload settings, exit |
-| Audio | Master/music/SFX/movie sliders, mute and focus-loss mute, Gaussian (console) or cubic (sharper) voice interpolation (`audio_interpolation`) |
+| Audio | Master/music/SFX sliders, mute and focus-loss mute, Gaussian (console) or cubic (sharper) voice interpolation (`audio_interpolation`) |
 | View | Window scale and Menu size submenus, window mode, scaling/aspect/filter/VSync choices |
 | Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card) |
 | Mods | opens the mods window, which lists every mod found in `mods/` beside the executable and in the user directory (`notes/modding.md`) |
