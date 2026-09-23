@@ -302,10 +302,19 @@ static inline __attribute__((always_inline)) int clamp8(int value)
     return value < 0 ? 0 : value > 255 ? 255 : value;
 }
 
+/* The provenance tag of the word plot is about to draw, or NULL when it draws
+ * into a widescreen target (whose words have no tags) or tracing is off.
+ * Outside plot, whose local target hides the global one. */
+static inline __attribute__((always_inline)) uint32_t *drawn_tag(const uint16_t *word)
+{
+    return TextureDump_Tags && target == vram ? &TextureDump_Tags[word - vram] : NULL;
+}
+
 /* flags: 1 raw texture, 2 semi-transparent, 4 textured, 8 dither-eligible */
 static inline __attribute__((always_inline)) void plot(int x, int y, int r, int g, int b, int u, int v, int flags)
 {
     uint16_t *target, source;
+    uint32_t *tag;
     int semi = flags & 2;
     if (x < gpu.clip_x1 || x > gpu.clip_x2 || y < gpu.clip_y1 || y > gpu.clip_y2) {
         return;
@@ -314,7 +323,7 @@ static inline __attribute__((always_inline)) void plot(int x, int y, int r, int 
     if (gpu.mask_check && (*target & 0x8000)) {
         return;
     }
-    if (TextureDump_Tags) TextureDump_Tags[target - vram] = 0; /* drawn, not from the disc */
+    if ((tag = drawn_tag(target)) != NULL) *tag = 0; /* drawn, not from the disc */
     if (flags & 4) {
         source = texel(u, v);
         if (!source) {
