@@ -3,24 +3,70 @@ on:
   push:
   pull_request:
 jobs:
-  core:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  core-linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      # The controls window test draws the pad picture through libpng.
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev
       - run: cmake -S . -B tmp/pc -DBUILD_TESTING=ON
       - run: cmake --build tmp/pc --config Release
       - run: ctest --test-dir tmp/pc -C Release --output-on-failure
       - run: cmake --build tmp/pc --target pc_audit
+  # The Windows game is built with llvm-mingw for i686 (play.bat,
+  # tools/pc/fetch_tools.py), so the tests are too: the same pinned release,
+  # with zlib and libpng from tools/pc/build_win32_deps.py. The runner's cmake
+  # and ctest are native Windows programs, as the tests need
+  # (notes/pc-build.md, "Tests"); MSVC is not a supported compiler.
+  core-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      LLVM_MINGW: llvm-mingw-20260922-ucrt-x86_64
+      LLVM_MINGW_SHA256: e3ad77d117a4bea19a7a3b333341824d79a5a371004a10e25b8504e7b3047666
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            tmp/pc/llvm-mingw
+            tmp/pc/win32-deps
+          key: win32-${{ env.LLVM_MINGW }}-${{ hashFiles('tools/pc/build_win32_deps.py') }}
+      - name: llvm-mingw, Ninja and the libraries
+        run: |
+          if [ ! -d tmp/pc/llvm-mingw ]; then
+            curl --fail --location --retry 3 --silent --show-error --output llvm-mingw.zip \
+              "https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/$LLVM_MINGW.zip"
+            echo "$LLVM_MINGW_SHA256  llvm-mingw.zip" | sha256sum --check --strict
+            mkdir -p tmp/pc && unzip -q llvm-mingw.zip -d tmp/pc && mv "tmp/pc/$LLVM_MINGW" tmp/pc/llvm-mingw
+          fi
+          cygpath -w "$PWD/tmp/pc/llvm-mingw/bin" >> "$GITHUB_PATH"
+          python -m pip install --quiet ninja
+      - run: '[ -f tmp/pc/win32-deps/lib/libpng16.a ] || python tools/pc/build_win32_deps.py'
+      - run: >-
+          cmake -S . -B tmp/pc/tests -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=i686-w64-mingw32-clang
+          -DPNG_LIBRARY=$PWD/tmp/pc/win32-deps/lib/libpng16.a -DPNG_PNG_INCLUDE_DIR=$PWD/tmp/pc/win32-deps/include
+          -DZLIB_LIBRARY=$PWD/tmp/pc/win32-deps/lib/libzs.a -DZLIB_INCLUDE_DIR=$PWD/tmp/pc/win32-deps/include
+      - run: cmake --build tmp/pc/tests
+      # The tests make their scratch files under /tmp, which Windows reads as
+      # \tmp on the current drive; Wine maps it, a runner does not have it.
+      - run: mkdir -p "$(cygpath -w "$PWD" | cut -c1-2)/tmp"
+      - run: ctest --test-dir tmp/pc/tests --output-on-failure
+      - run: cmake --build tmp/pc/tests --target pc_audit
   sanitizers:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev
       - run: cmake -S . -B tmp/pc -DMEMORIES_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
       - run: cmake --build tmp/pc
       - run: ctest --test-dir tmp/pc --output-on-failure
