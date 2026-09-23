@@ -18,6 +18,15 @@ Usage: upscale_pack.py --images tmp/pc/images --images tmp/pc/images-story
 --images may be given several times: one pack from all the sets (an image
 in two sets, the same path, is taken once). --merge adds an existing pack's
 images as they are, already upscaled some other way.
+A sheet's columns (the `sheets` family marks them) are joined side by side
+for the model where one picture runs on from one into the next, as they
+stand in VRAM, and cut apart again: no seam, and no bleeding from a column
+that holds something else. --cuts takes the assets.txt of a dump run: each
+piece the game cut from a sheet that is a picture of its own (a tile, a
+slice of a box, a glyph) is enlarged on its own and laid back over the
+sheet, so its edges stay its own instead of blending with its neighbours
+on the sheet; a piece that only continues the picture around it stays
+with the whole.
 --scale is the whole enlargement (4: a 128x128 background becomes 512x512,
 what the game's Internal 4x shows one to one). It takes ceil(log4 scale)
 passes unless --passes says otherwise; each pass runs the model's 4x and
@@ -44,7 +53,7 @@ import sys
 import tempfile
 import zipfile
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 USUAL_UPSCAYL = [
     r"C:\Program Files\Upscayl\resources\bin\upscayl-bin.exe",
@@ -75,6 +84,115 @@ def run_model(upscayl: str, models: str, model: str, source: str, target: str) -
         sys.exit(f"upscayl-bin failed on {source}:\n{result.stderr.decode('utf-8', 'replace')[-2000:]}")
 
 
+def continuous(left: dict, right: dict) -> bool:
+    """Whether one picture runs on from the left column into the right one:
+    the step across the join is no bigger than the steps just inside each
+    column. A column that holds something else (a mask, another sprite)
+    would bleed into its neighbour's edge under the model."""
+    def step(a: Image.Image, b: Image.Image) -> float:
+        return sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 4
+
+    with Image.open(os.path.join(left["source"], left["file"])) as l_image, \
+            Image.open(os.path.join(right["source"], right["file"])) as r_image:
+        l_image, r_image = l_image.convert("RGBA"), r_image.convert("RGBA")
+        h = min(l_image.height, r_image.height)
+        l_edge, l_inner = l_image.crop((l_image.width - 1, 0, l_image.width, h)), l_image.crop((l_image.width - 2, 0, l_image.width - 1, h))
+        r_edge, r_inner = r_image.crop((0, 0, 1, h)), r_image.crop((1, 0, 2, h))
+        across = step(l_edge, r_edge)
+        inside = max(step(l_inner, l_edge), step(r_edge, r_inner))
+        return across <= inside * 2 + 8
+
+
+PIECE_MIN = 32  # a piece smaller than this on a side is padded before the model sees it
+
+
+def mirror_pad(piece: Image.Image, pad: tuple) -> Image.Image:
+    """The piece with `pad` (x, y) pixels of its own mirror image around it."""
+    w, h = piece.size
+    mosaic = Image.new("RGBA", (w * 3, h * 3))
+    for i, flip_x in enumerate((True, False, True)):
+        for j, flip_y in enumerate((True, False, True)):
+            tile = piece
+            if flip_x:
+                tile = tile.transpose(Image.FLIP_LEFT_RIGHT)
+            if flip_y:
+                tile = tile.transpose(Image.FLIP_TOP_BOTTOM)
+            mosaic.paste(tile, (i * w, j * h))
+    return mosaic.crop((w - pad[0], h - pad[1], 2 * w + pad[0], 2 * h + pad[1]))
+
+
+def line_step(image: Image.Image, a: tuple, b: tuple) -> float:
+    return sum(ImageStat.Stat(ImageChops.difference(image.crop(a), image.crop(b))).mean) / 4
+
+
+def cut_stands_out(image: Image.Image, rect: tuple) -> bool:
+    """Whether the piece the game cuts at rect is a picture of its own on
+    the sheet (a tile, a slice of a box, a glyph), not a part of a bigger
+    one that goes on around it: on some side the step from its edge to the
+    sheet just outside is bigger than the steps inside. A side on the
+    sheet's border says nothing."""
+    x, y, w, h = rect
+    if w < 2 or h < 2:
+        return False
+    sides = []
+    if x > 0:
+        sides.append(((x, y, x + 1, y + h), (x - 1, y, x, y + h), (x + 1, y, x + 2, y + h)))
+    if x + w < image.width:
+        sides.append(((x + w - 1, y, x + w, y + h), (x + w, y, x + w + 1, y + h), (x + w - 2, y, x + w - 1, y + h)))
+    if y > 0:
+        sides.append(((x, y, x + w, y + 1), (x, y - 1, x + w, y), (x, y + 1, x + w, y + 2)))
+    if y + h < image.height:
+        sides.append(((x, y + h - 1, x + w, y + h), (x, y + h, x + w, y + h + 1), (x, y + h - 2, x + w, y + h - 1)))
+    for edge, outside, inside in sides:
+        if line_step(image, edge, outside) > line_step(image, edge, inside) * 2 + 8:
+            return True
+    return False
+
+
+def read_cuts(listings: list, entries: list) -> dict:
+    """The pieces dumps saw the game cut from the sheets: {file: [(x, y, w, h)]}
+    in the sheet image's pixels. An asset line names the words drawn (disc
+    offset, size, depth, palette, the pixel crop within the first word)."""
+    by_key = {}
+    for entry in entries:
+        if "sheet" in entry:
+            by_key.setdefault((entry["archive"], entry["bpp"], entry.get("clut_offset")), []).append(entry)
+    cuts = {}
+    for listing in listings:
+        archives = []
+        with open(listing, encoding="utf-8") as handle:
+            for line in handle:
+                fields = line.split()
+                if not fields:
+                    continue
+                values = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
+                if fields[0] == "archive":
+                    archives.append((fields[1].split(";")[0], int(values["lba"]) * 2048, int(values["bytes"])))
+                    continue
+                if fields[0] != "asset" or values.get("stride") != "64" or "rowofs" in values:
+                    continue
+                offset, clut, bpp = int(values["offset"]), int(values["clut"]), int(values["bpp"])
+                home = [a for a in archives if a[1] <= offset < a[1] + a[2]]
+                if not home:
+                    continue
+                name, start, _ = home[0]
+                per = {4: 4, 8: 2, 16: 1}[bpp]
+                words, rows = int(values["words"]), int(values["rows"])
+                px = tuple(int(v) for v in values["px"].split(",")) if "px" in values else (0, words * per)
+                for entry in by_key.get((name, bpp, clut - start if clut else None), []):
+                    delta = offset - start - entry["offset"]
+                    if delta < 0 or delta >= entry["rows"] * 128:
+                        continue
+                    row, word = delta // 128, (delta % 128) // 2
+                    if word + words > 64 or row + rows > entry["rows"]:
+                        continue
+                    rect = (word * per + px[0], row, px[1], rows)
+                    if rect not in cuts.setdefault(entry["file"], []):
+                        cuts[entry["file"]].append(rect)
+                    break
+    return cuts
+
+
 def resize_to(path: str, width: int, height: int) -> None:
     with Image.open(path) as image:
         if image.size == (width, height):
@@ -96,6 +214,8 @@ def main() -> int:
     parser.add_argument("--max-side", type=int, default=2048, help="an image is scaled less than asked if bigger")
     parser.add_argument("--min-size", type=int, default=32, help="skip images with a side below this")
     parser.add_argument("--only", action="append", default=[], help="keep entries whose file or alias has this")
+    parser.add_argument("--cuts", action="append", default=[],
+                        help="assets.txt of a MEMORIES_DUMP_TEXTURES run: the pieces the game cuts from the sheets")
     parser.add_argument("--upscayl", help="path to upscayl-bin")
     parser.add_argument("--name", help="the mod's name shown in the Mods window")
     parser.add_argument("--zip", help="also write the pack as this zip, the mod folder inside it, to hand out")
@@ -109,14 +229,19 @@ def main() -> int:
                  ", ".join(sorted(n[:-4] for n in os.listdir(models) if n.endswith(".bin"))))
     if not args.images and not args.merge:
         sys.exit("--images or --merge is needed")
+    def identity(entry: dict) -> tuple:
+        """What the game matches an entry by: its words on the disc and how it reads them."""
+        return (entry["archive"], entry["offset"], entry["words"], entry["rows"], entry["bpp"],
+                entry.get("clut_offset"), entry.get("stride"), tuple(entry.get("row_offsets") or ()))
+
     manifest = []
     seen = set()
     for images in args.images:
         with open(os.path.join(images, "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
-                if entry["file"] in seen:
-                    continue  # the same image (its path names its origin) from two sets
-                seen.add(entry["file"])
+                if identity(entry) in seen:
+                    continue  # the same reading of the same words from two sets
+                seen.add(identity(entry))
                 entry["source"] = images
                 manifest.append(entry)
     chosen = []
@@ -131,48 +256,159 @@ def main() -> int:
 
     images_out = os.path.join(args.out, "images")
     os.makedirs(images_out, exist_ok=True)
-    pending = [e for e in chosen if not os.path.isfile(os.path.join(images_out, e["file"]))]
+    # Entries with identical pictures share one file (the extractor writes it once): one image job.
+    files = {}
+    for entry in chosen:
+        files.setdefault(entry["file"], entry)
+    pending = [e for f, e in files.items() if not os.path.isfile(os.path.join(images_out, f))]
+    sheet_cuts = read_cuts(args.cuts, pending) if args.cuts else {}
     passes = args.passes or max(1, math.ceil(math.log(args.scale, 4) - 1e-9))
-    print(f"{len(chosen)} images chosen of {len(manifest)}, {len(pending)} to make "
+    print(f"{len(chosen)} images chosen of {len(manifest)} ({len(files)} files), {len(pending)} to make "
           f"({args.model}, {args.scale:g}x in {passes} pass{'es' if passes > 1 else ''})")
     if pending:
         work = tempfile.mkdtemp(prefix="upscale-")
         try:
-            # Flat names in the work directories: the manifest's paths have folders.
-            flat = {f"{index:05d}.png": entry for index, entry in enumerate(pending)}
+            # Flat names in the work directories: the manifest's paths have
+            # folders. A sheet's columns (the extractor marks them) stand side
+            # by side in VRAM, so the model sees them joined into one picture
+            # and nothing shows at the joins; the result is cut back apart.
+            jobs = []  # [entries left to right]
+            by_sheet = {}
+            for entry in pending:
+                if "sheet" in entry:
+                    by_sheet.setdefault((entry["sheet"], entry["bpp"], entry.get("clut_offset"), entry["source"]),
+                                        []).append(entry)
+                else:
+                    jobs.append([entry])
+            for parts in by_sheet.values():
+                parts.sort(key=lambda e: e["column"])
+                run = []
+                for entry in parts:
+                    if run and (entry["column"] != run[-1]["column"] + 1 or entry["height"] != run[-1]["height"]
+                                or not continuous(run[-1], entry)):
+                        jobs.append(run)
+                        run = []
+                    run.append(entry)
+                jobs.append(run)
+            flat = {f"{index:05d}.png": parts for index, parts in enumerate(jobs)}
             stage = os.path.join(work, "in")
             os.makedirs(stage)
-            for name, entry in flat.items():
-                shutil.copyfile(os.path.join(entry["source"], entry["file"]), os.path.join(stage, name))
+            for name, parts in flat.items():
+                if len(parts) == 1:
+                    shutil.copyfile(os.path.join(parts[0]["source"], parts[0]["file"]), os.path.join(stage, name))
+                    continue
+                joined = Image.new("RGBA", (sum(e["width"] for e in parts), parts[0]["height"]))
+                x = 0
+                for entry in parts:
+                    with Image.open(os.path.join(entry["source"], entry["file"])) as image:
+                        joined.paste(image.convert("RGBA"), (x, 0))
+                    x += entry["width"]
+                joined.save(os.path.join(stage, name))
+            # The pieces the game cuts from a sheet (a field's tiles, a box's
+            # slices, a font's glyphs) are pictures of their own: enlarged
+            # whole, the model would blend each one's edge with what lies
+            # beside it on the sheet, and every join would show. Each such
+            # piece a dump saw is enlarged on its own and laid back over the
+            # sheet. A piece that only continues the picture around it
+            # (a background's quarter) stays with the whole.
+            job_of = {}
+            for name, parts in flat.items():
+                for entry in parts:
+                    job_of[entry["file"]] = name
+            pieces = {}  # cut name -> (parent job, entry, rect, padding)
+            kept = skipped = 0
+            for file, rects in sheet_cuts.items():
+                if file not in job_of:
+                    continue
+                entry = next(e for e in flat[job_of[file]] if e["file"] == file)
+                with Image.open(os.path.join(entry["source"], file)) as image:
+                    image = image.convert("RGBA")
+                    for rect in rects:
+                        if min(rect[2], rect[3]) < 4 or not cut_stands_out(image, rect):
+                            skipped += 1
+                            continue
+                        name = f"c{len(pieces):05d}.png"
+                        piece = image.crop((rect[0], rect[1], rect[0] + rect[2], rect[1] + rect[3]))
+                        # A small piece (a glyph, a sliver) goes to the model
+                        # padded with its own mirror image, and is cut back
+                        # out: the model has hung on slivers a few pixels tall.
+                        pad = (max(0, -(-(PIECE_MIN - piece.width) // 2)), max(0, -(-(PIECE_MIN - piece.height) // 2)))
+                        if pad != (0, 0):
+                            piece = mirror_pad(piece, pad)
+                        pieces[name] = (job_of[file], entry, rect, pad)
+                        piece.save(os.path.join(stage, name))
+                        kept += 1
+            if sheet_cuts:
+                print(f"pieces cut from the sheets: {kept} on their own, {skipped} part of a bigger picture")
+            if os.environ.get("UPSCALE_DEBUG"):
+                for name, (parent, entry, rect) in pieces.items():
+                    print("DEBUG piece", name, parent, entry["file"], rect)
+                for name, parts in flat.items():
+                    print("DEBUG job", name, [e["file"] for e in parts])
+            shares = {}
             for number in range(1, passes + 1):
                 target = os.path.join(work, f"pass{number}")
-                print(f"pass {number}: {len(flat)} images...", flush=True)
+                print(f"pass {number}: {len(flat) + len(pieces)} images...", flush=True)
                 run_model(upscayl, models, args.model, stage, target)
-                for name, entry in flat.items():
+                for name, parts in flat.items():
                     # This pass's share of the scale, from the original's size; the
-                    # last pass lands exactly on the scale, capped by --max-side.
+                    # last pass lands exactly on the scale, capped by --max-side
+                    # (of one column, when several are joined).
                     scale = args.scale
-                    longest = max(entry["width"], entry["height"])
+                    longest = max(max(e["width"], e["height"]) for e in parts)
                     if longest * scale > args.max_side:
                         scale = args.max_side / longest
                     share = scale ** (number / passes)
-                    resize_to(os.path.join(target, name), max(1, round(entry["width"] * share)),
-                              max(1, round(entry["height"] * share)))
+                    shares[name] = share
+                    resize_to(os.path.join(target, name), max(1, sum(max(1, round(e["width"] * share)) for e in parts)),
+                              max(1, round(parts[0]["height"] * share)))
+                for name, (parent, entry, rect, pad) in pieces.items():
+                    share = shares[parent]
+                    resize_to(os.path.join(target, name), max(1, round((rect[2] + 2 * pad[0]) * share)),
+                              max(1, round((rect[3] + 2 * pad[1]) * share)))
                 stage = target
-            for name, entry in flat.items():
-                destination = os.path.join(images_out, entry["file"])
-                os.makedirs(os.path.dirname(destination), exist_ok=True)
-                shutil.move(os.path.join(stage, name), destination)
+            for name, parts in flat.items():
+                if len(parts) == 1:
+                    destination = os.path.join(images_out, parts[0]["file"])
+                    os.makedirs(os.path.dirname(destination), exist_ok=True)
+                    shutil.move(os.path.join(stage, name), destination)
+                    continue
+                with Image.open(os.path.join(stage, name)) as joined:
+                    x = 0
+                    for entry in parts:
+                        width = max(1, round(entry["width"] * shares[name]))
+                        destination = os.path.join(images_out, entry["file"])
+                        os.makedirs(os.path.dirname(destination), exist_ok=True)
+                        joined.crop((x, 0, x + width, joined.height)).save(destination)
+                        x += width
+            by_file = {}
+            for name, (parent, entry, rect, pad) in pieces.items():
+                by_file.setdefault(entry["file"], []).append((name, shares[parent], rect, pad))
+            for file, laid in by_file.items():
+                destination = os.path.join(images_out, file)
+                with Image.open(destination) as sheet:
+                    sheet = sheet.convert("RGBA")
+                    for name, share, rect, pad in laid:
+                        with Image.open(os.path.join(stage, name)) as piece:
+                            piece = piece.convert("RGBA")
+                            left, top = round(pad[0] * share), round(pad[1] * share)
+                            piece = piece.crop((left, top, left + max(1, round(rect[2] * share)),
+                                                top + max(1, round(rect[3] * share))))
+                            sheet.paste(piece, (round(rect[0] * share), round(rect[1] * share)))
+                    sheet.save(destination)
         finally:
-            shutil.rmtree(work, ignore_errors=True)
-    seen = {entry["file"] for entry in chosen}
+            if os.environ.get("UPSCALE_DEBUG"):
+                print("DEBUG work dir kept:", work)
+            else:
+                shutil.rmtree(work, ignore_errors=True)
+    seen = {identity(entry) for entry in chosen}
     for pack in args.merge:
         # Another pack's images as they are, its manifest entries with them.
         with open(os.path.join(pack, "images", "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
-                if entry["file"] in seen:
+                if identity(entry) in seen:
                     continue
-                seen.add(entry["file"])
+                seen.add(identity(entry))
                 destination = os.path.join(images_out, entry["file"])
                 if not os.path.isfile(destination):
                     os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -184,8 +420,8 @@ def main() -> int:
     if os.path.isfile(existing):
         with open(existing, encoding="utf-8") as handle:
             for entry in json.load(handle):
-                if entry["file"] not in seen and os.path.isfile(os.path.join(images_out, entry["file"])):
-                    seen.add(entry["file"])
+                if identity(entry) not in seen and os.path.isfile(os.path.join(images_out, entry["file"])):
+                    seen.add(identity(entry))
                     chosen.append(entry)
     for entry in chosen:
         entry.pop("source", None)
