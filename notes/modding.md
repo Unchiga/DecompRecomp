@@ -94,8 +94,9 @@ A mod may carry a `textures` directory: PNGs named by where their images
 come from on the disc, with a `manifest.json` describing each one, exactly
 what `tools/pc/extract_images.py` writes (`notes/pc-build.md`, "Images from
 the disc"). Extract the family you want to repaint (`cards`, `portraits`,
-or `--assets` for what a capture drew), paint over the PNGs, and point a
-manifest at the directory:
+`sheets` for the screens, `scenes` for the story's pictures, or `--assets`
+for what a capture drew), paint over the PNGs, and point a manifest at the
+directory:
 
 ```json
 {
@@ -115,9 +116,14 @@ at an internal resolution (View > Internal 2x, 4x; `notes/pc-build.md`) it
 is sampled at its own, so a bigger image shows its detail there. The
 palette rule is what keeps a sprite the game draws through several
 palettes (a selection bar, a greyed icon) looking right: only the palette
-the image was made for is replaced. One pack is active at a time; the
-extracted images themselves are the game's, so a pack ships painted images
-or a way to make them from the player's own disc, never the originals.
+the image was made for is replaced. A pack may carry the same words
+several times, one entry per palette (the `sheets` family writes a screen's
+sheet once per way the game reads it), and the entry whose palette the
+primitive uses is the one drawn; at the console's resolution only the first
+of them shows, the scaled picture shows all. The packs of every enabled
+mod add up. The extracted images themselves are the game's, so a pack
+ships painted images or a way to make them from the player's own disc,
+never the originals.
 
 `tools/pc/upscale_pack.py` makes a pack of upscaled images from an extracted
 set with Upscayl's command-line binary (Real-ESRGAN on the GPU): the same
@@ -125,13 +131,16 @@ files and manifest, enlarged (`--scale 4` by default, one to one with
 Internal 4x; `--scale 25 --passes 2` is the Upscayl window's "5x, twice"),
 with `mod.json` written beside them and, with `--zip`, the mod folder in a
 zip that unpacks into a `mods` directory (the user directory's, for anyone
-who downloads it). To cover a screen, play it once with
-`MEMORIES_DUMP_TEXTURES=<dir>` from a cold boot, then
-`extract_images.py --assets <dir>/assets.txt --out <images>`: every image
-the screen drew from the disc is in `<images>/assets`, backgrounds as the
-128x128 tiles the game uploads them in. Keep the scale in proportion: the
-game holds a pack's images in memory at full size, and a 128x128 tile at
-25x is 40 MB.
+who downloads it). Several extracted sets make one pack (`--images` again
+for each); entries whose pictures are identical share one file and one
+upscale. A screen the `sheets` family knows but no dump has shown yet gets
+its sheets at a guessed reading; to be sure of one, play it once with
+`MEMORIES_DUMP_TEXTURES=<dir>` from a cold boot and pass
+`--variants <dir>/assets.txt` to the extractor: every depth and palette the
+run read a sheet with becomes a PNG of it. `--assets <dir>/assets.txt`
+instead writes what such a run drew, as it cut it, for whatever no family
+covers. Keep the scale in proportion: the game holds a pack's images in
+memory at full size, and a 128x256 sheet at 4x is 2 MB.
 
 ## Code mods
 

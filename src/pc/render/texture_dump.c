@@ -463,9 +463,11 @@ static void expand(unsigned char *out, uint16_t colour)
         out[0] = out[1] = out[2] = out[3] = 0; /* the transparent colour */
         return;
     }
-    out[0] = (unsigned char)(((colour & 0x1f) * 255 + 15) / 31);
-    out[1] = (unsigned char)((((colour >> 5) & 0x1f) * 255 + 15) / 31);
-    out[2] = (unsigned char)((((colour >> 10) & 0x1f) * 255 + 15) / 31);
+    /* As the picture expands a word (soft_gpu.c): the PNG is what the game
+     * shows, and extract_images.py writes the same bytes from the disc. */
+    out[0] = (unsigned char)(((colour & 0x1f) << 3) | ((colour & 0x1f) >> 2));
+    out[1] = (unsigned char)((((colour >> 5) & 0x1f) << 3) | (((colour >> 5) & 0x1f) >> 2));
+    out[2] = (unsigned char)((((colour >> 10) & 0x1f) << 3) | (((colour >> 10) & 0x1f) >> 2));
     out[3] = 255;
 }
 

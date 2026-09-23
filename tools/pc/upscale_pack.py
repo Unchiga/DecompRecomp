@@ -109,14 +109,19 @@ def main() -> int:
                  ", ".join(sorted(n[:-4] for n in os.listdir(models) if n.endswith(".bin"))))
     if not args.images and not args.merge:
         sys.exit("--images or --merge is needed")
+    def identity(entry: dict) -> tuple:
+        """What the game matches an entry by: its words on the disc and how it reads them."""
+        return (entry["archive"], entry["offset"], entry["words"], entry["rows"], entry["bpp"],
+                entry.get("clut_offset"), entry.get("stride"), tuple(entry.get("row_offsets") or ()))
+
     manifest = []
     seen = set()
     for images in args.images:
         with open(os.path.join(images, "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
-                if entry["file"] in seen:
-                    continue  # the same image (its path names its origin) from two sets
-                seen.add(entry["file"])
+                if identity(entry) in seen:
+                    continue  # the same reading of the same words from two sets
+                seen.add(identity(entry))
                 entry["source"] = images
                 manifest.append(entry)
     chosen = []
@@ -131,9 +136,13 @@ def main() -> int:
 
     images_out = os.path.join(args.out, "images")
     os.makedirs(images_out, exist_ok=True)
-    pending = [e for e in chosen if not os.path.isfile(os.path.join(images_out, e["file"]))]
+    # Entries with identical pictures share one file (the extractor writes it once): one image job.
+    files = {}
+    for entry in chosen:
+        files.setdefault(entry["file"], entry)
+    pending = [e for f, e in files.items() if not os.path.isfile(os.path.join(images_out, f))]
     passes = args.passes or max(1, math.ceil(math.log(args.scale, 4) - 1e-9))
-    print(f"{len(chosen)} images chosen of {len(manifest)}, {len(pending)} to make "
+    print(f"{len(chosen)} images chosen of {len(manifest)} ({len(files)} files), {len(pending)} to make "
           f"({args.model}, {args.scale:g}x in {passes} pass{'es' if passes > 1 else ''})")
     if pending:
         work = tempfile.mkdtemp(prefix="upscale-")
@@ -165,14 +174,14 @@ def main() -> int:
                 shutil.move(os.path.join(stage, name), destination)
         finally:
             shutil.rmtree(work, ignore_errors=True)
-    seen = {entry["file"] for entry in chosen}
+    seen = {identity(entry) for entry in chosen}
     for pack in args.merge:
         # Another pack's images as they are, its manifest entries with them.
         with open(os.path.join(pack, "images", "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
-                if entry["file"] in seen:
+                if identity(entry) in seen:
                     continue
-                seen.add(entry["file"])
+                seen.add(identity(entry))
                 destination = os.path.join(images_out, entry["file"])
                 if not os.path.isfile(destination):
                     os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -184,8 +193,8 @@ def main() -> int:
     if os.path.isfile(existing):
         with open(existing, encoding="utf-8") as handle:
             for entry in json.load(handle):
-                if entry["file"] not in seen and os.path.isfile(os.path.join(images_out, entry["file"])):
-                    seen.add(entry["file"])
+                if identity(entry) not in seen and os.path.isfile(os.path.join(images_out, entry["file"])):
+                    seen.add(identity(entry))
                     chosen.append(entry)
     for entry in chosen:
         entry.pop("source", None)
