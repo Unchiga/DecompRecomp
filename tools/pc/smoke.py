@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -29,7 +30,7 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def smoke_environment(case: dict[str, object], image: Path, settings: Path) -> dict[str, str]:
+def smoke_environment(case: dict[str, object], image: Path, settings: Path, user: Path) -> dict[str, str]:
     preserved_disc = os.environ.get("MEMORIES_DISC")
     environment = {key: value for key, value in os.environ.items() if not key.startswith("MEMORIES_")}
     if preserved_disc:
@@ -42,6 +43,9 @@ def smoke_environment(case: dict[str, object], image: Path, settings: Path) -> d
             "MEMORIES_SPEED": "-1",
             "MEMORIES_SHOW_HUD": "0",
             "MEMORIES_SETTINGS": str(settings),
+            # A folder of its own, so the player's memory cards and states
+            # take no part in a case.
+            "MEMORIES_USER_DIR": str(user),
             "MEMORIES_INPUT": str(case["input"]),
             "MEMORIES_DUMP_FRAME": str(case["frame"]),
             "MEMORIES_DUMP_PATH": str(image),
@@ -79,8 +83,11 @@ def run_smoke(executable: Path, record: bool) -> bool:
         name = str(case["name"])
         image = OUTPUT / f"{name}.ppm"
         settings = OUTPUT / f"{name}.settings"
+        user = OUTPUT / f"{name}.user"
+        shutil.rmtree(user, ignore_errors=True)
+        user.mkdir()
         # A case may set some of the player's settings ("aspect=2" for
-        # widescreen); everything else is the defaults.
+        # widescreen, "mod.3d-monsters=1"); everything else is the defaults.
         settings.write_text("".join(f"{key}={value}\n" for key, value in case.get("settings", {}).items()),
                             encoding="utf-8")
         print(f"smoke: {name} (frame {case['frame']})", flush=True)
@@ -88,7 +95,7 @@ def run_smoke(executable: Path, record: bool) -> bool:
             result = subprocess.run(
                 command,
                 cwd=ROOT,
-                env={**smoke_environment(case, image, settings), **extra},
+                env={**smoke_environment(case, image, settings, user), **extra},
                 timeout=float(os.environ.get("MEMORIES_SMOKE_TIMEOUT", "120")),
                 check=False,
             )
