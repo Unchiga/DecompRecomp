@@ -115,7 +115,8 @@ at an internal resolution (View > Internal 2x, 4x; `notes/pc-build.md`) it
 is sampled at its own, so a bigger image shows its detail there. The
 palette rule is what keeps a sprite the game draws through several
 palettes (a selection bar, a greyed icon) looking right: only the palette
-the image was made for is replaced. One pack is active at a time; the
+the image was made for is replaced. Packs add up: every applied mod's
+pack joins the others (where two cover the same image, either may win). The
 extracted images themselves are the game's, so a pack ships painted images
 or a way to make them from the player's own disc, never the originals.
 

@@ -554,9 +554,9 @@ name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
 (below), under `assets/`, named by archive, offset, size, depth and palette:
 the way to cover screens no family describes yet. A mod with `"textures"`
 in its manifest replaces the images at draw time from such a directory
-(`notes/modding.md`, "Texture packs"). Next: monster textures (`MODEL.MRG`)
-as a family, aliases for the screens, and drawing at a higher internal
-resolution so that bigger pack images show.
+(`notes/modding.md`, "Texture packs"); bigger pack images show at an
+internal resolution above 1x (below). Next: monster textures (`MODEL.MRG`)
+as a family, and aliases for the screens.
 
 ### Texture dump (what is on screen)
 
