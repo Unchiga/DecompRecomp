@@ -23,6 +23,11 @@ int Platform_Widescreen(void);
  * them per game pixel each way, so the window is laid out for w/scale by
  * h/scale. Returns 0 where the backend cannot show it. */
 int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, int w, int h, int scale);
+/* With pixels NULL the picture is the one the backend's own renderer drew
+ * from the GPU's record (gl_picture.h); x, y, w and h are picture pixels
+ * still. Platform_ReadPicture reads w x h of that picture as 0x00RRGGBB
+ * (frame dumps); 0 where there is no such renderer. */
+int Platform_ReadPicture(uint32_t *out, int x, int y, int w, int h);
 int Platform_ShouldQuit(void);
 int Platform_StateSlot(void);
 void Platform_SetStateSlot(int slot);

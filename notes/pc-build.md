@@ -168,6 +168,10 @@ stored volume and applies headless too), `MEMORIES_SETTINGS` (another
 settings file), `MEMORIES_HEADLESS=1`,
 `MEMORIES_DUMP_FRAME=N` with `MEMORIES_DUMP_PATH` and optional
 `MEMORIES_DUMP_VRAM=1` (write frame N as PPM and exit),
+`MEMORIES_WINDOW_SHOT=N` (save the window as shown at frame N, as the
+screenshot key does, into `MEMORIES_SCREENSHOT_DIR` or the user folder),
+`MEMORIES_SCALE_AT=N:S` (change the internal resolution to S at frame N, as
+the View menu would),
 `MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on),
 `MEMORIES_NO_AUDIO=1`, `MEMORIES_DUMP_AUDIO=path` (raw s16le stereo 44.1 kHz
 instead of a device), and
@@ -550,9 +554,9 @@ name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
 (below), under `assets/`, named by archive, offset, size, depth and palette:
 the way to cover screens no family describes yet. A mod with `"textures"`
 in its manifest replaces the images at draw time from such a directory
-(`notes/modding.md`, "Texture packs"). Next: monster textures (`MODEL.MRG`)
-as a family, aliases for the screens, and drawing at a higher internal
-resolution so that bigger pack images show.
+(`notes/modding.md`, "Texture packs"); bigger pack images show at an
+internal resolution above 1x (below). Next: monster textures (`MODEL.MRG`)
+as a family, and aliases for the screens.
 
 ### Texture dump (what is on screen)
 
@@ -586,22 +590,44 @@ ones loaded after it.
 
 ### Internal resolution
 
-View > Console resolution / Internal 2x, 3x, 4x (the `internal_scale`
-setting, `MEMORIES_INTERNAL_SCALE=N`, up to 8) draws every primitive a second time,
-at N x N pixels per VRAM word, into a picture of the whole of VRAM in
-24-bit colour (`soft_gpu.c`, `picture_*`), which is what the window shows.
-VRAM itself stays exactly what the console's would be: the game reads it
-back and states hold it, and the 1x frame the smoke fixtures hash is
-byte-identical at any scale. The picture's pass runs before the word's,
-so it sees the mask bits VRAM had before the primitive, as the word's pass
-does; uploads, fills and moves keep it in step; a state load redraws it
-from VRAM. Texture coordinates carry a fraction, so a texture pack's image
-is sampled at its own resolution there (`TextureDump_Sample`); VRAM's own
-texels otherwise. No dithering in the picture. `MEMORIES_DUMP_FRAME` with
-`MEMORIES_DUMP_PICTURE=1` writes the picture instead of the frame. Cost: a
-duel with 3D Monsters draws in about 4.5 ms a frame at 1x and 12.5 ms at
-2x on the development machine; 4x needs a faster inner loop. The X11
-backend shows VRAM as before (`Platform_PresentPicture` returns 0).
+View > Console resolution / Internal 2x, 4x (the `internal_scale`
+setting, `MEMORIES_INTERNAL_SCALE=N`, 1, 2, 4 or 8) shows a picture of the
+whole of VRAM at N x N pixels per VRAM word in 24-bit colour instead of
+VRAM. VRAM itself stays exactly what the console's would be: the game reads
+it back and states hold it, and the 1x frame the smoke fixtures hash is
+byte-identical at any scale. No dithering in the picture; the mask bits
+are VRAM's; a texture pack's image is sampled at its own resolution there,
+VRAM's own texels otherwise.
+
+Two renderers draw it. With the SDL backend on OpenGL 3.0 or later
+(`gl_picture.c`) the software GPU only records what it does to VRAM (every
+GP0 batch, every transfer, `SoftGpuRecorder` in `soft_gpu.h`) and the
+record is replayed at present into a framebuffer: VRAM is an integer
+texture the fragment shader decodes (4, 8 and 16 bits per texel through
+the palette) as the software GPU samples it, a mod's texture banks are an
+array texture uploaded when a replay finds them changed, and a pack's
+images are textures of their own with the pack's word-to-entry maps beside
+them. Opaque pixels and blending modes 0, 1 and 3 share one draw (the
+colour comes out pre-multiplied, the destination's factor in alpha); mode
+2 draws its opaque texels, then its semi-transparent ones subtracted.
+What a primitive draws is not sampled by a later one of the same frame
+(the game never renders to a texture); across frames VRAM is uploaded
+whole after each replay. A duel with 3D Monsters replays in 1.5-2.5 ms a
+frame at 2x and 2.5-4 ms at 4x on the development machine.
+
+Without that (the X11 backend, `MEMORIES_GL_PICTURE=0`, an older GL) the
+software GPU draws every primitive a second time into the picture
+(`soft_gpu.c`, `picture_*`), the picture's pass before the word's so both
+see the same mask bits; uploads, fills and moves keep it in step; a state
+load redraws it from VRAM. That costs about 9 ms a frame at 2x and 30 ms
+at 4x in the same duel. It is the OpenGL pass's oracle: `MEMORIES_DUMP_FRAME`
+with `MEMORIES_DUMP_PICTURE=1` writes the picture (from either renderer)
+instead of the frame, and `MEMORIES_DETERMINISTIC=1` makes a windowed run
+with a frame dump as deterministic as a headless one, so the two can be
+compared on one frame of the same build; the title, the main menu, a 2D
+duel frame and a 3D one come out identical pixel for pixel at 2x and 4x
+(three edge pixels differ on the 3D monster). The X11 backend shows VRAM
+as before (`Platform_PresentPicture` returns 0).
 
 ### Deterministic PC checks
 

@@ -17,6 +17,8 @@ uint16_t *TextureDump_Shadow;
 void (*TextureDump_Paint)(int x, int y, int w, int h);
 int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
 int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
+void (*TextureDump_Forget)(int x, int y, int w, int h);
+void (*TextureDump_Follow)(int sx, int sy, int dx, int dy, int w, int h);
 static char directory[1024];
 static FILE *index_file, *assets_file;
 static int (*disc_file_info)(const char *path, int *lba, unsigned *size);
@@ -262,6 +264,7 @@ void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h)
             }
         }
     }
+    if (TextureDump_Follow) TextureDump_Follow(sx, sy, dx, dy, w, h);
 }
 
 void TextureDump_Cleared(int x, int y, int w, int h)
@@ -274,6 +277,7 @@ void TextureDump_Cleared(int x, int y, int w, int h)
             if (TextureDump_Shadow) memset(TextureDump_Cell(x + i, y + j, 0), 0, 4 * sizeof(uint16_t));
         }
     }
+    if (TextureDump_Forget) TextureDump_Forget(x, y, w, h);
 }
 
 static void write_archives_once(void)

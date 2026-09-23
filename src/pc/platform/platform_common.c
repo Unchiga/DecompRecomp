@@ -138,7 +138,10 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
 #endif
     tick_handler = tick;
     vblank_handler = vblank;
-    deterministic_dump = getenv("MEMORIES_HEADLESS") != NULL && getenv("MEMORIES_DUMP_FRAME") != NULL;
+    /* MEMORIES_DETERMINISTIC asks for the same with a window (comparing
+     * the window's renderers on one frame). */
+    deterministic_dump = (getenv("MEMORIES_HEADLESS") != NULL || getenv("MEMORIES_DETERMINISTIC") != NULL) &&
+                         getenv("MEMORIES_DUMP_FRAME") != NULL;
     last_vsync_real = now_us();
     {
         const char *watchdog = getenv("MEMORIES_WATCHDOG");

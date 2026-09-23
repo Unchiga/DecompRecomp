@@ -110,13 +110,29 @@ traced to its bytes (`src/pc/render/texture_dump.c`), and the words an image
 of the pack covers get its pixels in a shadow of VRAM; a primitive that
 samples them through the palette the image was extracted with takes them
 from the shadow instead (`texture_pack.c`). A pack image may be any size:
-it is resampled to the texture's own size on load, so until the renderer
-draws at a higher resolution a bigger image only changes what the pixels
-are. The palette rule is what keeps a sprite the game draws through several
+at the console's resolution it is resampled to the texture's own size, and
+at an internal resolution (View > Internal 2x, 4x; `notes/pc-build.md`) it
+is sampled at its own, so a bigger image shows its detail there. The
+palette rule is what keeps a sprite the game draws through several
 palettes (a selection bar, a greyed icon) looking right: only the palette
-the image was made for is replaced. One pack is active at a time; the
+the image was made for is replaced. Packs add up: every applied mod's
+pack joins the others (where two cover the same image, either may win). The
 extracted images themselves are the game's, so a pack ships painted images
 or a way to make them from the player's own disc, never the originals.
+
+`tools/pc/upscale_pack.py` makes a pack of upscaled images from an extracted
+set with Upscayl's command-line binary (Real-ESRGAN on the GPU): the same
+files and manifest, enlarged (`--scale 4` by default, one to one with
+Internal 4x; `--scale 25 --passes 2` is the Upscayl window's "5x, twice"),
+with `mod.json` written beside them and, with `--zip`, the mod folder in a
+zip that unpacks into a `mods` directory (the user directory's, for anyone
+who downloads it). To cover a screen, play it once with
+`MEMORIES_DUMP_TEXTURES=<dir>` from a cold boot, then
+`extract_images.py --assets <dir>/assets.txt --out <images>`: every image
+the screen drew from the disc is in `<images>/assets`, backgrounds as the
+128x128 tiles the game uploads them in. Keep the scale in proportion: the
+game holds a pack's images in memory at full size, and a 128x128 tile at
+25x is 40 MB.
 
 ## Code mods
 

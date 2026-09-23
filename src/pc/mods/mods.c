@@ -845,7 +845,16 @@ static void activate(int index, int on)
         if (mod->hooks.applied) mod->hooks.applied(1);
     } else {
         drop_overrides(index);
-        if (mod->textures[0] && texture_pack_unload) texture_pack_unload();
+        if (mod->textures[0] && texture_pack_unload) {
+            /* The packs add up: the others' come back without this one's. */
+            int other;
+            texture_pack_unload();
+            for (other = 0; other < mod_count; other++) {
+                if (other != index && mods[other].active && mods[other].textures[0] && texture_pack_load) {
+                    texture_pack_load(mods[other].textures);
+                }
+            }
+        }
         mod->active = 0;
         if (mod->hooks.applied) mod->hooks.applied(0);
     }

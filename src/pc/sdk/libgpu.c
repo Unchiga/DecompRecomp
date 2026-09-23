@@ -17,6 +17,7 @@
 #include "pc/debug/crash.h"
 #include "pc/mods/mods.h"
 #include "pc/render/texture_pack.h"
+#include "pc/compat/signal.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
 #define MAX_FRAME_WORDS 0x80000u
@@ -120,19 +121,34 @@ void Memories_DumpFrame(const char *path, int full_vram)
         /* The scaled picture of the display area, as the window shows it. */
         int at_scale = SoftGpu_Scale(), stride = SOFT_GPU_WIDTH * at_scale;
         const uint32_t *picture = SoftGpu_Picture();
-        fprintf(file, "P6\n%d %d\n255\n", w * at_scale, h * at_scale);
-        for (y = 0; y < h * at_scale; y++) {
-            for (x = 0; x < w * at_scale; x++) {
-                uint32_t c = picture[(size_t)((y0 * at_scale + y) % (SOFT_GPU_HEIGHT * at_scale)) * stride +
-                                     (size_t)((x0 * at_scale + x) % stride)];
-                fputc((c >> 16) & 0xff, file);
-                fputc((c >> 8) & 0xff, file);
-                fputc(c & 0xff, file);
+        uint32_t *read = NULL;
+        if (!picture) { /* the backend's own renderer drew it (gl_picture.h) */
+            read = malloc((size_t)w * at_scale * (size_t)h * at_scale * sizeof(*read));
+            if (read && Platform_ReadPicture(read, x0 * at_scale, y0 * at_scale, w * at_scale, h * at_scale)) {
+                picture = read;
+                stride = w * at_scale;
+                x0 = y0 = 0;
+            } else {
+                free(read);
+                read = NULL;
             }
         }
-        fclose(file);
-        LOG(LOG_FRAMES, "dumped %s (picture at %dx)", path, at_scale);
-        return;
+        if (picture) {
+            fprintf(file, "P6\n%d %d\n255\n", w * at_scale, h * at_scale);
+            for (y = 0; y < h * at_scale; y++) {
+                for (x = 0; x < w * at_scale; x++) {
+                    uint32_t c = picture[(size_t)((y0 * at_scale + y) % (SOFT_GPU_HEIGHT * at_scale)) * stride +
+                                         (size_t)((x0 * at_scale + x) % stride)];
+                    fputc((c >> 16) & 0xff, file);
+                    fputc((c >> 8) & 0xff, file);
+                    fputc(c & 0xff, file);
+                }
+            }
+            fclose(file);
+            free(read);
+            LOG(LOG_FRAMES, "dumped %s (picture at %dx)", path, at_scale);
+            return;
+        }
     }
     fprintf(file, "P6\n%d %d\n255\n", w, h);
     for (y = 0; y < h; y++) {
@@ -188,6 +204,22 @@ static void present_wide(int w, int h)
     Platform_Present(sides, SOFT_GPU_WIDTH * 2, 0, 0, w + 2 * margin, h, disp_env.isrgb24);
 }
 
+int Memories_SetInternalScale(int wanted)
+{
+    sigset_t held, previous;
+    int done;
+    /* 1, 2, 4 or 8: the setting's 3 is 2, 5 to 7 are 4. */
+    wanted = wanted >= 8 ? 8 : wanted >= 4 ? 4 : wanted >= 2 ? 2 : 1;
+    /* The old picture is freed and a new one made, and an upload from the
+     * interrupt tick draws into the picture: the clock waits meanwhile. */
+    sigemptyset(&held);
+    sigaddset(&held, SIGALRM);
+    sigprocmask(SIG_BLOCK, &held, &previous);
+    done = SoftGpu_SetScale(wanted);
+    sigprocmask(SIG_SETMASK, &previous, NULL);
+    return done;
+}
+
 void Memories_PresentDisplay(void)
 {
     const char *dump = getenv("MEMORIES_DUMP_FRAME");
@@ -197,6 +229,17 @@ void Memories_PresentDisplay(void)
     TexturePack_Service();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
+    {
+        /* MEMORIES_WINDOW_SHOT=<frame>: the window as shown at that frame,
+         * as the screenshot key would save it (checking the window itself
+         * from a scripted run). */
+        const char *shot = getenv("MEMORIES_WINDOW_SHOT");
+        const char *rescale = getenv("MEMORIES_SCALE_AT"); /* "<frame>:<scale>": the View menu's change, scripted */
+        if (shot && frames_presented == atoi(shot)) Platform_Screenshot(1);
+        if (rescale && frames_presented == atoi(rescale) && strchr(rescale, ':')) {
+            Memories_SetInternalScale(atoi(strchr(rescale, ':') + 1));
+        }
+    }
     if (dump && frames_presented == atoi(dump)) {
         const char *path = getenv("MEMORIES_DUMP_PATH");
         Memories_DumpFrame(path ? path : "tmp/pc/frame.ppm", getenv("MEMORIES_DUMP_VRAM") != NULL);
