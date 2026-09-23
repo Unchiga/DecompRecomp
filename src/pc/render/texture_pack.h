@@ -27,6 +27,10 @@ void TexturePack_Service(void);
  * whenever a word of the maps does. */
 #include <stdint.h>
 int TexturePack_EntryFor(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
+/* Readings of the same words (one geometry, several depths or palettes)
+ * are entries in a row; the maps name the first, the head, whichever the
+ * primitive's palette picks. */
+int TexturePack_EntryHead(int entry);
 int TexturePack_EntryImage(int entry, const unsigned char **rgba, int *width, int *height, int *crop_left,
                            int *crop_width, int *rows, int *texels_per_word);
 unsigned TexturePack_Generation(void);

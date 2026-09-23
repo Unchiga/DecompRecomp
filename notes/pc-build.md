@@ -550,13 +550,32 @@ sector `(n-1)*7 + 722`, seven sectors: the 102x96 8-bit picture, its
 files, and `portraits`, the 48x48 dialogue portraits through their 64-entry
 palettes (the campaign's 25 and Free Duel's 40, `0x980`-byte records).
 `--names cards.tsv` (card_number, name) puts the card's name in the file
-name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
-(below), under `assets/`, named by archive, offset, size, depth and palette:
-the way to cover screens no family describes yet. A mod with `"textures"`
-in its manifest replaces the images at draw time from such a directory
-(`notes/modding.md`, "Texture packs"); bigger pack images show at an
-internal resolution above 1x (below). Next: monster textures (`MODEL.MRG`)
-as a family, and aliases for the screens.
+name. `sheets` replays every screen loader that streams its images through
+the GPU path (`file_transfer_runtime.c`: a sector is a 64x16-word tile,
+sixteen stack into a 64-word column of 256 rows, contiguous in the archive,
+the next column 64 words to the right): the main menu (`SU.MRG`), the boot
+UI and the title, the story dialogue UI, the campaign, Free Duel, name
+entry, password, options, game over, the duel results and rewards, the
+Library, the seven duel terrains, the campaign map's strip and the 65
+display-effect records of the duel. A sheet is one PNG per column and per
+way the game reads it, depth and palette (`notes/mrg-files.md` for the
+loaders; the readings come from the draw code and from dumps, `--variants
+<assets.txt>` adds a dump's). `scenes` is the story's pictures
+(`ScriptImage_RequestTransfer`: 33-, 81- and 113-sector records from WA
+sector `0x21D5`, the card shop among them). Records laid out alike (the
+terrains, a mode's story pictures) share the readings a dump shows for one
+of them, and entries whose pixels come out identical (the duel-hand block
+in all seven terrains and the Library) share one file. `--assets
+<assets.txt>` extracts whatever a texture-dump run drew (below), under
+`assets/`, named by archive, offset, size, depth and palette, skipping
+what a sheet covers: the way to cover what no family describes yet. Every
+dump so far (title, main menu, options, the story, both duel cases) comes
+out pixel-identical to the sheets' crops, and a pack of the sheets as they
+are draws the same frame as no pack at 1x, 2x, in software and in GL. A
+mod with `"textures"` in its manifest replaces the images at draw time
+from such a directory (`notes/modding.md`, "Texture packs"). Not yet: the
+monster textures (`MODEL.MRG`) and the campaign map's own pictures, which
+its overlay uploads from a 134-sector block.
 
 ### Texture dump (what is on screen)
 

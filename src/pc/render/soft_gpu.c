@@ -456,10 +456,12 @@ static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
     } else {
         word = sample(gpu.page_x + u, y);
     }
-    if (shadow_on) {
+    if (shadow_on == 1) {
         /* A replaced texel: the pack's colour, 0 for one painted transparent.
          * The texel's own semi-transparency bit stays: a pack replaces the
-         * colour, not how the game draws it. */
+         * colour, not how the game draws it. (2: the primitive reads the
+         * words with another palette than the shadow's image; the scaled
+         * picture has that image, VRAM stays.) */
         uint16_t cell = gpu.depth == 0 ? *TextureDump_Cell(gpu.page_x + u / 4, y, u & 3)
                         : gpu.depth == 1 ? *TextureDump_Cell(gpu.page_x + u / 2, y, (u & 1) * 2)
                                          : *TextureDump_Cell(gpu.page_x + u, y, 0);
@@ -885,8 +887,9 @@ static size_t polygon(const uint32_t *words, size_t count)
             }
         }
     }
-    shadow_on = textured && TextureDump_Prepare && texture_source == vram &&
-                TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, v[0].u, v[0].v);
+    shadow_on = textured && TextureDump_Prepare && texture_source == vram
+                    ? TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, v[0].u, v[0].v)
+                    : 0;
     if (textured && TextureDump_Enabled) {
         /* The texels the primitive covers: a quad's far edge is exclusive. */
         int u0 = v[0].u, u1 = v[0].u, v0 = v[0].v, v1 = v[0].v;
@@ -938,8 +941,9 @@ static size_t rectangle(const uint32_t *words, size_t count)
         w = words[at] & 0x3ff;
         h = (words[at] >> 16) & 0x1ff;
     }
-    shadow_on = textured && TextureDump_Prepare && texture_source == vram &&
-                TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u, base.v);
+    shadow_on = textured && TextureDump_Prepare && texture_source == vram
+                    ? TextureDump_Prepare(gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u, base.v)
+                    : 0;
     if (textured && TextureDump_Enabled && w && h) {
         TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u,
                               base.v, base.u + w - 1, base.v + h - 1);

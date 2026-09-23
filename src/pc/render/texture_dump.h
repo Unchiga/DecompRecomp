@@ -38,8 +38,10 @@ int TextureDump_EnableTags(void);
  * cells through `paint`, called after an upload has tagged its words; the
  * cells follow the words through moves and clears. `prepare` runs once per
  * textured primitive, before it samples, with one texel it will sample,
- * and says whether this primitive may take from the shadow (its palette
- * must be the one the image was painted for). Both NULL when no pack is
+ * and says whether this primitive may take from the shadow (1: its palette
+ * is the one the shadow's image was painted for) or only from the scaled
+ * picture's sampler (2: the words have an image for its palette too, but
+ * the shadow holds another reading's colours). Both NULL when no pack is
  * loaded. */
 #define TEXTURE_SHADOW_WIDTH (SOFT_GPU_WIDTH * 4)
 extern uint16_t *TextureDump_Shadow;
