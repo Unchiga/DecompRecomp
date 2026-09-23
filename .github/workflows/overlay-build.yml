@@ -25,7 +25,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The build needs the retail executable, which only a repository secret can
+  # provide. A fork or a clone without it skips the build instead of failing
+  # on every push; setting YGOFM_SLUS_01411_URL turns it back on.
+  retail-inputs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        env:
+          SLUS_URL: ${{ secrets.YGOFM_SLUS_01411_URL }}
+        run: |
+          if [ -n "$SLUS_URL" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::YGOFM_SLUS_01411_URL is not set; skipping the retail build."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
   verify-overlays:
+    needs: retail-inputs
+    if: needs.retail-inputs.outputs.available == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:

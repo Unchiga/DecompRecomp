@@ -79,7 +79,7 @@ the current one passes.
 
 ## 2. Design decisions (do not re-decide these)
 
-- **One settings module** (`src/pc/platform/settings.c/.h`) owns the file, the
+- **One settings module** (`src/pc/platform/settings.c`/`.h`) owns the file, the
   env overrides and the defaults. `menu.c`, `sdl.c`, `spu.c` and the debug
   code read and write through it. It has no SDL or X11 dependency so a unit
   test can link it alone.
@@ -99,7 +99,7 @@ the current one passes.
 - **Three audio buses** in the mixer: music (voices 0 to 19), sound effects
   (voices 20 to 23), stream (CD/XA). Each has its own 0 to 100 gain, ramped
   like the existing output gain. The existing output gain becomes "master".
-- **One logging module** (`src/pc/debug/log.c/.h`) with named channels, a
+- **One logging module** (`src/pc/debug/log.c`/`.h`) with named channels, a
   signal-safe ring buffer, timestamps and frame numbers, an optional log
   file, and a HUD that can show the tail. Every existing `MEMORIES_TRACE_*`
   site is converted to it, and the old variable names keep working.
@@ -585,7 +585,7 @@ records, drain, assert 256 lines plus a dropped notice.
 
 ### Task 4.2: symbol table at runtime
 
-Create `src/pc/debug/symbols.c/.h`:
+Create `src/pc/debug/symbols.c`/`.h`:
 
 ```c
 /* The build's own symbol table (tmp/pc/game32/symbols/<buildid>.txt, the
@@ -673,7 +673,7 @@ behind `MEMORIES_HANG_TEST=1` in `Platform_Frame` yields the hang report.
 
 ### Task 5.1: HUD
 
-Create `src/pc/debug/hud.c/.h` drawing onto the menu overlay canvas after
+Create `src/pc/debug/hud.c`/`.h` drawing onto the menu overlay canvas after
 `Menu_Draw` (call `Hud_Draw(&canvas)` from `Platform_Present` in both
 backends; the HUD needs `menu.c`'s text routines, so export
 `Menu_DrawText(MenuCanvas *, int x, int y, const char *, uint32_t colour)` and

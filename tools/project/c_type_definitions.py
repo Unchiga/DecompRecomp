@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Reject type definitions in C sources; shared headers own all types."""
+"""Reject type definitions in C sources; shared headers own all types.
+
+The rule is for the decompiled game. The native PC port under src/pc is host
+code with file-local types of its own (a ring of disc deliveries, a window's
+state), which no header needs to see, so it is left out."""
 
 from __future__ import annotations
 
@@ -8,6 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+HOST_PORT = ROOT / "src" / "pc"
 TYPE_DEFINITION = re.compile(
     r"\b(?:typedef\b|(?:struct|union|enum)\b\s*(?:[A-Za-z_]\w*\s*)?\{)"
 )
@@ -34,6 +39,8 @@ def type_definition_lines(text: str) -> list[int]:
 def main() -> int:
     failures: list[tuple[Path, list[int]]] = []
     for path in sorted((ROOT / "src").rglob("*.c")):
+        if path.is_relative_to(HOST_PORT):
+            continue
         lines = type_definition_lines(
             path.read_text(encoding="utf-8", errors="surrogateescape")
         )
