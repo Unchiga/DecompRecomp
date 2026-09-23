@@ -12,4 +12,7 @@
  * in its manifest (src/pc/mods). Returns the number of images indexed. */
 int TexturePack_Load(const char *directory);
 void TexturePack_Unload(void);
+/* Once a frame, on the main thread: reads what uploads asked for (an
+ * upload can come from the interrupt tick, where reading is not safe). */
+void TexturePack_Service(void);
 #endif

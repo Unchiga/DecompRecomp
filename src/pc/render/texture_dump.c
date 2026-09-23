@@ -84,13 +84,8 @@ void TextureDump_Init(void)
     }
     snprintf(name, sizeof(name), "%s/assets.txt", directory);
     assets_file = fopen(name, "a");
-    delivery_copies = malloc((size_t)DELIVERIES * DELIVERY_BYTES);
-    TextureDump_Tags = delivery_copies ? calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags))
-                                       : NULL;
-    if (!TextureDump_Tags) {
+    if (!TextureDump_EnableTags()) {
         fprintf(stderr, "memories-pc: no memory for texture provenance\n");
-        free(delivery_copies);
-        delivery_copies = NULL;
         return;
     }
     TextureDump_Enabled = 1;
@@ -99,12 +94,20 @@ void TextureDump_Init(void)
 
 /* --- provenance ---------------------------------------------------------- */
 
+/* The tags and the delivery copies go together: a delivery is copied as
+ * soon as the tags exist (TextureDump_Delivered), by the dump and by a
+ * texture pack alike. */
 int TextureDump_EnableTags(void)
 {
+    if (TextureDump_Tags) return 1;
+    if (!delivery_copies) delivery_copies = malloc((size_t)DELIVERIES * DELIVERY_BYTES);
+    if (delivery_copies) TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
     if (!TextureDump_Tags) {
-        TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
+        free(delivery_copies);
+        delivery_copies = NULL;
+        return 0;
     }
-    return TextureDump_Tags != NULL;
+    return 1;
 }
 
 int TextureDump_EnableShadow(void)

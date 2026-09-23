@@ -16,6 +16,7 @@
 #include "pc/debug/log.h"
 #include "pc/debug/crash.h"
 #include "pc/mods/mods.h"
+#include "pc/render/texture_pack.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
 #define MAX_FRAME_WORDS 0x80000u
@@ -193,6 +194,7 @@ void Memories_PresentDisplay(void)
     int w = disp_env.disp.w > 0 ? disp_env.disp.w : 320, h = disp_env.disp.h > 0 ? disp_env.disp.h : 240;
     int wide = Platform_Widescreen();
     flush_drawing();
+    TexturePack_Service();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
     if (dump && frames_presented == atoi(dump)) {

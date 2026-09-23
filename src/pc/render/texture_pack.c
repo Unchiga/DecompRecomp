@@ -2,6 +2,7 @@
 #include "texture_dump.h"
 #include "soft_gpu.h"
 #include "pc/mods/json.h"
+#include "pc/compat/signal.h"
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,7 @@ typedef struct Entry {
     int32_t *row_offsets;
     int words, rows, bpp, crop_left, crop_width, clut_entries;
     char *file;
+    volatile int wanted; /* an upload needs this image: TexturePack_Service reads it */
     uint16_t *pixels; /* resampled to words*per_word x rows, 15-bit | 0x8000, 0 = transparent; NULL until first use */
     unsigned char *image; /* the PNG itself, RGBA, for the scaled picture */
     int image_width, image_height;
@@ -21,6 +23,10 @@ typedef struct Entry {
 
 static Entry *entries;
 static int entry_count, resolved; /* offsets are absolute on the disc, entries sorted */
+/* An upload can arrive from the interrupt tick (a LoadImage in the disc
+ * callback), where reading a PNG or the disc's directory is not safe: paint
+ * only notes what it needs, and TexturePack_Service does it between frames. */
+static volatile int wanted_resolve, wanted_images;
 static char directory[1024];
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
@@ -68,6 +74,7 @@ static int load_pixels(Entry *entry)
     char path[1200];
     int width = entry->words * per_word(entry->bpp), height = entry->rows, x, y;
     if (entry->pixels || entry->failed) return entry->pixels != NULL;
+    entry->wanted = 0;
     snprintf(path, sizeof(path), "%s/%s", directory, entry->file);
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
@@ -230,7 +237,10 @@ static int resolve(void)
 static void paint(int x, int y, int w, int h)
 {
     int i, j;
-    if (!resolve()) return;
+    if (!resolved) {
+        wanted_resolve = 1;
+        return;
+    }
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             int vx = (x + i) & (SOFT_GPU_WIDTH - 1), vy = (y + j) & (SOFT_GPU_HEIGHT - 1), row, word, index, k, per;
@@ -239,7 +249,13 @@ static void paint(int x, int y, int w, int h)
             entry_of[vy * SOFT_GPU_WIDTH + vx] = 0;
             if (!tag || (index = locate(tag - 1, &row, &word)) < 0) continue;
             entry = &entries[index];
-            if (!load_pixels(entry)) continue;
+            if (!entry->pixels) {
+                if (!entry->failed) {
+                    entry->wanted = 1;
+                    wanted_images = 1;
+                }
+                continue;
+            }
             per = per_word(entry->bpp);
             entry_of[vy * SOFT_GPU_WIDTH + vx] = (uint16_t)(index + 1);
             place_of[vy * SOFT_GPU_WIDTH + vx] = ((uint32_t)row << 16) | (uint32_t)word;
@@ -346,12 +362,45 @@ int TexturePack_Load(const char *from)
     }
     if (!entry_of) entry_of = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*entry_of));
     if (!place_of) place_of = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*place_of));
+    if (!entry_of || !place_of) {
+        free_entries();
+        return 0;
+    }
     TextureDump_Paint = paint;
     TextureDump_Prepare = prepare;
     TextureDump_Sample = sample;
-    /* What is in VRAM already keeps its tags: paint it now. */
-    paint(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+    /* The disc's directory and the images wait for TexturePack_Service,
+     * between frames: a mod is applied while the game starts, before the
+     * disc is open, and an upload can ask for an image from the interrupt
+     * tick. Until then paint only notes what it needs and sample sees no
+     * image. */
+    wanted_resolve = 1;
     return entry_count;
+}
+
+/* Between frames, on the main thread with the clock held: the disc's
+ * directory and the images an upload asked for, then the words they cover. */
+void TexturePack_Service(void)
+{
+    sigset_t held, previous;
+    int i, painted = 0;
+    if (!entries || (!wanted_resolve && !wanted_images)) return;
+    sigemptyset(&held);
+    sigaddset(&held, SIGALRM);
+    sigprocmask(SIG_BLOCK, &held, &previous);
+    if (wanted_resolve) {
+        wanted_resolve = 0;
+        if (resolve()) painted = 1; /* uploads since the load were skipped */
+        else wanted_resolve = 1;    /* no disc yet: again next frame */
+    }
+    if (wanted_images && resolved) {
+        wanted_images = 0;
+        for (i = 0; i < entry_count; i++) {
+            if (entries[i].wanted && load_pixels(&entries[i])) painted = 1;
+        }
+    }
+    if (painted) paint(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+    sigprocmask(SIG_SETMASK, &previous, NULL);
 }
 
 void TexturePack_Unload(void)
@@ -366,4 +415,5 @@ void TexturePack_Unload(void)
     if (entry_of) memset(entry_of, 0, (size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT * sizeof(*entry_of));
     free_entries();
     resolved = 0;
+    wanted_resolve = wanted_images = 0;
 }
