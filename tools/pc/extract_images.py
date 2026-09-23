@@ -56,9 +56,9 @@ def expand(colour: int) -> bytes:
     """A 15-bit VRAM word as RGBA; 0 is the transparent colour."""
     if colour == 0:
         return b"\x00\x00\x00\x00"
-    r = (colour & 0x1F) * 255 // 31
-    g = ((colour >> 5) & 0x1F) * 255 // 31
-    b = ((colour >> 10) & 0x1F) * 255 // 31
+    r = ((colour & 0x1F) * 255 + 15) // 31  # as texture_dump.c expands a word
+    g = (((colour >> 5) & 0x1F) * 255 + 15) // 31
+    b = (((colour >> 10) & 0x1F) * 255 + 15) // 31
     return bytes((r, g, b, 255))
 
 

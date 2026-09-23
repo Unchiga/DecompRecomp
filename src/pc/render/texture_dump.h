@@ -28,6 +28,8 @@ extern uint32_t *TextureDump_Tags; /* per VRAM word, disc byte offset + 1; NULL 
 /* The disc layer, which names the archives (Memories_DiscFileInfo). */
 void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsigned *size));
 void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector);
+/* Bytes of game memory written by anything but a delivery (Memories_GuestWritten). */
+void TextureDump_Written(const void *destination, unsigned bytes);
 void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels);
 void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h);
 void TextureDump_Cleared(int x, int y, int w, int h);

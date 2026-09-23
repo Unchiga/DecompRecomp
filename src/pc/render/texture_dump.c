@@ -64,6 +64,10 @@ void TextureDump_Init(void)
     snprintf(name, sizeof(name), "%s/assets.txt", directory);
     assets_file = fopen(name, "a");
     TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
+    if (!TextureDump_Tags) {
+        fprintf(stderr, "memories-pc: no memory for texture provenance\n");
+        return;
+    }
     TextureDump_Enabled = 1;
     fprintf(stderr, "memories-pc: dumping textures to %s\n", directory);
 }
@@ -86,32 +90,78 @@ void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsig
     disc_file_info = file_info;
 }
 
+/* Bytes written in game memory by anything but a delivery: whatever
+ * delivery covered them no longer describes them. A delivery over the same
+ * bytes does the same to its predecessors, so the ring never holds two
+ * answers for one address and a cached hit stays right. Only whole
+ * overlaps are dropped: a partial one is cut where it can be, else dropped. */
+static void forget(uintptr_t first, uintptr_t last)
+{
+    unsigned i;
+    for (i = 0; i < DELIVERIES; i++) {
+        Delivery *delivery = &deliveries[i];
+        uintptr_t end = delivery->destination + delivery->bytes;
+        if (!delivery->bytes || delivery->destination >= last || end <= first) continue;
+        if (delivery->destination >= first && end <= last) {
+            delivery->bytes = 0;
+        } else if (delivery->destination < first && end <= last) {
+            delivery->bytes = (unsigned)(first - delivery->destination);
+        } else if (delivery->destination >= first && end > last) {
+            delivery->disc_offset += (uint32_t)(last - delivery->destination);
+            delivery->bytes = (unsigned)(end - last);
+            delivery->destination = last;
+        } else {
+            delivery->bytes = 0; /* written in the middle: gone */
+        }
+    }
+}
+
+void TextureDump_Written(const void *destination, unsigned bytes)
+{
+    if (!TextureDump_Tags || !bytes) return;
+    forget((uintptr_t)destination, (uintptr_t)destination + bytes);
+}
+
 void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector)
 {
     Delivery *delivery;
-    if (!TextureDump_Tags || lba < 0) return;
+    if (!TextureDump_Tags || lba < 0 || !bytes) return;
+    forget((uintptr_t)destination, (uintptr_t)destination + bytes);
     delivery = &deliveries[delivery_head++ % DELIVERIES];
     delivery->destination = (uintptr_t)destination;
     delivery->bytes = bytes;
     delivery->disc_offset = (uint32_t)lba * 2048u + offset_in_sector;
 }
 
-/* Disc offset + 1 of the byte at address, 0 if no delivery covers it. */
+/* Disc offset + 1 of the byte at address, 0 if no delivery covers it. At
+ * most one delivery does (forget), so the last hit is a valid cache. */
 static uint32_t provenance(uintptr_t address)
 {
     static unsigned last;
     const Delivery *delivery = &deliveries[last];
     unsigned i;
-    if (address >= delivery->destination && address < delivery->destination + delivery->bytes) {
+    if (delivery->bytes && address >= delivery->destination && address < delivery->destination + delivery->bytes) {
         return delivery->disc_offset + (uint32_t)(address - delivery->destination) + 1;
     }
-    for (i = 1; i <= DELIVERIES; i++) { /* newest first: a buffer is reused */
-        unsigned at = (delivery_head + DELIVERIES - i) % DELIVERIES;
-        delivery = &deliveries[at];
+    for (i = 0; i < DELIVERIES; i++) {
+        delivery = &deliveries[i];
         if (delivery->bytes && address >= delivery->destination && address < delivery->destination + delivery->bytes) {
-            last = at;
+            last = i;
             return delivery->disc_offset + (uint32_t)(address - delivery->destination) + 1;
         }
+    }
+    return 0;
+}
+
+/* Does any delivery overlap [first, last)? Uploads of pixels the game made
+ * itself (a movie frame, a command buffer's data) would otherwise search the
+ * whole ring once per word. */
+static int delivered(uintptr_t first, uintptr_t last)
+{
+    unsigned i;
+    for (i = 0; i < DELIVERIES; i++) {
+        const Delivery *delivery = &deliveries[i];
+        if (delivery->bytes && delivery->destination < last && delivery->destination + delivery->bytes > first) return 1;
     }
     return 0;
 }
@@ -125,6 +175,10 @@ void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
 {
     int i, j;
     if (!TextureDump_Tags) return;
+    if (!delivered((uintptr_t)pixels, (uintptr_t)(pixels + (size_t)w * h))) {
+        TextureDump_Cleared(x, y, w, h);
+        return;
+    }
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) *tag_at(x + i, y + j) = provenance((uintptr_t)&pixels[j * w + i]);
     }
@@ -172,10 +226,13 @@ static void note_asset(int page_x, int page_y, int depth, int clut_x, int clut_y
 {
     int per_word = depth == 0 ? 4 : depth == 1 ? 2 : 1;
     int x = page_x + u0 / per_word, y = page_y + v0, words = u1 / per_word - u0 / per_word + 1, rows = v1 - v0 + 1;
-    uint32_t first = *tag_at(x, y), palette = entries ? *tag_at(clut_x, clut_y) : 0, key[6], stride = 0;
+    uint32_t first, palette, key[6], stride = 0;
     int32_t row_offsets[256];
     int j, linear = 1;
-    if (!TextureDump_Tags || !assets_file || !first || (entries && !palette) || rows > 256) return;
+    if (!TextureDump_Tags || !assets_file || rows > 256) return;
+    first = *tag_at(x, y);
+    palette = entries ? *tag_at(clut_x, clut_y) : 0;
+    if (!first || (entries && !palette)) return;
     /* Each row must be one run of consecutive bytes, and so must the palette;
      * the rows themselves may lie anywhere (the sector streamer places 64x16
      * blocks in columns or side by side). */
