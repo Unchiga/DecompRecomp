@@ -21,6 +21,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 HEADER_PATH = "src/types.h"
 SOURCE_ROOT = "src"
+# The native PC port is host code: it takes its integer types from <stdint.h>
+# and includes src/types.h only where it shares a game header, by whatever path
+# its own include directories give. The rule is for the decompiled game.
+HOST_PORT = "src/pc"
 ALIASES = {
     "s8": {"signed char"},
     "u8": {"unsigned char"},
@@ -53,7 +57,12 @@ def normalized_base(value: str) -> str:
 
 def source_files(root: Path) -> list[Path]:
     source_root = resolve_within(root, SOURCE_ROOT, must_exist=True)
-    return sorted(path for path in source_root.rglob("*.c") if path.is_file())
+    host_port = root / HOST_PORT
+    return sorted(
+        path
+        for path in source_root.rglob("*.c")
+        if path.is_file() and not path.is_relative_to(host_port)
+    )
 
 
 def expected_include(root: Path, source: Path) -> str:
