@@ -375,28 +375,45 @@ void Platform_State(MemoriesState *state)
     Memories_StateChunk(state, "platform", fields, 1);
 }
 
-/* MEMORIES_INPUT="600:0008,610:0000": hex pad bits applied from a frame on.
- * Returns the bits in force at `frame`. */
-uint16_t Platform_ScriptedBits(unsigned frame)
+/* MEMORIES_INPUT="600:0008,610:0000": hex pad bits applied from a frame on;
+ * MEMORIES_INPUT2 the same for the second pad, which then counts as
+ * connected. Returns the bits in force at `frame`. */
+static uint16_t scripted_bits(int port, unsigned frame)
 {
-    static const char *script;
-    static int loaded;
-    static uint16_t bits;
-    if (!loaded) {
-        loaded = 1;
-        script = getenv("MEMORIES_INPUT");
+    static const char *script[2];
+    static int loaded[2];
+    static uint16_t bits[2];
+    if (!loaded[port]) {
+        loaded[port] = 1;
+        script[port] = getenv(port ? "MEMORIES_INPUT2" : "MEMORIES_INPUT");
     }
-    while (script && *script) {
+    while (script[port] && *script[port]) {
         char *end;
-        unsigned long at = strtoul(script, &end, 10);
+        unsigned long at = strtoul(script[port], &end, 10);
         if (*end != ':' || at > frame) {
             break;
         }
-        bits = (uint16_t)strtoul(end + 1, &end, 16);
-        LOG(LOG_INPUT, "script frame %u pad %04x", frame, bits);
-        script = *end == ',' ? end + 1 : end;
+        bits[port] = (uint16_t)strtoul(end + 1, &end, 16);
+        LOG(LOG_INPUT, "script frame %u pad %d %04x", frame, port + 1, bits[port]);
+        script[port] = *end == ',' ? end + 1 : end;
     }
-    return bits;
+    return bits[port];
+}
+
+uint16_t Platform_ScriptedBits(unsigned frame)
+{
+    return scripted_bits(0, frame);
+}
+
+uint16_t Platform_ScriptedBits2(unsigned frame)
+{
+    return scripted_bits(1, frame);
+}
+
+int Platform_ScriptedPad2(void)
+{
+    const char *script = getenv("MEMORIES_INPUT2");
+    return script && *script;
 }
 
 /* MEMORIES_DUMP_AUDIO=path: no device; mix in real time into raw s16le

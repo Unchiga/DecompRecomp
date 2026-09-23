@@ -20,6 +20,9 @@
 #include "build_deck_deck_capacity.h"
 #include "dialog_choice.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define DISPLAY_OBJECT_COLOR_BYTES(object) ((u8 *)&(object)->field_0C)
 
@@ -100,6 +103,13 @@ void func_800339D0(BuildDeckTransitionState *record)
         for (; i < CARD_COUNT; i++) {
             *dst++ = *src++;
         }
+#ifdef MEMORIES_PC
+        /* The cards past the disc's keep their trunk outside the save. */
+        for (i = CARD_ID_END; i <= CARD_COUNT_LIVE; i++) {
+            *Cards_ChestSlot(workspace->deck_cards, i) =
+                workspace->chest_card_quantities[i];
+        }
+#endif
         slot = workspace->deck_cards;
         i = 0;
         entry = workspace->lists[1].entries;

@@ -17,6 +17,9 @@
 #include "script_state.h"
 #include "text_box_state_callbacks.h"
 #include "text_stream_commands.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 /* Defined rather than declared: the assembler only resolves a small global
    gp-relative when the translation unit defines it, and that is what makes the
@@ -67,6 +70,10 @@ void TextBox_BuildStep(DuelEffectChannel *object)
             text = (u8 *)(((u32)D_801B0000 & TEXT_BANK_ADDRESS_MASK) +
                 D_801C0000[id]);
         }
+#ifdef MEMORIES_PC
+        /* The few strings that spell out how many cards there are. */
+        text = (u8 *)Cards_Text(text);
+#endif
         object->text_00 = text;
         object->field_56 = 0;
         object->state_51 = 0;

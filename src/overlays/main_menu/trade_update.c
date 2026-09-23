@@ -24,6 +24,9 @@
 #include "../../game/func_800610E0.h"
 #include "../../game/func_800611D0.h"
 #include "../../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void MainMenu_InitTradeScreen(void)
 {
@@ -85,7 +88,9 @@ void MainMenu_InitTradeScreen(void)
     D_8009B0C0 = 1;
 }
 
+#ifndef MEMORIES_PC
 extern CardCountEntry D_80185144[];
+#endif
 extern u16 D_80185C8C_words[2][2] asm("D_80185C8C");
 
 #define D_80185C8C D_80185C8C_words
@@ -140,7 +145,8 @@ s32 MainMenu_UpdateTradeScreen(void)
     value = D_801845E0->frame - 4;
     previousFlags = value;
     flags = value;
-    maximum = 715;
+    /* The last scroll offset that still fills the seven rows. */
+    maximum = CARD_COUNT_LIVE - 7;
 
     if (D_80185CD1 != 0) {
         result = MemCardDialog_Poll();
@@ -172,6 +178,10 @@ s32 MainMenu_UpdateTradeScreen(void)
                 destination++;
                 source++;
             } while (destination != end);
+#ifdef MEMORIES_PC
+            /* Both cards took the trade: so do the trunks beside them. */
+            Cards_PairCommit();
+#endif
             i = 0;
             dirty1.clearBase = D_80185CC8;
             do {
@@ -217,14 +227,27 @@ s32 MainMenu_UpdateTradeScreen(void)
         save_destination = backup_source2;
         *(MainMenuTradeBlock1024 *)save_source =
             *(MainMenuTradeBlock1024 *)save_destination;
+#ifdef MEMORIES_PC
+        /* The copies the trade is made on have trunks of their own for the
+           cards past the disc's (Cards_ChestSlot). */
+        Cards_PairBackup();
+#endif
         for (i = 0; i < 2; i++) {
             for (j = 0; j < D_80185C9C[i][0]; j++) {
                 id = D_80185C9C[i][j + 1] - 1;
+#ifdef MEMORIES_PC
+                from = Cards_ChestSlot(counts[i] - SAVE_DATA_CARD_QUANTITIES_OFFSET, id + 1);
+#else
                 from = counts[i] + id;
+#endif
                 if (*from != 0) {
                     *from = *from - 1;
                 }
+#ifdef MEMORIES_PC
+                to = Cards_ChestSlot(counts[i ^ 1] - SAVE_DATA_CARD_QUANTITIES_OFFSET, id + 1);
+#else
                 to = counts[i ^ 1] + id;
+#endif
                 if (*to < CARD_CHEST_QUANTITY_MAX) {
                     *to = *to + 1;
                 }

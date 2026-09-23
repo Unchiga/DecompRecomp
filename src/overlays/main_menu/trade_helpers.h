@@ -165,6 +165,18 @@ extern u8 D_80185CCC[2];
  * D_80185144 in that source (+0xB48 = CARD_COUNT * 4), which keeps its
  * private declaration.
  * Two rows end at D_80185C8C, +0x1690. */
+#ifdef MEMORIES_PC
+/* On the PC port the rows hold every card this run has (card_constants.h),
+ * which is more than fits at 0x801845FC: they are in
+ * src/pc/game/card_storage.c, and row 1 is reached through them. */
+extern CardCountEntry gTrade_aInventory[2][CARD_TABLE_COUNT];
+#define D_801845FC gTrade_aInventory
+#define D_80185144 (gTrade_aInventory[1])
+#define MAIN_MENU_TRADE_ROW_BYTES (CARD_TABLE_COUNT * 4)
+#else
 extern CardCountEntry D_801845FC[][CARD_COUNT];
+/* One row, CARD_COUNT four-byte entries. */
+#define MAIN_MENU_TRADE_ROW_BYTES 2888
+#endif
 
 #endif

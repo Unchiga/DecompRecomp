@@ -15,6 +15,9 @@
 #include "func_80022D94.h"
 #include "../unmatched.h"
 #include "duel_trap_resolution.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 /* Small data at 0x8009AF24, owned here: the attack threshold of each trap
    from House of Adhesive Tape through Widespread Ruin, which
@@ -78,7 +81,12 @@ s32 Duel_SelectAttackTrap(u8 *p) {
         e = (DuelCardRecord *)(*(u8 *)(i + h2 + (s32)tbl2) *
             DUEL_CARD_RECORD_SIZE + (s32)rec2);
         if ((e->flags & DUEL_CARD_FLAG_OCCUPIED) != 0) {
+#ifdef MEMORIES_PC
+            /* A copy of a trap springs as the trap. */
+            id = (u16)Cards_BaseId(e->card_id);
+#else
             id = (u16)e->card_id;
+#endif
             if ((u32)(id - DUEL_ATTACK_TRAP_FIRST_CARD_ID) <
                 DUEL_ATTACK_TRAP_COUNT) {
                 sx = (s16)id;
@@ -140,7 +148,11 @@ s32 Duel_SelectAttackTrap(u8 *p) {
         e = (DuelCardRecord *)(*(u8 *)(i + h3 + (s32)tbl3) *
             DUEL_CARD_RECORD_SIZE + (s32)rec3);
         if ((e->flags & DUEL_CARD_FLAG_OCCUPIED) != 0) {
+#ifdef MEMORIES_PC
+            v = Cards_BaseId(e->card_id);
+#else
             v = e->card_id;
+#endif
             if (v == k) {
                 goto hit;
             }

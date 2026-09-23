@@ -73,7 +73,7 @@ void CardList_RenderDeckBoxStats(DisplayObject *obj, GsOT *ot) {
         sp->v = 0x70;
         i = 0;
         do {
-            id = *entries & 0xFFF;
+            id = *entries & CARD_ID_FIELD_MASK;
             if (id != 0) {
                 if (((gDuel_adwCardStats[id - 1] >> CARD_STAT_TYPE_SHIFT) &
                      CARD_STAT_TYPE_MASK) < CARD_TYPE_MAGIC) {

@@ -84,7 +84,7 @@ BACKENDS = {"sdl": ["src/pc/platform/sdl.c", "src/pc/render/gl_picture.c"],
             "x11": ["src/pc/platform/x11.c", "src/pc/platform/audio_alsa.c", "src/pc/platform/gamepad_evdev.c"]}
 BACKEND_SOURCES = sorted(sum(BACKENDS.values(), []))
 NATIVE = sorted(glob.glob("src/pc/guest/*.[cS]") + glob.glob("src/pc/sdk/*.c") +
-                [f for f in glob.glob("src/pc/platform/*.c") if f not in BACKEND_SOURCES] + glob.glob("src/pc/overlays/*.c") + glob.glob("src/pc/overrides/*.c") + glob.glob("src/pc/audio/*.c") + glob.glob("src/pc/mods/*.c") + glob.glob("src/pc/debug/*.c") + ["src/pc/render/soft_gpu.c", "src/pc/render/texture_dump.c", "src/pc/render/texture_pack.c"]) + [
+                [f for f in glob.glob("src/pc/platform/*.c") if f not in BACKEND_SOURCES] + glob.glob("src/pc/overlays/*.c") + glob.glob("src/pc/overrides/*.c") + glob.glob("src/pc/audio/*.c") + glob.glob("src/pc/mods/*.c") + glob.glob("src/pc/debug/*.c") + glob.glob("src/pc/cards/*.c") + ["src/pc/render/soft_gpu.c", "src/pc/render/texture_dump.c", "src/pc/render/texture_pack.c"]) + [
     "src/pc/rng.c", "src/pc/compat/gte.c", "src/pc/compat/libgs_ot.c", "src/pc/render/packets.c"]
 # Same contract as the host C library, so the host's version is used directly.
 # Runtime-loaded modules linked into the executable: name, sources, identifier
@@ -409,7 +409,10 @@ def main():
     # main_menu is the only overlay with a private load address (0x80180000),
     # so it can simply be linked in. The 0x80168000 modules share one address
     # and need a loaded-module registry first.
-    resident = sorted(glob.glob("src/game/*.c"))
+    # src/pc/game holds the port's own game-side variables (the card tables
+    # sized for more cards than the disc has): compiled and placed like game
+    # code, so they sit in the fixed sections a save state carries.
+    resident = sorted(glob.glob("src/game/*.c")) + sorted(glob.glob("src/pc/game/*.c"))
     module_sources = {name: sorted(glob.glob(pattern)) for name, pattern, _, _ in MODULES}
     game = resident + [source for name, _, _, _ in MODULES for source in module_sources[name]]
     renames_file = "config/pc/host_symbol_renames.txt"

@@ -44,6 +44,7 @@ int Win32_ModuleName(uintptr_t address, char *out, unsigned size, uintptr_t *off
 /* A font file under %WINDIR%\Fonts standing in for fontconfig's match:
  * a Japanese face when `japanese`, else a plain sans-serif. NULL if none. */
 const char *Win32_FontPath(int japanese);
+const char *Win32_SerifFontPath(void);
 
 /* Starts the executable again with the same command line, without an
  * automatic state load, and exits. Returns -1 if it could not. */

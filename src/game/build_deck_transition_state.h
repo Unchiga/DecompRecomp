@@ -9,6 +9,11 @@
 
 #define BUILD_DECK_TRANSITION_STATE_OFFSET(member) \
     ((u32)&(((BuildDeckTransitionState *)0)->member))
+/* The PC port's lists and card tables are longer (card_constants.h); these
+ * are what they add to the console's offsets, and 0 there. */
+#define BUILD_DECK_LIST_GROWTH \
+    (sizeof(CardEntry) * (CARD_TABLE_ID_END - CARD_ID_END))
+#define BUILD_DECK_TABLE_GROWTH (CARD_TABLE_ID_END - CARD_ID_END)
 
 /* Shared Build Deck workspace used by the list, count, input, and transition
  * callbacks. The two CardList records account for the formerly repeated
@@ -23,9 +28,9 @@ typedef struct BuildDeckTransitionState {
     s32 viewport_step_x;
     s32 transition_ticks;
     u8 pad_5AB0[0x14];
-    u8 deck_card_quantities[CARD_ID_END];
-    u8 chest_card_quantities[CARD_ID_END];
-    u8 card_sort_rank[CARD_ID_END + 1];
+    u8 deck_card_quantities[CARD_TABLE_ID_END];
+    u8 chest_card_quantities[CARD_TABLE_ID_END];
+    u8 card_sort_rank[CARD_TABLE_ID_END + 1];
     u16 state;
     u16 next_state;
     u8 pane_index;
@@ -33,34 +38,40 @@ typedef struct BuildDeckTransitionState {
 } BuildDeckTransitionState;
 
 typedef char BuildDeckTransitionState_target_offset_must_be_0x5AA4[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(viewport_target_x) == 0x5AA4 ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(viewport_target_x) == 0x5AA4 + 2 * BUILD_DECK_LIST_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_lists_offset_must_be_0x4[
     BUILD_DECK_TRANSITION_STATE_OFFSET(lists) == 0x4 ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_deck_list_offset_must_be_0x2D50[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(lists[1]) == 0x2D50 ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(lists[1]) == 0x2D50 + BUILD_DECK_LIST_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_chest_total_offset_must_be_0x5A9C[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(chest_total) == 0x5A9C ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(chest_total) == 0x5A9C + 2 * BUILD_DECK_LIST_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_deck_quantity_offset_must_be_0x5AC4[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(deck_card_quantities) == 0x5AC4 ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(deck_card_quantities) ==
+        0x5AC4 + 2 * BUILD_DECK_LIST_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_chest_quantity_offset_must_be_0x5D97[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(chest_card_quantities) == 0x5D97 ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(chest_card_quantities) ==
+        0x5D97 + 2 * BUILD_DECK_LIST_GROWTH + BUILD_DECK_TABLE_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_sort_rank_offset_must_be_0x606A[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(card_sort_rank) == 0x606A ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(card_sort_rank) ==
+        0x606A + 2 * BUILD_DECK_LIST_GROWTH + 2 * BUILD_DECK_TABLE_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_state_offset_must_be_0x633E[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(state) == 0x633E ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(state) ==
+        0x633E + 2 * BUILD_DECK_LIST_GROWTH + 3 * BUILD_DECK_TABLE_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_pane_index_offset_must_be_0x6342[
-    BUILD_DECK_TRANSITION_STATE_OFFSET(pane_index) == 0x6342 ? 1 : -1
+    BUILD_DECK_TRANSITION_STATE_OFFSET(pane_index) ==
+        0x6342 + 2 * BUILD_DECK_LIST_GROWTH + 3 * BUILD_DECK_TABLE_GROWTH ? 1 : -1
 ];
 typedef char BuildDeckTransitionState_size_must_be_0x6344[
-    sizeof(BuildDeckTransitionState) == 0x6344 ? 1 : -1
+    sizeof(BuildDeckTransitionState) ==
+        0x6344 + 2 * BUILD_DECK_LIST_GROWTH + 3 * BUILD_DECK_TABLE_GROWTH ? 1 : -1
 ];
 
 #undef BUILD_DECK_TRANSITION_STATE_OFFSET

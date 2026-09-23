@@ -20,6 +20,9 @@
 #include "util_memory.h"
 #define D_80177EA4_VISIBLE
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 /* The combined-deck producer and one duel card record's lifecycle, in address
    order. Duel_PopulateCombinedDeckData builds the deck records and copied card
@@ -57,6 +60,11 @@ void Duel_PopulateCombinedDeckData(void)
 
         src = D_8015C424;
         p = gDuel_awUniqueDeckCardIds;
+#ifdef MEMORIES_PC
+        if (id != 0) {
+            id = Cards_BaseId(id);
+        }
+#endif
     search:
         w = *p;
         p++;
@@ -65,6 +73,9 @@ void Duel_PopulateCombinedDeckData(void)
             goto search;
         }
         Util_CopyWords(dst, src, DUEL_CARD_DATA_BLOCK_SIZE);
+#ifdef MEMORIES_PC
+        Cards_PatchThumbnail((s16)v, dst);
+#endif
         dst += DUEL_CARD_DATA_BLOCK_SIZE;
         rec++;
     }

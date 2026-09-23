@@ -8,6 +8,9 @@
 #include "file_transfer.h"
 #include "util_memory.h"
 #include "util_compare_s16.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void Duel_RequestCombinedDeckData(void)
 {
@@ -25,6 +28,15 @@ void Duel_RequestCombinedDeckData(void)
         (u8 *)source - DUEL_DECK_ID_BUFFER_STRIDE,
         (u32)&((u16 *)0)[COMBINED_DECK_SIZE]
     );
+#ifdef MEMORIES_PC
+    /* The disc has one image sector per retail card: a card past the disc's
+       is read as its base, and Duel_PopulateCombinedDeckData finds it there. */
+    for (i = 0; i < COMBINED_DECK_SIZE; i++) {
+        if (source[i] != 0) {
+            source[i] = Cards_BaseId((s16)source[i]);
+        }
+    }
+#endif
     qsort(source, COMBINED_DECK_SIZE, sizeof(u16), (int (*)())Util_CompareS16);
 
     output = source + DUEL_DECK_ID_BUFFER_STRIDE / sizeof(u16);

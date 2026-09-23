@@ -5,10 +5,17 @@
 #include "duel_side_state.h"
 #include "campaign_flags.h"
 #include "duel_ritual_controller.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void func_80019CC8(void *object)
 {
     if (D_8009B1D5 == 0 && D_8009B360 < 0 && gDuel_bOpponentID[0] >= 0) {
+#ifdef MEMORIES_PC
+        Cards_MarkSeen((s32)object);
+#else
         Library_UpdateCardUsedFlag((s32)((char *)object + CAMPAIGN_FLAG_LIBRARY_CARD_BASE));
+#endif
     }
 }

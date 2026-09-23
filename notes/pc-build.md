@@ -172,7 +172,12 @@ settings file), `MEMORIES_HEADLESS=1`,
 screenshot key does, into `MEMORIES_SCREENSHOT_DIR` or the user folder),
 `MEMORIES_SCALE_AT=N:S` (change the internal resolution to S at frame N, as
 the View menu would),
-`MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on),
+`MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on;
+`MEMORIES_INPUT2` the same for the second pad, which then counts as
+connected: two-player trades and duels),
+`MEMORIES_DEBUG_CHEST=N` (N of every card in the trunk) and
+`MEMORIES_DEBUG_DECK="723-762"` (the deck, as ids and ranges repeated to
+forty), both once a save is live ([More cards](more-cards.md)),
 `MEMORIES_NO_AUDIO=1`, `MEMORIES_DUMP_AUDIO=path` (raw s16le stereo 44.1 kHz
 instead of a device), and
 `MEMORIES_STUB_TRACE=1`. Traces on stderr: `MEMORIES_TRACE_SPU=1` (every
@@ -509,9 +514,15 @@ pass draws through the duel's own `GsRVIEW2`. Each also floats `LIFT_PIXELS`
 (8) above its card, so the card shows beneath it.
 
 Two more things the field taught it: the cards sort at a sixteenth of their
-distance and a model's primitives at a quarter of theirs, so the GTE's Z
-factors are quartered for the pass and the monster is moved three entries
-nearer, which draws it on the card rather than under it; and the duel flies
+distance and a model's primitives at a quarter of theirs, so a monster is
+sorted at its own scale into a table of its own (the other frame's packet
+area), and that run of packets goes into the game's table whole, at a
+quarter of its nearest entry and three entries nearer, which draws it on the
+card rather than under it. The first version quartered the GTE's Z factors
+instead, which put four of a model's depths in one entry; parts sharing an
+entry draw in the order they were sorted, so a skirt's inside or a limb
+showed through the body and flickered as the animation moved it, which the
+internal resolution made plain; and the duel flies
 its camera down to eye level for the zone picker, using a card and the
 guardian-star presentation, where a monster standing on a card has nothing to
 stand on, so the pass runs only while the camera is above the mat (pitch below

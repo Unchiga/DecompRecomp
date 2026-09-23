@@ -5,6 +5,9 @@
 #include "ai_script_read_byte.h"
 #include "ai_script_commands.h"
 #include "duel_card.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void AiScript_CalcCardPower(void)
 {
@@ -38,7 +41,11 @@ void AiScript_CalcCardPower(void)
     } else {
         power = 0;
         if (mode == 0) {
+#ifdef MEMORIES_PC
+            switch (card > 0 ? Cards_BaseId(card) : card) {
+#else
             switch (card) {
+#endif
             case DUEL_DIRECT_DAMAGE_FIRST_CARD_ID:
                 power = DUEL_SPARKS_DAMAGE;
                 break;

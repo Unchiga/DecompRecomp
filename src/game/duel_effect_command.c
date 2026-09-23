@@ -9,6 +9,9 @@
 #include "text_stream_read_u16_le.h"
 #include "duel_effect_command.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define TEXT_STREAM_OWNER(object) ((TextStreamOwner *)(object))
 
@@ -56,9 +59,29 @@ void func_80037DA4(DuelEffectChannel *object)
         return;
     }
     if (op & 0x20) {
+#ifdef MEMORIES_PC
+        /* A card past the disc's has a name of its own, from its mod, or
+           its base's (cards.h); the text bank only has the retail ones. */
+        if (Cards_NameText(gDuel_wSelectedCardID) != 0) {
+            object->stream_58++;
+            text = (u8 *)Cards_NameText(gDuel_wSelectedCardID);
+            goto store;
+        }
+        id = Cards_BaseId(gDuel_wSelectedCardID) + 0x8000;
+#else
         id = gDuel_wSelectedCardID + 0x8000;
+#endif
     } else if (op & 0x40) {
+#ifdef MEMORIES_PC
+        if (Cards_DescriptionText(gDuel_wSelectedCardID) != 0) {
+            object->stream_58++;
+            text = (u8 *)Cards_DescriptionText(gDuel_wSelectedCardID);
+            goto store;
+        }
+        id = Cards_BaseId(gDuel_wSelectedCardID) + 0xD100;
+#else
         id = gDuel_wSelectedCardID + 0xD100;
+#endif
     } else {
         kind = op & 0xF;
         id = 0;
@@ -186,6 +209,13 @@ void func_80038148(DuelEffectChannel *object)
     r = TextStream_ReadU32LE(TEXT_STREAM_OWNER(object));
     t = *TEXT_STREAM_OWNER(object)->streams[object->stream_58]++;
     c = t;
+#ifdef MEMORIES_PC
+    /* Three digits are how the retail strings print a card number; the PC
+       port's run to five (card_constants.h), so a wider one is not cut. */
+    if ((c & 0xF) == 3 && *(s32 *)r >= 1000) {
+        c = (c & 0xF0) | (*(s32 *)r >= 10000 ? 5 : 4);
+    }
+#endif
     Text_EncodeDecimalDigits(*(s32 *)r, c & 0xF, buf);
 
     h = 0;

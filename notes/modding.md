@@ -55,6 +55,7 @@ Every mod has a `mod.json`:
 | `legacy_setting` | an older settings key to read the player's choice from, once |
 | `data` | what the mod changes on the disc, below |
 | `textures` | a directory inside the mod holding a texture pack, below |
+| `cards` | cards the mod adds after the disc's 722, below |
 
 `version`, `author` and `description` are for people; the game does not read
 them.
@@ -141,6 +142,28 @@ run read a sheet with becomes a PNG of it. `--assets <dir>/assets.txt`
 instead writes what such a run drew, as it cut it, for whatever no family
 covers. Keep the scale in proportion: the game holds a pack's images in
 memory at full size, and a 128x256 sheet at 4x is 2 MB.
+
+## Cards: more than the disc has
+
+A mod may add cards with a `cards` list, no code needed. Each new card is a
+copy of a retail card, which lends it its 3D model, fusions and effect; its
+name, picture, text, stats, type, level, attribute and guardian stars can be
+its own:
+
+```json
+"cards": [
+    { "copy": "Kuriboh", "name": "Dingus Shmingus", "art": "images/dingus.png",
+      "description": "A round and cheerful fellow who has never once been on time.",
+      "level": 7, "attribute": "Fire", "stars": ["Moon", "Venus"], "attack": 2500 },
+    { "copy": "Kuriboh", "count": 100, "name": "Kuriboh {n}" }
+]
+```
+
+The cards take the ids after 722, in the order the mods are found, and work
+in the Library, Build Deck, duels, rewards, trades and saves.
+[More cards](more-cards.md) has every key, how a new card is won, where what
+the save holds of them is kept, and how the port does it. Like data
+overrides, a mod with cards needs a restart.
 
 ## Code mods
 

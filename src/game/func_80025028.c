@@ -4,6 +4,9 @@
 #include "duel_card.h"
 #include "display_object.h"
 #include "func_80025028.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 /* Defined rather than declared: the assembler only resolves a small global
    gp-relative when the translation unit defines it, and that is what makes the
@@ -28,7 +31,12 @@ s32 Duel_SelectTrapByCardId(s32 arg0)
     for (i = 0; i < DUEL_FIELD_ROW_SIZE; i++) {
         record = &D_801A7AD8[D_800907D8[i + base]];
         if (record->flags & DUEL_CARD_FLAG_OCCUPIED) {
+#ifdef MEMORIES_PC
+            /* A copy of the trap springs as the trap. */
+            if (Cards_BaseId((s16)record->card_id) == arg0) {
+#else
             if ((s16) record->card_id == arg0) {
+#endif
                 object = (DisplayObject *)record->object;
                 D_8009B22A = arg0;
                 D_8009B1B8 = object->field_6A;

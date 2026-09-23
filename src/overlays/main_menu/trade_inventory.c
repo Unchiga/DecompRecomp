@@ -20,6 +20,9 @@
 #include "../../game/func_80061008.h"
 #include "../../game/func_800610E0.h"
 #include "../../game/func_800611D0.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void MainMenu_RefreshTradeInventory(s32 slot, s32 force)
 {
@@ -45,6 +48,15 @@ void MainMenu_RefreshTradeInventory(s32 slot, s32 force)
             D_801845FC[slot][i].id = id;
             D_801845FC[slot][i].count = counts[i];
         }
+#ifdef MEMORIES_PC
+        /* The cards past the disc's, from the trunk beside the save. */
+        for (; i < CARD_COUNT_LIVE; i++) {
+            u8 held = *Cards_ChestSlot(row, i + 1);
+
+            D_801845FC[slot][i].id = held != 0 ? i + 1 : 0;
+            D_801845FC[slot][i].count = held;
+        }
+#endif
         for (i = 0; i < 2; i++) {
             MainMenu_ApplyTradeOfferInventoryDelta(i, -1);
         }
@@ -53,7 +65,7 @@ void MainMenu_RefreshTradeInventory(s32 slot, s32 force)
     if (mode != 0) {
         qsort(
             D_801845FC[slot],
-            CARD_COUNT,
+            CARD_COUNT_LIVE,
             sizeof(CardCountEntry),
             comparators.entries[mode - 1]
         );

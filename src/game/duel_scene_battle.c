@@ -85,6 +85,9 @@
 #include "model_scene_states.h"
 #include "display_object_motion.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define H(p, o) (*(u16 *)((u8 *)(p) + (o)))
 #define S(p, o) (*(s16 *)((u8 *)(p) + (o)))
@@ -480,12 +483,22 @@ void DuelScene_UpdateBattle(void)
             models = D_800EF658;
             D_8009B209 = -1;
             D_8009B208 = -1;
+#ifdef MEMORIES_PC
+            /* The 3D models are the base cards': a card past the disc's has
+               none, and its id could be MODEL_SPECIAL_BATTLE_ID (Exodia). */
+            models[0].model_id = Cards_BaseId((s16)H(left, 0xC));
+#else
             models[0].model_id = H(left, 0xC);
+#endif
             models[0].field_06 = 0;
             models[0].field_02 = 0;
             models[0].field_04 = 0;
             models[0].field_07 = (D_8009B178[0] >> 9) & 1;
+#ifdef MEMORIES_PC
+            models[1].model_id = Cards_BaseId(right->card_id);
+#else
             models[1].model_id = right->card_id;
+#endif
             models[1].field_07 = (D_8009B178[1] >> 9) & 1;
             models[1].field_02 = 0;
             models[1].field_04 = 0;

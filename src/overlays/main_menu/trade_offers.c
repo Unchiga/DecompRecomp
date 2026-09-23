@@ -110,8 +110,19 @@ void MainMenu_DrawThreeDigitNumber(s32 x, s32 y, s32 value)
     sprite.r0 = 255;
     sprite.g0 = 255;
     sprite.b0 = 255;
+#ifdef MEMORIES_PC
+    /* The PC port's ids reach past 999: four or five digits, closer
+       together, in the three digits' room. */
+    {
+    s32 digits = value >= 10000 ? 5 : value >= 1000 ? 4 : 3;
+    s32 step = digits == 5 ? 5 : digits == 4 ? 6 : 8;
+
+    for (; i < digits; i++) {
+        base = x + 24 - i * step;
+#else
     for (; i < 3; i++) {
         base = x + 24 - i * 8;
+#endif
         left = base - 12;
         sprite.x0 = left;
         right = base - 4;
@@ -136,6 +147,9 @@ void MainMenu_DrawThreeDigitNumber(s32 x, s32 y, s32 value)
         GsSortPoly(&sprite, D_800E9D90[1], 32);
         value = quotient;
     }
+#ifdef MEMORIES_PC
+    }
+#endif
 }
 
 void MainMenu_ReleaseTradeDisplayHandles(void)
@@ -167,9 +181,9 @@ void MainMenu_AdjustTradeCardCount(s32 slot, s32 id, u32 amount)
     s32 i;
 
     i = 0;
-    offset = slot * 2888;
+    offset = slot * MAIN_MENU_TRADE_ROW_BYTES;
     p = D_801845FC[0];
-    while (i < CARD_COUNT) {
+    while (i < CARD_COUNT_LIVE) {
         entry = (CardCountEntry *)(offset + (s32)p);
         if (entry->id == id) {
             total = entry->count + amount;

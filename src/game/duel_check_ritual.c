@@ -6,6 +6,9 @@
 #include "card_constants.h"
 #include "duel_card_layout.h"
 #include "duel_grid.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
 {
@@ -56,7 +59,12 @@ s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
     for (j = 0; j < DUEL_RITUAL_TRIBUTE_COUNT; j++) {
         for (i = 0; i < DUEL_FIELD_ROW_SIZE; i++) {
             card = (c = first[i]);
+#ifdef MEMORIES_PC
+            /* A copy of a tribute monster counts as it. */
+            if (card != 0 && Cards_BaseId(card->card_id) == q[0]) {
+#else
             if (card != 0 && card->card_id == q[0]) {
+#endif
                 goto matched;
             }
         }

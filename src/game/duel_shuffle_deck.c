@@ -4,6 +4,9 @@
 #include "card_constants.h"
 #include "duel_shuffle_deck.h"
 #include "duel_shuffle_both_decks.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void Duel_ShuffleDeck(s32 src, u8 *out16, u8 *out8) {
     u8 buf[CARD_COUNT];
@@ -43,7 +46,13 @@ void Duel_ShuffleDeck(s32 src, u8 *out16, u8 *out8) {
                 if (acc >= lim) {
                     q = buf + i;
                     if (*q < DECK_CARD_COPY_LIMIT) {
+#ifdef MEMORIES_PC
+                        /* A copy that asked to may be dealt in its base's
+                           place (Cards_PickVariant). */
+                        *(s16 *)out16 = Cards_PickVariant(i + 1, CARDS_USE_OPPONENT);
+#else
                         *(s16 *)out16 = i + 1;
+#endif
                         *out8 = n;
                         n++;
                         out16 += 2;

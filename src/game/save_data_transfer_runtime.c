@@ -19,6 +19,9 @@
 #include "../unmatched.h"
 #include "sound.h"
 #include "text_box_runtime.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 /* The complete single-player and two-player save-transfer runtime. The first
    three functions request, poll, apply, build, and write the resident save;
@@ -45,13 +48,23 @@ s32 SaveData_PollLoad(void) {
             u8 *p = (u8 *)gDuel_awPlayerDeck;
             Util_CopyWords(p, gSaveData_aTransferBuffer, SAVE_DATA_STATE_SIZE);
             SaveData_ApplyRuntimeState((SaveDataState *)p);
+#ifdef MEMORIES_PC
+            /* What the save holds of the cards past the disc's. */
+            Cards_SaveLoaded(p);
+#endif
         }
         return r;
     }
     return 0;
 }
 
-void SaveData_RequestWrite(void){Util_CopyWords(gSaveData_aTransferBuffer,(u8 *)gDuel_awPlayerDeck,SAVE_DATA_STATE_SIZE);SaveData_BuildPayload((SaveDataPayload *)(gSaveData_aTransferBuffer-SAVE_DATA_HEADER_SIZE));MemCardDialog_Request(gSaveData_aTransferBuffer,SAVE_DATA_REPLICATED_STATE_SIZE,gMemCard_szSaveFileName,2);}
+void SaveData_RequestWrite(void){Util_CopyWords(gSaveData_aTransferBuffer,(u8 *)gDuel_awPlayerDeck,SAVE_DATA_STATE_SIZE);SaveData_BuildPayload((SaveDataPayload *)(gSaveData_aTransferBuffer-SAVE_DATA_HEADER_SIZE));
+#ifdef MEMORIES_PC
+/* What the save holds of the cards past the disc's goes beside it, under the
+   sequence number the payload now carries (cards.h). */
+Cards_SaveWritten(gSaveData_aTransferBuffer,((SaveDataState *)gSaveData_aTransferBuffer)->save_sequence);
+#endif
+MemCardDialog_Request(gSaveData_aTransferBuffer,SAVE_DATA_REPLICATED_STATE_SIZE,gMemCard_szSaveFileName,2);}
 
 /* The two-player load, validation and write-back runtime. The state machine
    first loads both card slots, then the two wrappers add trade or duel setup,
@@ -205,7 +218,19 @@ s32 SaveData_UpdateTradeLoad(void)
         D_8009B3ED |= 0x80;
         D_8009B3C0 = 0x29;
     }
+#ifdef MEMORIES_PC
+    {
+        /* Both saves are in: what they hold of the cards past the disc's. */
+        s32 result = SaveData_UpdateLoadPair();
+
+        if (result == 1) {
+            Cards_PairLoaded();
+        }
+        return result;
+    }
+#else
     return SaveData_UpdateLoadPair();
+#endif
 }
 
 s32 SaveData_UpdateDuelLoad(void)

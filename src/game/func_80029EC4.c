@@ -8,6 +8,10 @@
 #include "../psyq/libgs.h"
 #include "ordering_tables.h"
 #include "func_80029EC4.h"
+#include "card_grid.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define GS_SPRITE_COLOR_WORD(sprite) (*(u32 *)&(sprite)->r)
 
@@ -67,6 +71,10 @@ void Library_DrawCardGrid(void)
     s32 first;
     s32 attribute;
 
+#ifdef MEMORIES_PC
+    /* The panels behind section rows the disc's cards do not reach. */
+    Cards_DrawLibraryPanels();
+#endif
     p = (GsSPRITE *)0x1F800320;
     n = (gGraphics_sViewportY - 8) / 178;
     ot = D_800E9D90[3];
@@ -108,7 +116,12 @@ void Library_DrawCardGrid(void)
                 pk = &D_800EA1E8[k * 4];
                 pj = &D_800EA1E8[j * 4];
                 do {
+#ifdef MEMORIES_PC
+                    /* The last section row may be short (card_grid.h). */
+                    r = j < CARD_ID_END_LIVE ? Library_GetCardFlags(tb, j) : 0;
+#else
                     r = Library_GetCardFlags(tb, j);
+#endif
                     if (r & 0x80) {
                         GS_SPRITE_COLOR_WORD(p) = white;
                         if (r & 1) {
@@ -118,7 +131,7 @@ void Library_DrawCardGrid(void)
                         p->cx = *(u16 *)(pj + 0x54);
                         GsSortFastSprite(p, ot, 2);
                     }
-                    if (k < CARD_ID_END) {
+                    if (k < CARD_ID_END_LIVE) {
                         r = Library_GetCardFlags(tb, k);
                         if (r & 0x80) {
                             GS_SPRITE_COLOR_WORD(p) = white;
@@ -142,7 +155,7 @@ void Library_DrawCardGrid(void)
         a += 178;
         n++;
         b += 25;
-    } while (n < 4);
+    } while (n < CARD_GRID_SECTION_ROW_COUNT);
 
 done:
     q = (GsGLINE *)0x1F800000;

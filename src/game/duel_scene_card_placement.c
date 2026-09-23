@@ -30,6 +30,7 @@
 #include "sound.h"
 #include "../unmatched.h"
 #include "duel_scene_card_placement.h"
+#include "card_constants.h"
 
 #define PLACEMENT_PX(object) ((object)->field_30.h.field_30)
 #define PLACEMENT_PY(object) ((object)->field_30.h.field_32)
@@ -268,7 +269,7 @@ void DuelScene_UpdateCardPlacement(void)
                     if (!((DuelPlacementCardIdCell *)&D_8009B150)->value)
                     return;
 request_combination:
-                    func_80029164(0, D_8009B150 & 0xFFF);
+                    func_80029164(0, D_8009B150 & CARD_ID_FIELD_MASK);
                 }
                 return;
             }
@@ -323,9 +324,9 @@ request_combination:
                         if (!(D_8009B210 & 0x80)) {
                             D_8009B210 |= 0x80;
                             if ((s16)D_8009B150 & 0x8000) {
-                                ((DuelDeckCardRecord *)card->data)->id = D_8009B150 & 0xFFF;
+                                ((DuelDeckCardRecord *)card->data)->id = D_8009B150 & CARD_ID_FIELD_MASK;
                                 D_8009B210 |= 0x40;
-                                card->card_id = D_8009B150 & 0xFFF;
+                                card->card_id = D_8009B150 & CARD_ID_FIELD_MASK;
                                 value = ((DuelDeckCardRecord *)card->data)->data_block_index;
                                 resource->rects[0].x = resource->src_x + 56;
                                 resource->rects[0].y = resource->src_y;
@@ -553,7 +554,7 @@ request_combination:
             if (!(D_8009B174 & 0x80)) {
                 DisplayObject **slots;
                 D_8009B174 |= 0xC0;
-                func_80019CC8((void *)(u32)(D_8009B150 & 0xFFF));
+                func_80019CC8((void *)(u32)(D_8009B150 & CARD_ID_FIELD_MASK));
                 slots = D_800E9EF0;
                 slots[0]->flags &= ~0x40;
                 func_80019BA0(slots[1], 0, 64, 8);

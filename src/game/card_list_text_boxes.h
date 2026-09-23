@@ -18,7 +18,7 @@ typedef struct {
 /* The card list itself: CARD_ID_END rows, then the scroll offset the slot is
  * measured from and the list kind that picks the box template. */
 typedef struct CardList {
-    CardEntry entries[CARD_ID_END];
+    CardEntry entries[CARD_TABLE_ID_END];
     u8 pad_2D30[4];
     /* The two text boxes the input handler moves. Both are display objects
        whose field_30.h.field_32 is a y position: BuildDeck_UpdateCardListInput sets the
@@ -69,40 +69,45 @@ typedef struct CardList {
 } CardList;
 
 #define CARD_LIST_OFFSET(member) ((u32)&(((CardList *)0)->member))
+/* Where the rows end: 0x2D30 on the console, further on the PC port, whose
+ * lists have room for more cards (card_constants.h). The fields after the
+ * rows keep their distances from it. */
+#define CARD_LIST_ROWS_END (sizeof(CardEntry) * CARD_TABLE_ID_END)
 
 typedef char CardListAssertCursorBox[
-    CARD_LIST_OFFSET(cursor_box) == 0x2D34 ? 1 : -1
+    CARD_LIST_OFFSET(cursor_box) == CARD_LIST_ROWS_END + 0x4 ? 1 : -1
 ];
 typedef char CardListAssertScrollBox[
-    CARD_LIST_OFFSET(scroll_box) == 0x2D38 ? 1 : -1
+    CARD_LIST_OFFSET(scroll_box) == CARD_LIST_ROWS_END + 0x8 ? 1 : -1
 ];
-typedef char CardListAssertFirst[CARD_LIST_OFFSET(first) == 0x2D3C ? 1 : -1];
+typedef char CardListAssertFirst[CARD_LIST_OFFSET(first) == CARD_LIST_ROWS_END + 0xC ? 1 : -1];
 typedef char CardListAssertFirstTarget[
-    CARD_LIST_OFFSET(first_target) == 0x2D3E ? 1 : -1
+    CARD_LIST_OFFSET(first_target) == CARD_LIST_ROWS_END + 0xE ? 1 : -1
 ];
 typedef char CardListAssertRowCount[
-    CARD_LIST_OFFSET(row_count) == 0x2D40 ? 1 : -1
+    CARD_LIST_OFFSET(row_count) == CARD_LIST_ROWS_END + 0x10 ? 1 : -1
 ];
 typedef char CardListAssertSortRowCount[
-    CARD_LIST_OFFSET(sort_row_count) == 0x2D42 ? 1 : -1
+    CARD_LIST_OFFSET(sort_row_count) == CARD_LIST_ROWS_END + 0x12 ? 1 : -1
 ];
 typedef char CardListAssertSortMode[
-    CARD_LIST_OFFSET(sort_mode) == 0x2D45 ? 1 : -1
+    CARD_LIST_OFFSET(sort_mode) == CARD_LIST_ROWS_END + 0x15 ? 1 : -1
 ];
 typedef char CardListAssertSortChoice[
-    CARD_LIST_OFFSET(sort_choice) == 0x2D46 ? 1 : -1
+    CARD_LIST_OFFSET(sort_choice) == CARD_LIST_ROWS_END + 0x16 ? 1 : -1
 ];
-typedef char CardListAssertKind[CARD_LIST_OFFSET(kind) == 0x2D47 ? 1 : -1];
+typedef char CardListAssertKind[CARD_LIST_OFFSET(kind) == CARD_LIST_ROWS_END + 0x17 ? 1 : -1];
 typedef char CardListAssertCursor[
-    CARD_LIST_OFFSET(cursor) == 0x2D48 ? 1 : -1
+    CARD_LIST_OFFSET(cursor) == CARD_LIST_ROWS_END + 0x18 ? 1 : -1
 ];
 /* build_deck_pane_input.c reaches the pane's two lists as p + 4 and
    p + 0x2D50, and picks between them with p[0x6342] * 0x2D4C + 4. That
    stride is this record's size, which is what the trailing padding after
    `cursor` accounts for. */
-typedef char CardListAssertSize[sizeof(CardList) == 0x2D4C ? 1 : -1];
+typedef char CardListAssertSize[sizeof(CardList) == CARD_LIST_ROWS_END + 0x1C ? 1 : -1];
 
 #undef CARD_LIST_OFFSET
+#undef CARD_LIST_ROWS_END
 
 void CardList_CreateSlotTextBox(CardList *list, s32 slot);
 void func_80031E04(CardList *list, s32 count);

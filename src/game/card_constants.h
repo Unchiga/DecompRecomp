@@ -4,6 +4,30 @@
 #define CARD_COUNT 722
 #define CARD_ID_FIRST 1
 #define CARD_ID_END (CARD_COUNT + 1)
+
+/* The PC port can have more cards than the disc: a mod's "cards" adds copies
+ * of retail cards at ids CARD_COUNT + 1 onwards (notes/more-cards.md). There
+ * CARD_COUNT stays what the disc is laid out by, CARD_COUNT_LIVE is how many
+ * cards this run has, and the tables and workspaces indexed by card id hold
+ * CARD_TABLE_COUNT. On the console all three are CARD_COUNT. */
+#ifdef MEMORIES_PC
+#define CARD_ID_LIMIT 0x7FFF
+#define CARD_TABLE_COUNT (CARD_ID_LIMIT - 1)
+extern int gCard_nCount;
+#define CARD_COUNT_LIVE gCard_nCount
+#else
+#define CARD_TABLE_COUNT CARD_COUNT
+#define CARD_COUNT_LIVE CARD_COUNT
+#endif
+#define CARD_ID_END_LIVE (CARD_COUNT_LIVE + 1)
+#define CARD_TABLE_ID_END (CARD_TABLE_COUNT + 1)
+/* A card id beside a flag in bit 15 (a Build Deck box row, the placement
+ * result): twelve bits on the console, all fifteen on the PC port. */
+#ifdef MEMORIES_PC
+#define CARD_ID_FIELD_MASK 0x7FFF
+#else
+#define CARD_ID_FIELD_MASK 0xFFF
+#endif
 #define HAND_SIZE 5
 #define DECK_SIZE 40
 #define COMBINED_DECK_SIZE (DECK_SIZE * 2)

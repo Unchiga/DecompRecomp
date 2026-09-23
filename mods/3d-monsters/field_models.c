@@ -75,6 +75,7 @@
 #include "pc/render/packets.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/mods/modapi.h"
+#include "pc/cards/cards.h"
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -517,36 +518,6 @@ static void stamp_bank(const u32 *from, const u32 *to, int bank)
     }
 }
 
-/* Sorting a monster into the game's own model ordering table is all the
- * drawing there is: the frame it belongs to has not been sent to the GPU yet.
- * D_800E9D98[0] is the table func_800540B4 uses for slots 0 and 1, which the
- * battle presentation draws its duellists into. */
-static void sort_monster(Monster *monster)
-{
-    const u32 *from = (const u32 *)(uintptr_t)D_800FE240;
-    GsOT *table = (GsOT *)D_800E9D98[0];
-    GsOT_TAG *org = table->org;
-    uint32_t zsf3 = Memories_GteReadControl(29), zsf4 = Memories_GteReadControl(30);
-    int nearer = tunable("depth", DEPTH_STEPS);
-
-    /* The field's cards and a model measure depth differently in the same
-     * table: a card is sorted at a sixteenth of its distance
-     * (func_80015EF4), a model's primitives at a quarter of theirs, which is
-     * the scale the GTE's Z factors give them. Quartering those factors puts
-     * a monster on the same scale as the card it stands on, and the few
-     * entries taken off `org` -- which the primitive drivers index from,
-     * with no offset of their own -- are what draw it in front of that card
-     * rather than under it. */
-    Memories_GteWriteControl(29, zsf3 / 4);
-    Memories_GteWriteControl(30, zsf4 / 4);
-    table->org = org - nearer;
-    func_800540B4(0);
-    table->org = org;
-    Memories_GteWriteControl(29, zsf3);
-    Memories_GteWriteControl(30, zsf4);
-    stamp_bank(from, (const u32 *)(uintptr_t)D_800FE240, monster->bank);
-}
-
 /* The measuring table: the packet area of the frame buffer that is about to
  * be cleared for the next frame, which is free until then. Its packets are
  * read for their screen coordinates and never drawn. */
@@ -554,6 +525,75 @@ static void sort_monster(Monster *monster)
 #define TABLE_AT TAGS_BYTES
 #define PACKETS_AT (TAGS_BYTES + 0x20)
 static u8 *scratch;
+
+/* Sorting a monster into the game's own model ordering table is all the
+ * drawing there is: the frame it belongs to has not been sent to the GPU yet.
+ * D_800E9D98[0] is the table func_800540B4 uses for slots 0 and 1, which the
+ * battle presentation draws its duellists into.
+ *
+ * The field's cards and a model measure depth differently in that table: a
+ * card is sorted at a sixteenth of its distance (func_80015EF4), a model's
+ * primitives at a quarter of theirs. So the monster is sorted at the model's
+ * own depth scale into a table of its own (the scratch area; nothing else is
+ * in it), which keeps its parts in the order the battle presentation draws
+ * them, and that run of packets goes into the game's table whole, at a
+ * quarter of its nearest entry -- the card's scale -- and DEPTH_STEPS
+ * nearer, which draws it on the card rather than under it. Quartering the
+ * GTE's Z factors instead, as the first version did, put a monster's parts
+ * four to an entry, and parts sharing an entry draw in the order they were
+ * sorted rather than by depth: limbs and cloth showed through the body and
+ * flickered as the animation carried them across entries. */
+#define LINK_MASK 0xFFFFFFu
+#define LINK_END LINK_MASK
+#define GUEST_LINK(link) ((u32 *)(uintptr_t)(0x80000000u | (link)))
+
+static void sort_monster(Monster *monster)
+{
+    const u32 *from = (const u32 *)(uintptr_t)D_800FE240;
+    GsOT *live = (GsOT *)D_800E9D98[0];
+    GsOT *table = (GsOT *)(scratch + TABLE_AT);
+    u32 *tags = (u32 *)scratch, *entry, *last = NULL, first = LINK_END, end;
+    int entries, nearest = 0, at, i;
+
+    table->length = 14;
+    table->org = (GsOT_TAG *)scratch;
+    table->offset = 0;
+    table->point = 0;
+    GsClearOt(0, 0, table);
+    end = tags[0] & LINK_MASK; /* what entry 0 leads to: the table's tail */
+    D_800E9D98[0] = table;
+    func_800540B4(0);
+    D_800E9D98[0] = live;
+    entries = TAGS_BYTES / 4; /* func_800540B4 leaves the length at 12 */
+
+    /* The table's entries run from the far end down to entry 0; chain the
+     * packets through them, leaving the empty entries out. */
+    for (i = entries - 1; i >= 0; i--) {
+        u32 link = tags[i] & LINK_MASK;
+        u32 stop = i ? (u32)(uintptr_t)&tags[i - 1] & LINK_MASK : end;
+        while (link != stop) {
+            u32 *packet = GUEST_LINK(link);
+            if (last) {
+                *last = (*last & ~LINK_MASK) | link;
+            } else {
+                first = link;
+            }
+            last = packet;
+            nearest = i;
+            link = *packet & LINK_MASK;
+        }
+    }
+    if (!last) {
+        return;
+    }
+    at = nearest / 4 - tunable("depth", DEPTH_STEPS);
+    at = at < 0 ? 0 : at >= (1 << live->length) ? (1 << live->length) - 1 : at;
+    entry = (u32 *)live->org + at;
+    *last = (*last & ~LINK_MASK) | (*entry & LINK_MASK);
+    *entry = (*entry & ~LINK_MASK) | first;
+    stamp_bank(from, (const u32 *)(uintptr_t)D_800FE240, monster->bank);
+}
+
 
 static int packet_height(const u32 *from, const u32 *to);
 
@@ -807,6 +847,11 @@ static void draw_frame(void)
                 (card->flags & DUEL_CARD_FLAG_FACE_DOWN) || id <= 0 ||
                 ((gDuel_adwCardStats[id - 1] >> 0x1A) & 0x1F) >= 0x14) {
                 continue; /* empty, face down, or a magic or trap card */
+            }
+            /* A card a card mod added stands as the retail card it is a
+             * copy of: MODEL.MRG has the disc's monsters only. */
+            if (!tunable("test", 0)) {
+                id = Cards_BaseId(id);
             }
             /* The record carries a stance of its own for a monster in
              * defence, which is the one the battle presentation would use. */
