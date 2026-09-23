@@ -119,6 +119,20 @@ the image was made for is replaced. One pack is active at a time; the
 extracted images themselves are the game's, so a pack ships painted images
 or a way to make them from the player's own disc, never the originals.
 
+`tools/pc/upscale_pack.py` makes a pack of upscaled images from an extracted
+set with Upscayl's command-line binary (Real-ESRGAN on the GPU): the same
+files and manifest, enlarged (`--scale 4` by default, one to one with
+Internal 4x; `--scale 25 --passes 2` is the Upscayl window's "5x, twice"),
+with `mod.json` written beside them and, with `--zip`, the mod folder in a
+zip that unpacks into a `mods` directory (the user directory's, for anyone
+who downloads it). To cover a screen, play it once with
+`MEMORIES_DUMP_TEXTURES=<dir>` from a cold boot, then
+`extract_images.py --assets <dir>/assets.txt --out <images>`: every image
+the screen drew from the disc is in `<images>/assets`, backgrounds as the
+128x128 tiles the game uploads them in. Keep the scale in proportion: the
+game holds a pack's images in memory at full size, and a 128x128 tile at
+25x is 40 MB.
+
 ## Code mods
 
 A code mod is **one object file**, `<library>.o`, that runs on both the

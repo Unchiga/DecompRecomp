@@ -437,27 +437,31 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
 static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
 {
     int x, y;
+    uint16_t word;
     u = (u & ~(gpu.window_mask_x * 8)) | ((gpu.window_x & gpu.window_mask_x) * 8);
     v = (v & ~(gpu.window_mask_y * 8)) | ((gpu.window_y & gpu.window_mask_y) * 8);
     u &= 0xff;
     v &= 0xff;
     y = gpu.page_y + v;
+    if (gpu.depth == 0) {
+        x = gpu.page_x + u / 4;
+        word = sample(gpu.clut_x + ((sample(x, y) >> ((u & 3) * 4)) & 0xf), gpu.clut_y);
+    } else if (gpu.depth == 1) {
+        x = gpu.page_x + u / 2;
+        word = sample(gpu.clut_x + ((sample(x, y) >> ((u & 1) * 8)) & 0xff), gpu.clut_y);
+    } else {
+        word = sample(gpu.page_x + u, y);
+    }
     if (shadow_on) {
-        /* A replaced texel: the pack's colour, 0 for one painted transparent. */
+        /* A replaced texel: the pack's colour, 0 for one painted transparent.
+         * The texel's own semi-transparency bit stays: a pack replaces the
+         * colour, not how the game draws it. */
         uint16_t cell = gpu.depth == 0 ? *TextureDump_Cell(gpu.page_x + u / 4, y, u & 3)
                         : gpu.depth == 1 ? *TextureDump_Cell(gpu.page_x + u / 2, y, (u & 1) * 2)
                                          : *TextureDump_Cell(gpu.page_x + u, y, 0);
-        if (cell) return cell & 0x7fff;
+        if (cell) return (cell & 0x7fff) ? (uint16_t)((cell & 0x7fff) | (word & 0x8000)) : 0;
     }
-    if (gpu.depth == 0) {
-        x = gpu.page_x + u / 4;
-        return sample(gpu.clut_x + ((sample(x, y) >> ((u & 3) * 4)) & 0xf), gpu.clut_y);
-    }
-    if (gpu.depth == 1) {
-        x = gpu.page_x + u / 2;
-        return sample(gpu.clut_x + ((sample(x, y) >> ((u & 1) * 8)) & 0xff), gpu.clut_y);
-    }
-    return sample(gpu.page_x + u, y);
+    return word;
 }
 
 static inline __attribute__((always_inline)) int clamp8(int value)
@@ -546,7 +550,11 @@ static inline __attribute__((always_inline)) int picture_texel(int u, int v, uin
     uint16_t word;
     if (shadow_on && TextureDump_Sample) {
         int got = TextureDump_Sample(gpu.page_x, gpu.page_y, gpu.depth, u, v, rgb);
-        if (got == 1) return 1;
+        if (got == 1) {
+            /* The pack's colour; the texel's own semi-transparency bit. */
+            *rgb = (*rgb & 0xffffffu) | ((uint32_t)(texel(u >> 16, v >> 16) & 0x8000) << 16);
+            return 1;
+        }
         if (got == 2) return 0;
     }
     word = texel(u >> 16, v >> 16);
