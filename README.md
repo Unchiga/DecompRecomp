@@ -1,4 +1,4 @@
-# Yu-Gi-Oh! Forbidden Memories ReDecomp
+# Yu-Gi-Oh! Forbidden Memories Re-Decomp
 
 > [!WARNING]
 > Very much a work in progress.
