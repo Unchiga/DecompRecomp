@@ -27,10 +27,16 @@ TARGET = next((sys.argv[i + 1] for i, word in enumerate(sys.argv[:-1]) if word =
               os.environ.get("MEMORIES_TARGET") or ("windows" if sys.platform == "win32" else "linux"))
 WINDOWS = TARGET == "windows"
 WIN32_DEPS = "tmp/pc/win32-deps"  # tools/pc/build_win32_deps.py
-MOD_IMPLIB = "libmemories-pc.a"  # Windows: the executable's import library, which mod DLLs link against
 CC, OBJCOPY, NM, READELF, OBJDUMP = (("i686-w64-mingw32-clang", "llvm-objcopy", "llvm-nm", "llvm-readelf", "llvm-objdump")
                                      if WINDOWS else ("gcc", "objcopy", "nm", "readelf", "objdump"))
 PREFIX = "_" if WINDOWS else ""  # C symbol names in the object files
+# --portable: the Linux executable to share, built against Debian 11's
+# libraries (tools/pc/build_linux_sysroot.py) so it asks for glibc 2.31
+# rather than this machine's, with FreeType, fontconfig and libpng linked in.
+PORTABLE = "--portable" in sys.argv and not WINDOWS
+if PORTABLE:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import build_linux_sysroot
 if WINDOWS and sys.platform != "win32":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import build_win32_deps
@@ -60,9 +66,14 @@ if WINDOWS:
                                                            "-Wno-builtin-declaration-mismatch")] + [
         f"-I{WIN32_DEPS}/sdl/include", f"-I{WIN32_DEPS}/include", f"-I{WIN32_DEPS}/include/freetype2",
         "-mno-ms-bitfields"]  # the game's structures, shared with native code (see CFLAGS)
+if PORTABLE:
+    SYSROOT_COMPILE, SYSROOT_LINK = build_linux_sysroot.flags()
+    CFLAGS = CFLAGS + SYSROOT_COMPILE
+    NATIVE_CFLAGS = [f for f in NATIVE_CFLAGS if f != "-I/usr/include/freetype2"] + SYSROOT_COMPILE + [
+        "-I" + os.path.join(build_linux_sysroot.SYSROOT, "usr/include/freetype2")]
 # Window backends (src/pc/platform): SDL3 when its 32-bit static build exists
 # (see notes/pc-build.md), else X11. --backend or MEMORIES_BACKEND picks.
-SDL_BUILD = "tmp/pc/sdl-m32"
+SDL_BUILD = "tmp/pc/sdl-m32-portable" if PORTABLE else "tmp/pc/sdl-m32"
 SDL_SOURCE = "tmp/port-research/psyz/external/SDL"
 BACKENDS = {"sdl": ["src/pc/platform/sdl.c"],
             "x11": ["src/pc/platform/x11.c", "src/pc/platform/audio_alsa.c", "src/pc/platform/gamepad_evdev.c"]}
@@ -215,23 +226,51 @@ def definitions(objects):
             counts[c_name(parts[-1])] = counts.get(c_name(parts[-1]), 0) + 1
     return counts
 
+MOD_INTERNALS = ("Mods_", "Json_", "ObjectLoader_")  # the mod system itself (src/pc/mods)
+
+def write_mod_exports(build, names, aliases):
+    """mod_exports.c: every name a code mod may bind to (src/pc/mods/exports.h).
+
+    `names` are the globals of the game units and the port, the pinned guest
+    variables and the stubs; `aliases` map an address-based name to the
+    definition it stands for. The linker fills in each address, which is
+    what makes the table the same on both systems: no -rdynamic, no export
+    table, and the pinned variables are there too (the runtime symbol table
+    has none of them). The host's C library and the mod system's own entry
+    points are left out, as are the linker's (__start_...); a mod gets C
+    library functions from mod_libc.c."""
+    identifier = lambda name: (name[:1].isalpha() or name[:1] == "_") and all(c.isalnum() or c == "_" for c in name)
+    table = {name: name for name in names
+             if identifier(name) and name not in HOST_LIBC and name != "main"
+             and not name.startswith(MOD_INTERNALS + ("__",))}
+    table.update((name, target) for name, target in aliases.items() if target in table)
+    with open(f"{build}/mod_exports.c", "w") as handle:
+        handle.write('#include "pc/mods/exports.h"\n')
+        handle.writelines(f"extern char {name}[];\n" for name in sorted(set(table.values())))
+        handle.write("const MemoriesModExport Memories_ModExports[] = {\n")
+        handle.writelines(f'    {{"{name}", {table[name]}}},\n' for name in sorted(table))
+        handle.write(f"}};\nconst unsigned Memories_ModExportCount = {len(table)};\n")
+    # -fno-builtin: every declaration above is a char array, including the
+    # ones that share a name with something the compiler knows.
+    run([CC, *NATIVE_CFLAGS, "-fno-builtin", "-w", "-c", f"{build}/mod_exports.c", "-o", f"{build}/mod_exports.o"])
+
 def build_mods(build):
     """Each directory under mods/ becomes a mod directory beside the game.
 
-    A mod is its manifest and whatever it ships; if it has C, that is linked
-    into one shared library named after the directory, which the game dlopens
-    when the mod is applied (src/pc/mods/mods.c). Mods resolve the game's and
-    the port's symbols out of the executable at load time, so they are built
-    against the same headers and nothing else."""
+    A mod is its manifest and whatever it ships; if it has C, that becomes
+    one object file (tools/pc/build_mod.py), which the game's own loader
+    links in when the mod is applied (src/pc/mods/object_loader.c). The
+    object is built once, in tmp/pc/mod-build, and the same file is copied
+    beside both the Linux and the Windows game: one mod, every system.
+
+    The SDK goes beside the game too, so a release carries what a mod author
+    builds against: modapi.h and the game's headers under sdk/include, the C
+    library a mod may use under sdk/include/libc, and build_mod.py."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import build_mod
     out_root = f"{build}/mods"
     os.makedirs(out_root, exist_ok=True)
-    # The header a mod author builds against, beside the game rather than
-    # only in the source tree, so a release carries it (notes/modding.md).
-    os.makedirs(f"{build}/include/pc/mods", exist_ok=True)
-    with open("src/pc/mods/modapi.h", "rb") as source:
-        header = source.read()
-    with open(f"{build}/include/pc/mods/modapi.h", "wb") as copy:
-        copy.write(header)
+    write_sdk(build)
     built = []
     for manifest in sorted(glob.glob("mods/*/mod.json")):
         source_dir = os.path.dirname(manifest)
@@ -241,38 +280,43 @@ def build_mods(build):
         for path in sorted(glob.glob(f"{source_dir}/**/*", recursive=True)):
             if path.endswith(".c") or path.endswith(".h") or os.path.isdir(path):
                 continue
-            destination = os.path.join(out_dir, os.path.relpath(path, source_dir))
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            if not os.path.exists(destination) or os.path.getmtime(destination) < os.path.getmtime(path):
-                with open(path, "rb") as source, open(destination, "wb") as copy:
-                    copy.write(source.read())
-        sources = sorted(glob.glob(f"{source_dir}/*.c"))
-        if not sources:
+            copy_if_newer(path, os.path.join(out_dir, os.path.relpath(path, source_dir)))
+        # Checked against this build's own export table: the other system's
+        # may be older than this build.
+        obj = build_mod.build(source_dir, out_dir=f"tmp/pc/mod-build/{name}", games=[build], quiet=True)
+        if not obj:
             built.append(f"{name} (data)")
             continue
-        library = f"{out_dir}/{name}" + (".dll" if WINDOWS else ".so")
-        objects = []
-        for source in sources:
-            obj = f"{build}/obj/{source.replace('/', '_')}.o"
-            objects.append(obj)
-            compile_unit((source, obj, NATIVE_CFLAGS + ([] if WINDOWS else ["-fPIC"]), None))
-        if not os.path.exists(library) or max(os.path.getmtime(o) for o in objects) > os.path.getmtime(library):
-            if WINDOWS:
-                # A DLL's references to the game and the port resolve through
-                # the executable's import library (the link step above); the
-                # loader binds them when mods.c loads the DLL. Pinned guest
-                # variables are absolute symbols, which a PE cannot export;
-                # they sit at the same address in every module, so the DLL
-                # links the executable's pins itself. clock_gettime and the
-                # like come from winpthreads, static as in the executable.
-                run([CC, "-shared", "-o", library, f"{build}/guest_symbols.o", *objects,
-                     f"{build}/{MOD_IMPLIB}", "-lm", "-static", "-lpthread"])
-            else:
-                run(["gcc", "-m32", "-shared", "-o", library, *objects, "-lm"])
+        for stale in glob.glob(f"{out_dir}/*.so") + glob.glob(f"{out_dir}/*.dll"):
+            os.remove(stale)   # native libraries from before mods were objects
+        copy_if_newer(obj, os.path.join(out_dir, os.path.basename(obj)))
         built.append(name)
     if built:
         print(f"{out_root}: " + ", ".join(built))
 
+
+def copy_if_newer(source, destination):
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    if not os.path.exists(destination) or os.path.getmtime(destination) < os.path.getmtime(source):
+        shutil.copy2(source, destination)
+
+
+def write_sdk(build):
+    """<build>/sdk: what a mod is built against, beside the game."""
+    sdk = f"{build}/sdk"
+    for header in glob.glob("src/**/*.h", recursive=True):
+        relative = os.path.relpath(header, "src")
+        if relative.startswith(os.path.join("pc", "mods", "sdk")):
+            relative = os.path.join("libc", os.path.relpath(header, "src/pc/mods/sdk"))
+        copy_if_newer(header, os.path.join(sdk, "include", relative))
+    copy_if_newer("tools/pc/build_mod.py", f"{sdk}/tools/build_mod.py")
+    # What this game lends a mod, for build_mod.py's check beside the game.
+    import build_mod
+    with open(f"{sdk}/exports.txt", "w") as handle:
+        handle.writelines(name + "\n" for name in sorted(build_mod.provided(build)))
+    stale = f"{build}/include"   # the lone modapi.h copy from before the SDK
+    if os.path.isdir(stale):
+        shutil.rmtree(stale)
 
 def main():
     global NEWEST_HEADER
@@ -280,9 +324,12 @@ def main():
     parser.add_argument("--backend", choices=list(BACKENDS), default=os.environ.get("MEMORIES_BACKEND") or
                         ("sdl" if WINDOWS or os.path.exists(f"{SDL_BUILD}/libSDL3.a") else "x11"))
     parser.add_argument("--target", choices=("linux", "windows"), default=TARGET)
+    parser.add_argument("--portable", action="store_true",
+                        help="Linux: build the executable to share, against tools/pc/build_linux_sysroot.py's libraries")
     # A Windows build made on Linux gets a directory of its own, so both
     # executables and their objects sit side by side.
-    parser.add_argument("--build", default="tmp/pc/win32" if WINDOWS and sys.platform != "win32" else "tmp/pc/game32")
+    parser.add_argument("--build", default="tmp/pc/win32" if WINDOWS and sys.platform != "win32" else
+                        "tmp/pc/game32-portable" if PORTABLE else "tmp/pc/game32")
     options = parser.parse_args()
     NATIVE.extend(BACKENDS[options.backend])
     NATIVE.sort()
@@ -291,7 +338,11 @@ def main():
             sys.exit("Windows builds use the SDL backend")
         if not os.path.exists(f"{WIN32_DEPS}/lib/libfreetype.a") or not shutil.which(CC):
             sys.exit(f"{WIN32_DEPS} is missing; run tools/pc/build_win32_deps.py first")
+    elif PORTABLE and options.backend != "sdl":
+        sys.exit("--portable builds use the SDL backend")
     elif options.backend == "sdl":
+        if PORTABLE and not os.path.exists(f"{SDL_BUILD}/libSDL3.a"):
+            build_linux_sysroot.main()
         if not os.path.exists(f"{SDL_BUILD}/libSDL3.a"):
             sys.exit(f"{SDL_BUILD}/libSDL3.a is missing; build SDL3 for -m32 first (notes/pc-build.md)")
         NATIVE_CFLAGS.extend([f"-I{SDL_SOURCE}/include", f"-I{SDL_BUILD}/include-revision"])
@@ -519,6 +570,7 @@ def main():
             handle.write(f'    {{"{name}", 0x{bank:08X}u, 0x{identifier:X}u, {", ".join(ranges)}}},\n')
         handle.write(f"}};\nconst unsigned Memories_ModuleCount = {len(shared)};\n")
     run([CC, *NATIVE_CFLAGS, "-c", f"{options.build}/stubs.c", "-o", f"{options.build}/stubs.o"])
+    write_mod_exports(options.build, game_defined | native_defined | tentative | set(pinned) | set(stubs), aliases)
     output = f"{options.build}/memories-pc"
     if WINDOWS:
         output += ".exe"
@@ -529,25 +581,28 @@ def main():
         # overrides on Linux; lld keeps whichever it saw first. Then the
         # native objects, which win over the game definitions they override.
         # Large-address-aware for guest RAM at 0x80000000, fixed base (like
-        # -no-pie) for the symbol table, NX for the guest-call trap.
-        # --export-all-symbols and the import library are what -rdynamic is
-        # on Linux: a mod's DLL (build_mods) links against the import library
-        # and binds to the game's and the port's symbols at load time.
+        # -no-pie) for the symbol table, NX for the guest-call trap. Mods
+        # bind through mod_exports.o, not an export table.
         run([CC, "-o", output, "-Wl,--large-address-aware", "-Wl,--disable-dynamicbase", "-Wl,--nxcompat",
-             "-Wl,--allow-multiple-definition", "-Wl,--export-all-symbols",
-             f"-Wl,--out-implib={options.build}/{MOD_IMPLIB}", f"{options.build}/guest_symbols.o",
-             *[obj(s) for s in NATIVE + game], f"{options.build}/stubs.o", f"{options.build}/section_markers.o",
+             "-Wl,--allow-multiple-definition", f"{options.build}/guest_symbols.o",
+             *[obj(s) for s in NATIVE + game], f"{options.build}/stubs.o", f"{options.build}/mod_exports.o",
+             f"{options.build}/section_markers.o",
              f"{WIN32_DEPS}/sdl/lib/libSDL3.dll.a", "-lopengl32", f"{WIN32_DEPS}/lib/libfreetype.a",
              f"{WIN32_DEPS}/lib/libpng16.a", f"{WIN32_DEPS}/lib/libzs.a", "-ldbghelp", "-static", "-lpthread"])
         shutil.copy(f"{WIN32_DEPS}/sdl/bin/SDL3.dll", options.build)
     else:
-        # -rdynamic puts the executable's symbols in its dynamic table, which is
-        # what lets a mod's library (build_mods) bind to the game and the port
-        # the way the resident code does. Nothing else needs it.
-        run(["gcc", "-m32", "-no-pie", "-rdynamic", "-o", output,
+        # Mods bind through mod_exports.o, so nothing needs -rdynamic.
+        libraries = ["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig", "-lpng16"]
+        if PORTABLE:
+            # Linked in, so the player needs no 32-bit FreeType or fontconfig:
+            # only libc and the GL driver, which come with the system.
+            libraries = ["-lm", f"{SDL_BUILD}/libSDL3.a", "-Wl,-Bstatic", "-lfontconfig", "-lfreetype", "-lpng16",
+                         "-lbrotlidec", "-lbrotlicommon", "-lbz2", "-lexpat", "-luuid", "-lz", "-Wl,-Bdynamic",
+                         "-lGL", "-ldl", "-lpthread", "-lrt", *SYSROOT_LINK]  # glibc < 2.34 keeps timers in librt
+        run(["gcc", "-m32", "-no-pie", "-o", output,
              *[f"-Wl,--section-start={name}=0x{address:08X}" for name, address in sorted(fixed.items())],
              *[obj(s) for s in game + NATIVE],
-             f"{options.build}/stubs.o", f"{options.build}/guest_symbols.ld", *(["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig", "-lpng16"] if options.backend == "sdl"
+             f"{options.build}/stubs.o", f"{options.build}/mod_exports.o", f"{options.build}/guest_symbols.ld", *(libraries if options.backend == "sdl"
                else ["-lm", "-lX11", "-lXext", "-lfreetype", "-lfontconfig", "-lpng16", "-lasound", "-lpthread", "-ldl"])])
     build_mods(options.build)
     # Save states are carried between builds with these tables

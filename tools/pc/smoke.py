@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run deterministic native-game screenshots and the portable PC CTests."""
+"""Run deterministic native-game screenshots, the mod export check and the portable PC CTests."""
 
 from __future__ import annotations
 
@@ -111,6 +111,13 @@ def run_smoke(executable: Path, record: bool) -> bool:
     return True
 
 
+def check_mod_exports(executable: Path) -> bool:
+    """The table code mods bind to matches the link (check_mod_exports.py)."""
+    result = subprocess.run([sys.executable, str(ROOT / "tools/pc/check_mod_exports.py"), str(executable)],
+                            cwd=ROOT, check=False)
+    return result.returncode == 0
+
+
 def run_ctests(build: Path) -> bool:
     if not (build / "CTestTestfile.cmake").is_file():
         print(f"smoke: CTest build is missing: {build}", file=sys.stderr)
@@ -128,12 +135,17 @@ def main() -> int:
     parser.add_argument("--record", action="store_true", help="replace fixture hashes with current output")
     parser.add_argument("--executable", type=Path, default=DEFAULT_EXECUTABLE)
     parser.add_argument("--windows", action="store_true",
-                        help=f"test {WINDOWS_EXECUTABLE.relative_to(ROOT)} (under Wine off Windows) and skip the CTests")
+                        help=f"test {WINDOWS_EXECUTABLE.relative_to(ROOT)} (under Wine off Windows) and the "
+                             "Windows mod loader instead of the CTests")
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD, help="CTest build directory")
     arguments = parser.parse_args()
     if arguments.windows:
-        return 0 if run_smoke(WINDOWS_EXECUTABLE, arguments.record) else 1
-    screenshots_ok = run_smoke(arguments.executable.resolve(), arguments.record)
+        exports_ok = check_mod_exports(WINDOWS_EXECUTABLE)
+        loader_ok = subprocess.run([sys.executable, str(ROOT / "tools/pc/test_object_loader.py"), "--target", "windows"],
+                                   cwd=ROOT, check=False).returncode == 0
+        return 0 if run_smoke(WINDOWS_EXECUTABLE, arguments.record) and exports_ok and loader_ok else 1
+    exports_ok = check_mod_exports(arguments.executable.resolve())
+    screenshots_ok = run_smoke(arguments.executable.resolve(), arguments.record) and exports_ok
     tests_ok = run_ctests(arguments.build.resolve())
     return 0 if screenshots_ok and tests_ok else 1
 

@@ -5,6 +5,8 @@
 #include "pc/guest/state.h"
 #include "pc/platform/platform.h"
 #include "pc/sdk/display.h"
+#include "pc/platform/paths.h"
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -100,10 +102,21 @@ static void walk(uintptr_t eip, uintptr_t ebp)
     }
 }
 
+char Crash_ReportDir[512] = "tmp/pc";
+
+static void choose_report_dir(void)
+{
+    struct stat info;
+    if (!stat("tmp/pc", &info) && S_ISDIR(info.st_mode)) return;   /* running from a checkout */
+    if (Paths_User(Crash_ReportDir, sizeof(Crash_ReportDir), "reports") || Paths_MakeDirs(Crash_ReportDir)) {
+        snprintf(Crash_ReportDir, sizeof(Crash_ReportDir), ".");
+    }
+}
+
 static void open_report(void)
 {
-    char path[128];
-    snprintf(path, sizeof(path), "tmp/pc/crash-%ld.txt", (long)getpid());
+    char path[640];
+    snprintf(path, sizeof(path), "%s/crash-%ld.txt", Crash_ReportDir, (long)getpid());
     report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 }
 
@@ -140,6 +153,7 @@ static void report_exception(unsigned long code, uintptr_t fault, uintptr_t eip,
 
 void Crash_Init(void)
 {
+    choose_report_dir();
     Win32_StackRange(&main_stack_low, &main_stack_high);
     Win32_SetCrashReporter(report_exception);
 }
@@ -173,6 +187,7 @@ void Crash_Init(void)
     void *address;
     size_t size;
     unsigned i;
+    choose_report_dir();
     stack.ss_sp = alternate_stack;
     stack.ss_size = sizeof(alternate_stack);
     stack.ss_flags = 0;
@@ -206,7 +221,7 @@ void Crash_ReportSoft(const char *kind, const char *detail)
 
 void Crash_ReportHang(void *context)
 {
-    char path[128];
+    char path[640];
     uintptr_t eip, esp, ebp;
 #ifdef _WIN32
     Win32_ContextRegisters(context, &eip, &esp, &ebp);
@@ -217,7 +232,7 @@ void Crash_ReportHang(void *context)
     ebp = (uintptr_t)user->uc_mcontext.gregs[REG_EBP];
 #endif
     report_fd = -1;
-    snprintf(path, sizeof(path), "tmp/pc/hang-%ld.txt", (long)getpid());
+    snprintf(path, sizeof(path), "%s/hang-%ld.txt", Crash_ReportDir, (long)getpid());
     report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     {
         static const char message[] = "memories-pc: no VSync for 5 s\n";

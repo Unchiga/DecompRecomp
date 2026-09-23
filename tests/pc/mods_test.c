@@ -4,6 +4,8 @@
  * sector arithmetic. */
 #define _POSIX_C_SOURCE 200809L
 #include "pc/mods/mods.h"
+#include "pc/mods/exports.h"
+#include "pc/debug/symbols.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include <assert.h>
@@ -22,6 +24,7 @@
 int Log_Enabled(int channel) { (void)channel; return 0; }
 void Log_Printf(int channel, const char *format, ...) { (void)channel; (void)format; }
 unsigned short Platform_Pad(int port) { (void)port; return 0; }
+int Symbols_Add(const SymbolsEntry *entries, size_t count) { (void)entries; (void)count; return 0; }
 int Memories_DiscReadSectors(int lba, int sectors, void *out)
 {
     (void)lba;
@@ -40,6 +43,16 @@ int Memories_DiscFileStart(const char *path)
     int lba = -1;
     return Memories_DiscFileInfo(path, &lba, NULL) ? -1 : lba;
 }
+
+/* The table build_game32.py generates for the game: sorted by name. */
+static char exported_function[16];
+static int exported_variable = 42;
+const MemoriesModExport Memories_ModExports[] = {
+    {"D_80010000", (void *)0x80010000u},
+    {"Duel_DrawFieldCards", exported_function},
+    {"gDuel_wSceneStateFlags", &exported_variable},
+};
+const unsigned Memories_ModExportCount = sizeof(Memories_ModExports) / sizeof(Memories_ModExports[0]);
 
 /* --- fixtures -------------------------------------------------------- */
 
@@ -89,6 +102,17 @@ int main(void)
     assert(!Paths_Contained("/etc/passwd") && !Paths_Contained("") && !Paths_Contained("."));
     assert(!Paths_Contained("art//monster.tim") && !Paths_Contained("art/"));
     assert(!Paths_Contained("art\\monster.tim") && !Paths_Contained("C:/art"));
+
+    /* The names a code mod binds to. */
+    assert(Mods_Lookup("D_80010000") == (void *)0x80010000u);
+    assert(Mods_Lookup("Duel_DrawFieldCards") == exported_function);
+    assert(Mods_Lookup("gDuel_wSceneStateFlags") == &exported_variable);
+    assert(!Mods_Lookup("Duel_DrawFieldCard") && !Mods_Lookup("") && !Mods_Lookup(NULL));
+    /* And the C library the host lends, which is searched first. */
+    assert(Mods_LibcSorted());
+    assert(Mods_LibcLookup("memcpy") == (void (*)(void))memcpy);
+    assert(Mods_Lookup("vsnprintf") && Mods_Lookup("strtol"));
+    assert(!Mods_Lookup("fopen") && !Mods_Lookup("system") && !Mods_Lookup("getenv"));
 
     assert(mkdtemp(root));
     make_dir("mods");

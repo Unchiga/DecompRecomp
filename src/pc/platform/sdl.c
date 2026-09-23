@@ -1383,6 +1383,15 @@ static int software_gl_renderer(void)
                     strstr(name, "Software Rasterizer"));
 }
 
+void Platform_ShowError(const char *title, const char *message)
+{
+    const char *headless = getenv("MEMORIES_HEADLESS");
+    fprintf(stderr, "memories-pc: %s\n", message);
+    if (!headless || !*headless || !strcmp(headless, "0")) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, NULL);
+    }
+}
+
 int Platform_Open(const char *title)
 {
     sigset_t previous;

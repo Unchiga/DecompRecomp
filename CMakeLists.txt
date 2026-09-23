@@ -63,10 +63,11 @@ if(BUILD_TESTING)
         target_compile_options(memories_json_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_json COMMAND memories_json_test)
-    add_executable(memories_mods_test tests/pc/mods_test.c src/pc/mods/mods.c src/pc/mods/json.c
+    add_executable(memories_mods_test tests/pc/mods_test.c src/pc/mods/mods.c src/pc/mods/mod_libc.c
+        src/pc/mods/object_loader.c src/pc/mods/json.c
         src/pc/platform/paths.c src/pc/platform/settings.c)
     target_include_directories(memories_mods_test PRIVATE src)
-    target_link_libraries(memories_mods_test PRIVATE ${CMAKE_DL_LIBS})
+    target_link_libraries(memories_mods_test PRIVATE m)
     if(NOT MSVC)
         target_compile_options(memories_mods_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
@@ -115,6 +116,13 @@ if(Python3_Interpreter_FOUND)
             --output "${CMAKE_BINARY_DIR}/port-audit.json"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         COMMENT "Inventory native-port blockers and SDK references")
+    # The code mod loader runs in a 32-bit process, so it is built and run by
+    # its own script (gcc -m32 here; smoke.py --windows runs the Windows half).
+    if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME pc_object_loader
+            COMMAND "${Python3_EXECUTABLE}" tools/pc/test_object_loader.py --target linux
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    endif()
 endif()
 
 if(MEMORIES_PSYZ_ROOT)

@@ -81,8 +81,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
-#include "pc/compat/mman.h"
 
 extern u8 D_8009B1D5;          /* the side the view belongs to */
 extern void *D_800E9D98[];     /* D_800E9D90[2]: func_800540B4's table */
@@ -170,10 +168,12 @@ static void say(const char *format, ...)
     host->log(host, "%s", message);
 }
 
-static int tunable(const char *name, int fallback)
+/* Knobs for tuning the look, kept as the mod's settings (mod.3d-monsters.<key>
+ * in the settings file) and tried for one run from the environment:
+ * MEMORIES_MOD_3D_MONSTERS_DEPTH=... (modapi.h). */
+static int tunable(const char *key, int fallback)
 {
-    const char *text = getenv(name);
-    return text && *text ? (int)strtol(text, NULL, 0) : fallback;
+    return host->setting(host, key, fallback);
 }
 
 /* Model_LoadMonsterMerge's own arithmetic: the three id ranges with no record
@@ -349,7 +349,7 @@ static void give_back(const u8 *staging, size_t length)
 
 static int load_monster(Monster *monster, int card, int position)
 {
-    struct timespec started, finished;
+    uint64_t started, finished;
     ModelSlot *slot = &D_800F2C40[0];
     static u8 staging[0x2000]; /* the loader's own scratch, put back after */
     u8 *payload_base;
@@ -365,7 +365,7 @@ static int load_monster(Monster *monster, int card, int position)
     if (mrg_start < 0) {
         return 0;
     }
-    clock_gettime(CLOCK_MONOTONIC, &started);
+    started = host->now_us(host);
     if (!record && !(record = malloc(RECORD_SECTORS * SECTOR))) {
         return 0;
     }
@@ -414,10 +414,9 @@ static int load_monster(Monster *monster, int card, int position)
     monster->position = position;
     keep_textures(monster);
     give_back(staging, sizeof(staging));
-    clock_gettime(CLOCK_MONOTONIC, &finished);
+    finished = host->now_us(host);
     say("card %d stance %d loaded in %d us: %d units, %d parts, animation %d\n", card, position,
-        (int)((finished.tv_sec - started.tv_sec) * 1000000 +
-              (finished.tv_nsec - started.tv_nsec) / 1000),
+        (int)(finished - started),
         slot->field_E1A, slot->field_E1B, slot->field_BF5);
     return 1;
 }
@@ -443,11 +442,10 @@ static Monster *acquire(int card, int position)
         }
     }
     if (!monster->arena) {
-        void *wanted = (void *)(uintptr_t)(ARENA_BASE + (unsigned)(monster - cache) * ARENA_SIZE);
-        void *got = mmap(wanted, ARENA_SIZE, PROT_READ | PROT_WRITE,
-                         MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (got != wanted) {
-            say("no arena at %p\n", wanted);
+        uintptr_t wanted = ARENA_BASE + (unsigned)(monster - cache) * ARENA_SIZE;
+        u8 *got = host->map_fixed(host, wanted, ARENA_SIZE);
+        if (!got) {
+            say("no arena at %p\n", (void *)wanted);
             return NULL;
         }
         monster->arena = got;
@@ -529,7 +527,7 @@ static void sort_monster(Monster *monster)
     GsOT *table = (GsOT *)D_800E9D98[0];
     GsOT_TAG *org = table->org;
     uint32_t zsf3 = Memories_GteReadControl(29), zsf4 = Memories_GteReadControl(30);
-    int nearer = tunable("MEMORIES_MODS_DEPTH", DEPTH_STEPS);
+    int nearer = tunable("depth", DEPTH_STEPS);
 
     /* The field's cards and a model measure depth differently in the same
      * table: a card is sorted at a sixteenth of its distance
@@ -667,7 +665,7 @@ static void scale_body(Monster *monster)
 static void fit(Monster *monster)
 {
     ModelSlot *slot = &D_800F2C40[0];
-    int target = tunable("MEMORIES_MODS_PIXELS", TALL_PIXELS), attempt, height = 0;
+    int target = tunable("pixels", TALL_PIXELS), attempt, height = 0;
 
     monster->scale = MODEL_FIXED_ONE / 2;
     measure_body(monster);
@@ -698,7 +696,7 @@ static void fit(Monster *monster)
         monster->scale = monster->scale < SCALE_SMALLEST ? SCALE_SMALLEST
                        : monster->scale > SCALE_LARGEST ? SCALE_LARGEST : monster->scale;
     }
-    monster->scale = monster->scale * tunable("MEMORIES_MODS_SCALE", MODEL_FIXED_ONE) / MODEL_FIXED_ONE;
+    monster->scale = monster->scale * tunable("scale", MODEL_FIXED_ONE) / MODEL_FIXED_ONE;
     scale_body(monster);
     say("card %d fits %d pixels at %d/4096, body at %d,%d,%d\n", monster->card, height, monster->scale,
         monster->body_x, monster->body_y, monster->body_z);
@@ -711,7 +709,7 @@ static void fit(Monster *monster)
 #define LIFT_UNITS_PER_PIXEL 2
 static int lift(void)
 {
-    return tunable("MEMORIES_MODS_LIFT", LIFT_PIXELS * LIFT_UNITS_PER_PIXEL);
+    return tunable("lift", LIFT_PIXELS * LIFT_UNITS_PER_PIXEL);
 }
 
 static void draw_monster(Monster *monster, int x, int z, int yaw)
@@ -756,7 +754,7 @@ static int duel_field_up(void)
             phase, distance, pitch, angle, D_8009B1D5, D_800F2848.projection);
     }
     return D_800E9DB0[3] == Duel_DrawFieldCards && D_800F2C40[2].field_E1F != 0 &&
-           D_800F2848.field_04 < tunable("MEMORIES_MODS_PITCH", FIELD_PITCH);
+           D_800F2848.field_04 < tunable("pitch", FIELD_PITCH);
 }
 
 typedef struct {
@@ -803,8 +801,8 @@ static void draw_frame(void)
             /* A field full of monsters, for measuring: every zone stands a
              * different one, which exercises the cache, the arenas and the
              * texture banks at once. */
-            if (tunable("MEMORIES_MODS_TEST", 0)) {
-                id = tunable("MEMORIES_MODS_TEST", 0) + zone * 2 + side;
+            if (tunable("test", 0)) {
+                id = tunable("test", 0) + zone * 2 + side;
             } else if (!(card->flags & DUEL_CARD_FLAG_OCCUPIED) ||
                 (card->flags & DUEL_CARD_FLAG_FACE_DOWN) || id <= 0 ||
                 ((gDuel_adwCardStats[id - 1] >> 0x1A) & 0x1F) >= 0x14) {
@@ -850,6 +848,9 @@ static void draw_frame(void)
 
 int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
 {
+    if (from->api < 2) {
+        return 0;   /* map_fixed and now_us arrived in mod API 2 */
+    }
     host = from;
     mod->api = MEMORIES_MOD_API;
     mod->frame = draw_frame;

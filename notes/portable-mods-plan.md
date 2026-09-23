@@ -76,6 +76,99 @@ What was ruled out, and why:
   build ELF objects with `clang --target=i386-pc-linux-gnu -c`. On Linux,
   `gcc -m32` or the same clang works.
 
+## Progress and verified facts
+
+**Phase 1 done (2026-09-22).**
+- `build_game32.py` `write_mod_exports` writes `<build>/mod_exports.c`
+  (`src/pc/mods/exports.h`); `Mods_Lookup` in `mods.c` searches it.
+  2734 names on Linux, 2750 on Windows. The difference is OS-specific port
+  internals (`Win32_*`, `Memories_ContextSwitch`, `Memories_SigProcMask` on
+  Windows; `Crash_HandleSignal` on Linux). A mod that binds one of those
+  loads on one system only; `build_mod.py` could warn about it.
+- `MEMORIES_MOD_EXPORTS=1 memories-pc` prints the table and exits.
+  `tools/pc/check_mod_exports.py` compares it against `nm` of the
+  executable (sorted, unique, every address matches, and a game function,
+  a pinned variable and a port variable are all present). `smoke.py` runs
+  it for both builds. Aliases have no symbol of their own on Windows, so 12
+  entries there go unchecked.
+- With the export table, the only undefined names left in the two mods are
+  the C library ones (`clock_gettime getenv malloc memcpy mmap sqrt strtol
+  vsnprintf`, plus the PIC and stack-protector ones).
+- **Layout (trap 2):** `tools/pc/check_layouts.py` dumps every record in
+  every header under `src/` (except `src/pc/platform`, which is port UI
+  state) with clang for `i386-pc-linux-gnu` and for `i686-w64-mingw32
+  -mno-ms-bitfields`, then compares them. It runs from `./build-pc.sh` (under
+  a second). It found three differing records, all `u64` unions:
+  `PasswordGlyphCoordinates`, `Pair64` (ygo_types.h) and `SDSEPlayIdPair`
+  (sound_effect_request.h). They were aligned to 4 on Linux and to 8 on
+  Windows and MIPS. No enclosing header struct was affected, and no
+  game-section symbol moved. Fixed in `src/types.h`: on i386 PC builds,
+  `s64`/`u64` get `__attribute__((aligned(8)))`. Now 0 differ.
+  `ControlCapture` (controls.h, a `uint64_t`) differs too, but it is UI
+  state only and is out of scope. Not covered: structs defined inside `.c`
+  files, and gcc against clang on Linux (the same ABI, assumed).
+- **Struct returns (trap 3):** `-Waggregate-return` over every game and port
+  unit finds only `static` helpers in `controls_window.c` and
+  `mods_window.c`. No exported function returns a struct by value.
+
+**Phases 2 to 6 done the same day, except for the Windows duel checks below.**
+- Phase 2: `src/pc/mods/mod_libc.c` holds the C library list, plus the
+  compiler's 64-bit helpers (`__divdi3`, `__udivdi3` and the rest: both
+  libgcc and compiler-rt have them). `Mods_Lookup` searches it before the
+  export table. Mod API 2 adds `now_us` and `map_fixed`. There is no `env`:
+  instead `setting()` reads `MEMORIES_MOD_<ID>_<KEY>` first.
+- Phase 3: `src/pc/mods/object_loader.c`. Its test is
+  `tools/pc/test_object_loader.py` (ctest `pc_object_loader` for Linux,
+  `smoke.py --windows` for Windows), with fixtures in
+  `tests/pc/mod_fixtures`. It covers the good object (both call directions,
+  data, bss, 64-bit division, narrow returns, a frame over 4 KiB, a call
+  from a misaligned stack), six broken objects, and about 35k damaged or
+  truncated copies. 37/37 on Linux and under Wine, with the same fixture
+  files. Mod functions go to `Symbols_Add`, so a crash reads
+  `3d-monsters:say+0x4b`.
+- Phase 4: `tools/pc/build_mod.py`, SDK headers in `src/pc/mods/sdk`, and
+  `<build>/sdk` (include/, include/libc, tools/build_mod.py, exports.txt)
+  beside each game. Mods are built once into `tmp/pc/mod-build` and the
+  identical file (same sha256) is copied into both games' `mods/`.
+- Phase 5: hand-camera needed nothing but dropping `<stdlib.h>`. For 3D
+  Monsters: `now_us`, `map_fixed`, tunables moved to settings
+  (`MEMORIES_MODS_DEPTH/PIXELS/SCALE/LIFT/PITCH/TEST` are now
+  `MEMORIES_MOD_3D_MONSTERS_<KEY>`, or `mod.3d-monsters.<key>` in the
+  settings file), and it refuses to start on API < 2. Checked on Linux in a
+  duel (`tmp/pc/states/slot1-hand.state`, test mode): ten monsters, the duel
+  graphics unchanged, and load times logged.
+- Phase 6: the `.so`/`.dll` path, `pc/compat/dlfcn.h`, `-rdynamic`,
+  `--export-all-symbols` and the import library are gone. Crash reports never
+  used them; they read `symbols/<buildid>.txt`.
+- **Still open:**
+  - A duel on Windows (Wine and real). Both mods load under Wine, and the
+    loader test passes there. But a Linux save state does not load in the
+    Windows build ("damaged state"), and no input route to a duel exists
+    yet. Free Duel from a loaded memory card gets as far as the opponent
+    grid (Cross first dismisses "Select opponent!"). Picking Teana then
+    opened the chest, and backing out with Triangle hung, with mods off.
+  - Real Windows once, for the items Wine does not prove.
+  - A smoke case with both mods on at a duel frame (needs the route above).
+
+**More traps, found while doing it:**
+- **Stack alignment is two-way.** `-mstack-alignment=4` (the first guess)
+  crashed the Linux game: the mod then called Linux host code (SSE2) with a
+  misaligned stack. It was a GP fault in `Log_Printf`, reported at address 0.
+  `-mstackrealign` fixes it: every mod function aligns to 16 on entry and
+  calls out aligned. The loader test calls the mod from a misaligned stack
+  and checks alignment in the host; it fails with the old flag.
+- **Stack protector.** Arch's gcc turns it on by default, and the canary is
+  `%gs:0x14` (Linux TLS). `build_mod.py` and the loader both refuse it.
+- **Stack probes.** A frame over 4 KiB must probe on Windows
+  (`-fstack-clash-protection`, which gcc and clang both do inline). **Wine
+  does not enforce this**: the test passes without the flag, so only real
+  Windows can confirm it.
+- **Narrow returns** are not a trap. At -O2 both game compilers return a
+  `short` with dirty upper bits, and the mod (clang i386-linux) extends it
+  itself (`cwtl`). The loader test covers it on both systems.
+- A constructor that only sets a static is folded away by clang, so the
+  fixture's constructor calls the host.
+
 ## ABI traps the SDK must close (each needs a test, not a promise)
 
 1. **Stack alignment.** Linux i386 code may assume a 16-byte-aligned stack.

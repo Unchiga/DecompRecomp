@@ -15,6 +15,7 @@
 #ifdef _WIN32
 #define _WIN32_WINNT 0x0A00 /* GetCurrentThreadStackLimits, high-resolution timers */
 #include "win32.h"
+#include "pc/debug/crash.h"
 #include "pc/compat/signal.h"
 #include <stdio.h>
 #include <string.h>
@@ -325,13 +326,13 @@ void Win32_StackRange(uintptr_t *low, uintptr_t *high)
 }
 
 /* Beside every crash and hang report, a minidump with every thread's stack
- * (tmp/pc/<kind>-<pid>.dmp; lldb -c reads it). */
+ * (<Crash_ReportDir>/<kind>-<pid>.dmp; lldb -c reads it). */
 static void write_dump(const char *kind, EXCEPTION_POINTERS *pointers, DWORD thread)
 {
-    char path[128];
+    char path[640];
     HANDLE file;
     MINIDUMP_EXCEPTION_INFORMATION exception;
-    snprintf(path, sizeof(path), "tmp/pc/%s-%lu.dmp", kind, GetCurrentProcessId());
+    snprintf(path, sizeof(path), "%s/%s-%lu.dmp", Crash_ReportDir, kind, GetCurrentProcessId());
     file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (file == INVALID_HANDLE_VALUE) return;
     exception.ThreadId = thread;

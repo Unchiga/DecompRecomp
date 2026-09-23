@@ -21,7 +21,6 @@
 #include "game/view_state_orbit.h"
 #include "pc/mods/modapi.h"
 #include <stdint.h>
-#include <stdlib.h>
 
 extern ViewState D_800F2848;
 extern u16 gDuel_wSceneStateFlags;

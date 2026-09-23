@@ -377,6 +377,12 @@ static void repaint_menu(void)
     show(x0, y0, x1 - x0, y1 - y0);
 }
 
+void Platform_ShowError(const char *title, const char *message)
+{
+    (void)title;
+    fprintf(stderr, "memories-pc: %s\n", message);
+}
+
 int Platform_Open(const char *title)
 {
     XSizeHints hints;

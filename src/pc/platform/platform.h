@@ -6,6 +6,10 @@
  * Platform_VBlankCount must be called from the main thread only.
  * MEMORIES_HEADLESS=1 skips the window; MEMORIES_SCALE picks the zoom. */
 int Platform_Open(const char *title);
+/* A problem the player has to fix before the game can start, such as the
+ * missing disc image: a message box where there is a window system to show
+ * one (and not MEMORIES_HEADLESS), and standard error always. */
+void Platform_ShowError(const char *title, const char *message);
 void Platform_OpenMods(void);
 void Platform_OpenControls(void);
 /* Re-exec with the original arguments; returns only on failure. */

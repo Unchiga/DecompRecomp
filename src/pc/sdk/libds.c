@@ -1,5 +1,5 @@
-/* LIBDS/LIBCD over a raw MODE2/2352 disc image (MEMORIES_DISC, default
- * game/rpg-yfm.bin). Commands complete, and sectors arrive, on the VBlank
+/* LIBDS/LIBCD over a raw MODE2/2352 disc image (the player's, found by
+ * platform/game_files.c). Commands complete, and sectors arrive, on the VBlank
  * tick, which is interrupt context in the original too: a callback never runs
  * inside the call that queued it. Only async-signal-safe calls are used once
  * the image is open. XA audio and STR streaming are not decoded yet: an XA
@@ -8,6 +8,7 @@
 #include "psyq/libds.h"
 #include "pc/audio/spu.h"
 #include "pc/sdk/disc.h"
+#include "pc/platform/game_files.h"
 #include "pc/guest/image.h"
 #include "pc/debug/log.h"
 #include "pc/mods/mods.h"
@@ -110,12 +111,12 @@ void Memories_DiscStats(int *lba, unsigned *bytes_per_second)
 
 int DsInit(void)
 {
-    const char *path = getenv("MEMORIES_DISC");
     if (disc < 0) {
-        disc = open(path ? path : "game/rpg-yfm.bin", O_RDONLY);
+        char why[512];
+        const char *path = GameFiles_Disc(why, sizeof(why));
+        disc = path ? open(path, O_RDONLY) : -1;
         if (disc < 0) {
-            fprintf(stderr, "memories-pc: cannot open the disc image %s (set MEMORIES_DISC)\n",
-                    path ? path : "game/rpg-yfm.bin");
+            fprintf(stderr, "memories-pc: cannot open the disc image %s\n", path ? path : why);
             _exit(1);
         }
     }

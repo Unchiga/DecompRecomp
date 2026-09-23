@@ -26,6 +26,7 @@
 #else
 #include <fontconfig/fontconfig.h>
 #endif
+#include "pc/debug/crash.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <stdio.h>
@@ -906,8 +907,12 @@ static void activate(const Item *item, int *quit)
         Platform_SetClockRate(Platform_ClockRate() == 0 ? Settings_Get(SET_SPEED) : 0);
         break;
     case ACT_FRAME_STEP: Platform_StepFrame(); break;
-    case ACT_DUMP_FRAME: Memories_DumpFrame("tmp/pc/frame.ppm", 0); break;
-    case ACT_DUMP_VRAM: Memories_DumpFrame("tmp/pc/vram.ppm", 1); break;
+    case ACT_DUMP_FRAME: case ACT_DUMP_VRAM: {
+        char path[640];
+        snprintf(path, sizeof(path), "%s/%s.ppm", Crash_ReportDir, item->id == ACT_DUMP_VRAM ? "vram" : "frame");
+        Memories_DumpFrame(path, item->id == ACT_DUMP_VRAM);
+        break;
+    }
     case CHECK_MUTE: Spu_SetMuted(!Spu_Muted()); break;
     case CHECK_HUD:
         Settings_Set(SET_SHOW_HUD, Settings_Get(SET_SHOW_HUD) ? 0 : 1);

@@ -13,6 +13,7 @@
 
 # Generated and temporary project state
 /tmp/
+/dist/
 
 # Locally installed or downloaded tool dependencies
 /tools/downloads/

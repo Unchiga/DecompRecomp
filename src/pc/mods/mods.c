@@ -7,29 +7,33 @@
  * manifest names the mod, says whether it needs a restart, and carries two
  * kinds of content, either or both:
  *
- *  - a library, which is dlopen'd when the mod is first applied and keeps
- *    the process for as long as the game runs (unloading one while the game
- *    holds pointers into it is how a port crashes for no visible reason);
+ *  - code: one object file, the same on every system, which the game's own
+ *    loader (object_loader.c) links in when the mod is first applied and
+ *    keeps for as long as the game runs (unloading one while the game holds
+ *    pointers into it is how a port crashes for no visible reason);
  *  - data overrides, which replace or patch what the disc delivers, so that
  *    a mod of card statistics or artwork needs no code at all.
  *
  * What a mod may reach is the host table in modapi.h. There is no network
  * call in it and no way to name a file outside the mod's own directory and
  * its private data directory: Paths_Contained refuses absolute paths, "..",
- * and drive letters. A native library is still native code in this process,
+ * and drive letters. A mod's code is still native code in this process,
  * which is what makes a mod like 3D Monsters possible at all, so the window
  * shows where each mod came from and the notes say plainly that installing
  * one is trusting it. */
 #define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE   /* MAP_ANONYMOUS, MAP_FIXED_NOREPLACE */
 #include "mods.h"
 #include "modapi.h"
+#include "exports.h"
+#include "object_loader.h"
 #include "json.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include "pc/platform/platform.h"
 #include "pc/debug/log.h"
+#include "pc/debug/symbols.h"
 #include "pc/sdk/disc.h"
-#include "pc/compat/dlfcn.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -38,10 +42,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
+#include "pc/compat/mman.h"
 #ifdef _WIN32
 #include <io.h>
 #else
-#include <sys/mman.h>
 #include <unistd.h>
 #endif
 
@@ -53,11 +58,7 @@
 #define REGIONS_MAX 64
 #define PATCHES_MAX 1024
 
-#ifdef _WIN32
-#define LIBRARY_SUFFIX ".dll"
-#else
-#define LIBRARY_SUFFIX ".so"
-#endif
+#define OBJECT_MAX (64u << 20)   /* object_loader.c's own limit */
 
 typedef struct {
     char id[ID_MAX];
@@ -71,7 +72,7 @@ typedef struct {
     int enabled;                 /* the player's choice, from the settings */
     int active;                  /* and whether it is in place right now */
     int broken;                  /* it failed to load; it cannot be applied */
-    void *handle;
+    LoadedObject object;         /* the mod's code, once loaded */
     MemoriesMod hooks;
     MemoriesModHost host;
     JsonDocument *manifest;
@@ -132,17 +133,23 @@ static void setting_key(char *out, size_t size, const char *id, const char *key)
     else snprintf(out, size, "mod.%s", id);
 }
 
-/* MEMORIES_MOD_<ID>, with everything that is not a letter or a digit in the
- * id turned into an underscore: MEMORIES_MOD_3D_MONSTERS=0 for a test run. */
+/* MEMORIES_MOD_<ID>, or MEMORIES_MOD_<ID>_<KEY> for one of its settings,
+ * uppercased, with everything that is not a letter or a digit turned into an
+ * underscore: MEMORIES_MOD_3D_MONSTERS=0 for a test run. */
+static void environment_name(char *name, size_t size, const char *id, const char *key)
+{
+    size_t i;
+    snprintf(name, size, "MEMORIES_MOD_%s%s%s", id, key ? "_" : "", key ? key : "");
+    for (i = strlen("MEMORIES_MOD_"); name[i]; i++) {
+        name[i] = isalnum((unsigned char)name[i]) ? (char)toupper((unsigned char)name[i]) : '_';
+    }
+}
+
 static int environment_choice(const char *id, int fallback)
 {
-    char name[ID_MAX + 16] = "MEMORIES_MOD_";
-    size_t at = strlen(name), i;
+    char name[ID_MAX + 16];
     const char *text;
-    for (i = 0; id[i] && at + 1 < sizeof(name); i++) {
-        name[at++] = isalnum((unsigned char)id[i]) ? (char)toupper((unsigned char)id[i]) : '_';
-    }
-    name[at] = '\0';
+    environment_name(name, sizeof(name), id, NULL);
     text = getenv(name);
     return text && *text ? atoi(text) != 0 : fallback;
 }
@@ -203,7 +210,11 @@ static int host_setting(const MemoriesModHost *host, const char *key, int fallba
 {
     Mod *mod = owner(host);
     char name[ID_MAX + 96];
+    const char *text;
     if (!mod || !key || !*key) return fallback;
+    environment_name(name, sizeof(name), mod->id, key);
+    text = getenv(name);
+    if (text && *text) return (int)strtol(text, NULL, 0);
     setting_key(name, sizeof(name), mod->id, key);
     return Settings_GetNamed(name, fallback);
 }
@@ -235,6 +246,33 @@ static unsigned short host_pad(const MemoriesModHost *host, int port)
     return Platform_Pad(port);
 }
 
+static uint64_t host_now_us(const MemoriesModHost *host)
+{
+    struct timespec now;
+    (void)host;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
+}
+
+static void *host_map_fixed(const MemoriesModHost *host, uintptr_t address, size_t size)
+{
+    void *wanted = (void *)address, *got;
+    if (!owner(host) || !address || address % 0x10000u || !size || address + size < address) return NULL;
+#ifdef _WIN32
+    /* VirtualAlloc refuses an address that is already reserved. */
+    got = VirtualAlloc(wanted, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    return got == wanted ? got : NULL;
+#else
+    got = mmap(wanted, size, PROT_READ | PROT_WRITE, MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (got == MAP_FAILED) return NULL;
+    if (got != wanted) {   /* a kernel older than MAP_FIXED_NOREPLACE takes it as a hint */
+        munmap(got, size);
+        return NULL;
+    }
+    return got;
+#endif
+}
+
 static void fill_host(Mod *mod)
 {
     mod->host.api = MEMORIES_MOD_API;
@@ -251,6 +289,8 @@ static void fill_host(Mod *mod)
     mod->host.disc_file_start = host_disc_file_start;
     mod->host.disc_read = host_disc_read;
     mod->host.pad = host_pad;
+    mod->host.now_us = host_now_us;
+    mod->host.map_fixed = host_map_fixed;
 }
 
 /* --- data overrides -------------------------------------------------- */
@@ -509,7 +549,98 @@ int Mods_DiscSector(int lba, void *user_data)
     return changed;
 }
 
+/* --- the names a code mod binds to ----------------------------------- */
+
+static int by_name(const void *key, const void *entry)
+{
+    return strcmp(key, ((const MemoriesModExport *)entry)->name);
+}
+
+void *Mods_Lookup(const char *name)
+{
+    const MemoriesModExport *found;
+    union { void (*function)(void); void *pointer; } libc;
+    if (!name) return NULL;
+    libc.function = Mods_LibcLookup(name);
+    if (libc.function) return libc.pointer;
+    found = bsearch(name, Memories_ModExports, Memories_ModExportCount, sizeof(*Memories_ModExports), by_name);
+    return found ? found->address : NULL;
+}
+
+int Mods_PrintExports(void)
+{
+    unsigned i;
+    for (i = 0; i < Memories_ModExportCount; i++) {
+        printf("%08lx %s\n", (unsigned long)(size_t)Memories_ModExports[i].address, Memories_ModExports[i].name);
+    }
+    return fflush(stdout) ? 1 : 0;
+}
+
 /* --- loading --------------------------------------------------------- */
+
+static void *resolve(const char *name, void *context)
+{
+    (void)context;
+    return Mods_Lookup(name);
+}
+
+/* The mod's functions, for crash and hang reports: "3d-monsters:draw_frame". */
+static void register_symbols(Mod *mod)
+{
+    SymbolsEntry *entries = calloc(mod->object.symbol_count ? mod->object.symbol_count : 1, sizeof(*entries));
+    char (*names)[72] = calloc(mod->object.symbol_count ? mod->object.symbol_count : 1, sizeof(*names));
+    size_t i, count = 0;
+    if (entries && names) {
+        for (i = 0; i < mod->object.symbol_count; i++) {
+            const struct ObjectSymbol *symbol = &mod->object.symbols[i];
+            if (!symbol->function) continue;
+            snprintf(names[count], sizeof(names[count]), "%s:%s", mod->id, symbol->name);
+            entries[count].address = symbol->address;
+            entries[count].size = symbol->size;
+            entries[count].name = names[count];
+            count++;
+        }
+        Symbols_Add(entries, count);
+    }
+    free(entries);
+    free(names);
+}
+
+/* The mod's object file, read whole and handed to the loader. */
+static void *load_object(Mod *mod, const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    unsigned char *data = NULL;
+    long size;
+    char error[STATUS_MAX];
+    void *entry;
+    if (!file) {
+        note(mod, "cannot read %s", mod->library);
+        return NULL;
+    }
+    if (fseek(file, 0, SEEK_END) || (size = ftell(file)) < 0 || (unsigned long)size > OBJECT_MAX ||
+        fseek(file, 0, SEEK_SET) || !(data = malloc(size ? (size_t)size : 1)) ||
+        fread(data, 1, (size_t)size, file) != (size_t)size) {
+        fclose(file);
+        free(data);
+        note(mod, "cannot read %s", mod->library);
+        return NULL;
+    }
+    fclose(file);
+    if (ObjectLoader_Load(data, (size_t)size, resolve, mod, &mod->object, error, sizeof(error))) {
+        free(data);
+        note(mod, "%s %s", mod->library, error);
+        return NULL;
+    }
+    free(data);
+    entry = ObjectLoader_Symbol(&mod->object, "MemoriesModInit");
+    if (!entry) {
+        note(mod, "%s has no MemoriesModInit", mod->library);
+        return NULL;
+    }
+    register_symbols(mod);
+    return entry;
+}
 
 static int load_library(Mod *mod)
 {
@@ -517,18 +648,10 @@ static int load_library(Mod *mod)
     MemoriesModEntry entry;
     union { void *pointer; int (*function)(const MemoriesModHost *, MemoriesMod *); } symbol;
     if (!mod->library[0]) return 1;   /* data only: nothing to load */
-    if (mod->handle) return 1;
+    if (mod->object.image) return 1;
     if (snprintf(path, sizeof(path), "%s/%s", mod->directory, mod->library) >= (int)sizeof(path)) return 0;
-    mod->handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (!mod->handle) {
-        note(mod, "%s", dlerror());
-        return 0;
-    }
-    symbol.pointer = dlsym(mod->handle, "MemoriesModInit");
-    if (!symbol.pointer) {
-        note(mod, "%s has no MemoriesModInit", mod->library);
-        return 0;
-    }
+    symbol.pointer = load_object(mod, path);
+    if (!symbol.pointer) return 0;
     entry = symbol.function;
     fill_host(mod);
     memset(&mod->hooks, 0, sizeof(mod->hooks));
@@ -584,7 +707,7 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         } else if (strchr(text, '.')) {
             snprintf(mod->library, sizeof(mod->library), "%s", text);
         } else {
-            snprintf(mod->library, sizeof(mod->library), "%s" LIBRARY_SUFFIX, text);
+            snprintf(mod->library, sizeof(mod->library), "%s.o", text);   /* one object for every system */
         }
     }
     mod->restart = Json_Bool(Json_Member(root, "restart"), 0);

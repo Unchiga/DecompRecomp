@@ -25,7 +25,7 @@ const char *Mods_Status(int mod);
 int Mods_Enabled(int mod);
 /* Whether changing this mod requires a fresh game process. */
 int Mods_RequiresRestart(int mod);
-/* Apply or remove a mod: loads its library the first time it is applied,
+/* Apply or remove a mod: loads its code the first time it is applied,
  * turns its data overrides on or off, and records the setting. The caller
  * saves the settings (the mods window reverts the change if that fails). */
 void Mods_SetEnabled(int mod, int enabled);

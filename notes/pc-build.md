@@ -21,7 +21,10 @@ carry four small `#ifdef MEMORIES_PC` guards (listed below); `make match` and
 
 The user chose a 32-bit (ILP32) host build as the bring-up memory model on
 2026-09-20; 64-bit is deferred. Requires `gcc -m32` with a 32-bit libc, the
-matching build's ELF (`make match`) and `game/SLUS_014.11`.
+matching build's ELF (`make match`) to build. To run it needs only the disc
+image: the game's executable, SLUS_014.11, is read out of it
+(`src/pc/platform/game_files.c`); a path on the command line still names a
+separate copy.
 
 ```sh
 python3 tools/pc/build_game32.py
@@ -135,8 +138,10 @@ off. Checked with a virtual Xbox 360 pad made through uinput (hat, stick,
 A, RT, removal); not yet with physical hardware. The account needs read access
 to the pad's `/dev/input/event*` node, which desktop logins get by default.
 
-Environment switches: `MEMORIES_DISC` (default `game/rpg-yfm.bin`, raw
-MODE2/2352), `MEMORIES_SCALE` (1-8, default 4, which puts the 320x240
+Environment switches: `MEMORIES_DISC` (the raw MODE2/2352 image; without it
+the first `.bin` of the USA disc is taken from `game/` beside the executable,
+the executable's own folder, `game/` in the user directory, then `game/` in
+the current directory), `MEMORIES_SCALE` (1-8, default 4, which puts the 320x240
 picture on screen at 1280x960), `MEMORIES_VOLUME` (0-100, overrides the
 stored volume and applies headless too), `MEMORIES_SETTINGS` (another
 settings file), `MEMORIES_HEADLESS=1`,
@@ -488,12 +493,13 @@ guardian-star presentation, where a monster standing on a card has nothing to
 stand on, so the pass runs only while the camera is above the mat (pitch below
 512 of a 4096-unit turn).
 
-Switches: `MEMORIES_MODS_MONSTERS=0/1`, `MEMORIES_MODS_SCALE` (4096 = as
-measured), `MEMORIES_MODS_PIXELS`, `MEMORIES_MODS_DEPTH`,
-`MEMORIES_MODS_PITCH`, `MEMORIES_MODS_LIFT` (field units above the card, 2 per
-pixel from the duel's view), `MEMORIES_TRACE_MODS=1`, and `MEMORIES_MODS_TEST=<card
-id>` which stands a different monster in all ten zones, which is how the
-cache, the arenas and the banks were measured together.
+Switches: `MEMORIES_MOD_3D_MONSTERS=0/1`, and the mod's settings (the
+`mod.3d-monsters.<key>` lines in the settings file, or
+`MEMORIES_MOD_3D_MONSTERS_<KEY>` for one run): `SCALE` (4096 = as
+measured), `PIXELS`, `DEPTH`, `PITCH`, `LIFT` (field units above the card, 2
+per pixel from the duel's view), and `TEST=<card id>`, which stands a
+different monster in all ten zones; that is how the cache, the arenas and the
+banks were measured together. `MEMORIES_TRACE=mods` logs it.
 
 Checked from the duel in `tmp/pc/states/slot1.state`: the monster loads in
 about 1 ms and animates, ten of them at once keep the frame rate, the duel's
@@ -669,6 +675,36 @@ macros). The build also defines `_LANGUAGE_C`/`LANGUAGE_C`, which the MIPS
 front end predefined, and uses `-fpermissive` for GCC 2.8.1-era pointer
 conversions.
 
+## Sharing a build
+
+```sh
+python3 tools/pc/package.py        # dist/yfm-redecomp-<date>-<commit>-{windows.zip,linux.tar.gz}
+```
+
+Builds both, smoke tests both, and packs each as a folder a player unpacks
+and runs: the executable, the shipped mods, the mod SDK, this build's symbol
+table, an empty `game/` for their own `.bin`, and `tools/pc/release/README.txt`.
+Nothing from the disc goes in. A missing disc image is reported in a message
+box naming the folder to put it in. Crash and hang reports, minidumps and
+menu frame dumps go to `reports/` in the user directory when the game is not
+run from a checkout (`Crash_ReportDir`; `tmp/pc` in one).
+
+The Linux executable in the archive is not the everyday one. A program built
+on this machine asks for its glibc (2.43 on Arch), so the archive's is built
+with `build_game32.py --portable` against Debian 11's i386 libraries, which
+`tools/pc/build_linux_sysroot.py` fetches into `tmp/pc/linux-sysroot` (no root,
+no container; each package is checked against the archive's SHA-256), with
+SDL3 built against them into `tmp/pc/sdl-m32-portable`. It asks for glibc 2.29
+at most, links FreeType, fontconfig and libpng in, and needs only libc and the
+32-bit GL driver from the system (and a 32-bit PulseAudio or ALSA library for
+sound; SDL loads those at run time). Its SDL has X11 but not Wayland (Debian
+11's is too old); it runs through XWayland, which is also the path that reaches
+the real GPU (llvmpipe otherwise). The smoke frames match the everyday build.
+
+Only this build's symbol table ships, so a save state from an earlier release
+will not carry over to a later one unless that release's table is added to
+`symbols/` as well.
+
 ## Windows
 
 The same driver builds `tmp/pc/game32/memories-pc.exe` on Windows 10/11 with
@@ -790,12 +826,11 @@ What differs from Linux, and why:
   the trap for `movl 0x4c(%eax),%eax` (destination = base register) in
   `func_800540B4` under the 3D Monsters mod, and the process died in the
   exception dispatcher.
-- **Mods.** The executable exports its symbols (`--export-all-symbols`) and
-  the link leaves an import library, `libmemories-pc.a`, beside it; a mod's
-  DLL links against that, which is what `-rdynamic` does for a `.so` on
-  Linux. `mods.c` reads a replacement file into memory instead of mapping
-  it, and loads the DLL with `LoadLibrary` (`pc/compat/dlfcn.h`). Not yet
-  run on Windows.
+- **Mods.** A code mod is the same ELF object on Windows as on Linux, loaded
+  by the game's own loader (`notes/modding.md`), so there is no DLL and no
+  export table. `mods.c` reads a replacement file into memory instead of
+  mapping it. Both mods load under Wine; they have not been run in a duel
+  on Windows yet.
 - **rename.** Windows' `rename` does not replace an existing file; states,
   settings, controls and memory cards save through `MoveFileEx`
   (`pc/compat/posix.h`).

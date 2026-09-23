@@ -390,30 +390,41 @@ static uint32_t le32(const unsigned char *bytes)
            ((uint32_t)bytes[3] << 24);
 }
 
+int Memories_GuestLoadExeData(const unsigned char *data, size_t length, const char *name)
+{
+    uint32_t address, size;
+    if (length < 0x800 || memcmp(data, "PS-X EXE", 8) != 0) {
+        fprintf(stderr, "%s: not a readable PS-X executable\n", name);
+        return -1;
+    }
+    address = le32(data + 0x18);
+    size = le32(data + 0x1c);
+    if (address < MEMORIES_GUEST_RAM + 0x10000u || size > MEMORIES_GUEST_RAM_SIZE ||
+        address - MEMORIES_GUEST_RAM > MEMORIES_GUEST_RAM_SIZE - size || size > length - 0x800) {
+        fprintf(stderr, "%s: image does not fit guest RAM or is truncated\n", name);
+        return -1;
+    }
+    memcpy((void *)(uintptr_t)address, data + 0x800, size);
+    return 0;
+}
+
 int Memories_GuestLoadExe(const char *path)
 {
-    unsigned char header[0x800];
-    uint32_t address, size;
+    unsigned char *data;
+    long length;
+    int result;
     FILE *file = fopen(path, "rb");
-    if (!file || fread(header, 1, sizeof(header), file) != sizeof(header) ||
-        memcmp(header, "PS-X EXE", 8) != 0) {
+    if (!file || fseek(file, 0, SEEK_END) || (length = ftell(file)) < 0 || fseek(file, 0, SEEK_SET) ||
+        !(data = malloc(length ? (size_t)length : 1))) {
         fprintf(stderr, "%s: not a readable PS-X executable\n", path);
-        if (file) {
-            fclose(file);
-        }
+        if (file) fclose(file);
         return -1;
     }
-    address = le32(header + 0x18);
-    size = le32(header + 0x1c);
-    if (address < MEMORIES_GUEST_RAM + 0x10000u || size > MEMORIES_GUEST_RAM_SIZE ||
-        address - MEMORIES_GUEST_RAM > MEMORIES_GUEST_RAM_SIZE - size ||
-        fread((void *)(uintptr_t)address, 1, size, file) != size) {
-        fprintf(stderr, "%s: image does not fit guest RAM or is truncated\n", path);
-        fclose(file);
-        return -1;
-    }
+    if (fread(data, 1, (size_t)length, file) != (size_t)length) length = 0;
     fclose(file);
-    return 0;
+    result = Memories_GuestLoadExeData(data, (size_t)length, path);
+    free(data);
+    return result;
 }
 
 typedef struct StubCount { const char *name; unsigned count; } StubCount;

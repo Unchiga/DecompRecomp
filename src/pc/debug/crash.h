@@ -3,6 +3,11 @@
 #include <signal.h>
 
 void Crash_Init(void);
+/* Where crash and hang reports, minidumps and frame dumps go: tmp/pc when
+ * the game runs from a checkout (it exists there), else `reports` in the
+ * user directory (paths.h), so a player can find them to send. Set by
+ * Crash_Init, before any handler can need it. */
+extern char Crash_ReportDir[];
 #ifndef _WIN32
 void Crash_HandleSignal(int number, siginfo_t *info, void *context);
 #endif

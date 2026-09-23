@@ -2,6 +2,7 @@
 #include "pc/guest/state.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct RuntimeSymbol {
     uintptr_t address, size;
@@ -57,4 +58,33 @@ const char *Symbols_Lookup(uintptr_t address, uintptr_t *offset)
     if (address >= symbols[low].address + (symbols[low].size ? symbols[low].size : 1)) return NULL;
     if (offset) *offset = address - symbols[low].address;
     return symbols[low].name;
+}
+
+/* The hang reporter reads the table from its own thread, so it is never
+ * changed in place: a merged copy is built and published before its count,
+ * and the old one is left alone (once per mod, so a handful at most). */
+int Symbols_Add(const SymbolsEntry *entries, size_t count)
+{
+    RuntimeSymbol *merged = malloc((symbol_count + count) * sizeof(*merged));
+    size_t i, at = 0, total;
+    if (!merged) return -1;
+    if (symbol_count) memcpy(merged, symbols, symbol_count * sizeof(*merged));
+    total = symbol_count;
+    for (i = 0; i < count; i++) {   /* an insertion into sorted order: few entries */
+        RuntimeSymbol symbol;
+        symbol.address = entries[i].address;
+        symbol.size = entries[i].size;
+        snprintf(symbol.name, sizeof(symbol.name), "%s", entries[i].name);
+        at = total;
+        while (at > 0 && merged[at - 1].address > symbol.address) {
+            merged[at] = merged[at - 1];
+            at--;
+        }
+        merged[at] = symbol;
+        total++;
+    }
+    symbols = merged;
+    __asm__ volatile("" ::: "memory");
+    symbol_count = total;
+    return 0;
 }

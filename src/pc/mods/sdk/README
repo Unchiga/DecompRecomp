@@ -1,0 +1,5 @@
+The C library a code mod is built against (tools/pc/build_mod.py puts this
+directory ahead of everything else, with no system headers at all). Each
+header declares only what the game lends a mod: the list in
+src/pc/mods/mod_libc.c, which must match. The compiler supplies stddef.h,
+stdint.h, stdarg.h, stdbool.h, limits.h and float.h. See notes/modding.md.
