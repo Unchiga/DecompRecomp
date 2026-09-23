@@ -7,15 +7,23 @@ A byte-matching decompilation of the North American PlayStation release of
 **Yu-Gi-Oh! Forbidden Memories** (`SLUS-01411`), rebuilt as a native PC game
 for Linux and Windows.
 
-No game data is included. Bring your own dump of the disc and place it in
-`game/` (see [setup](notes/setup.md)).
+No game data is included. Bring your own dump of the disc.
 
-## Build and play
+## Play
+
+1. Put your disc image (the `.bin` of the USA disc, any file name) in `game/`.
+2. Run `./play.sh` on Linux or `play.bat` on Windows.
+
+The first run builds the game, fetching what it needs into `tmp/`; after that
+it starts straight away. Linux needs `gcc` and `python3` installed (`play.sh`
+says so if they are missing); Windows needs nothing. See
+[PC build](notes/pc-build.md).
+
+## Match the PS1 executable
 
 ```sh
 make tools          # pinned toolchain, installed under tools/
-make match          # rebuild the PS1 executable byte-for-byte
-./play.sh           # build and launch the PC version
+make match          # rebuild the PS1 executable byte-for-byte (see notes/setup.md)
 ```
 
 ## Progress

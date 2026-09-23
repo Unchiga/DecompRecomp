@@ -7,12 +7,12 @@
 # from a slot (default 1). States survive rebuilds of src/pc (notes/pc-build.md).
 # The Windows executable (tmp/pc/win32/memories-pc.exe) is cross-built too, so
 # both stay working; "run-windows" plays it under Wine. MEMORIES_SKIP_WINDOWS=1
-# builds Linux only. The first build fetches llvm-mingw and the Windows
-# libraries into tmp/pc (tools/pc/build_win32_deps.py).
+# builds Linux only (play.sh does). The first build fetches the Linux
+# libraries and SDL3 (tools/pc/build_linux_sysroot.py), and llvm-mingw and
+# the Windows libraries (tools/pc/build_win32_deps.py), into tmp/pc. The
+# matching build is not needed: its addresses are in config/pc/guest_addresses.txt.
 set -eu
 cd -- "$(dirname -- "$0")"
-[ -f tmp/project-build/SLUS_014.11.elf ] || make -j"$(nproc)" match
-[ -f tmp/pc/sdl-m32/libSDL3.a ] || [ ! -f tmp/port-research/psyz/external/SDL/CMakeLists.txt ] || tools/pc/build_sdl32.sh
 python3 tools/pc/build_game32.py
 if [ "${MEMORIES_SKIP_WINDOWS:-0}" != 1 ]; then
     [ -f tmp/pc/win32-deps/lib/libfreetype.a ] && [ -d tmp/pc/llvm-mingw ] || python3 tools/pc/build_win32_deps.py

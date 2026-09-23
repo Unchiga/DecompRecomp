@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Fetch and build the Windows game executable's libraries (i686, llvm-mingw).
 
-The Linux build takes FreeType and libpng from the system and builds SDL3
-itself (tools/pc/build_sdl32.sh). On Windows this script provides them under
+The Linux build takes its libraries from Debian 11 and builds SDL3 from source
+(tools/pc/build_linux_sysroot.py). On Windows this script provides them under
 tmp/pc/win32-deps: static zlib, libpng and FreeType built from pinned release
 archives, and SDL3's official MinGW development release (SDL3.dll, shipped
-beside the executable). Needs cmake and ninja, and llvm-mingw's
-i686-w64-mingw32-clang: on Windows from PATH; elsewhere this script fetches
-the pinned Linux release into tmp/pc/llvm-mingw, which build_game32.py then
-cross-compiles with (notes/pc-build.md, "Windows")."""
+beside the executable). Needs cmake, ninja and llvm-mingw's
+i686-w64-mingw32-clang: each from PATH when installed, else fetched
+(tools/pc/fetch_tools.py on Windows; on Linux this script fetches llvm-mingw's
+Linux release into tmp/pc/llvm-mingw, which build_game32.py then
+cross-compiles with). Nothing needs installing by hand (notes/pc-build.md,
+"Windows")."""
 import hashlib, os, shutil, subprocess, sys, tarfile, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +35,13 @@ TOOLCHAIN_ARCHIVE = ("https://github.com/mstorsjo/llvm-mingw/releases/download/2
 
 
 def use_toolchain():
-    """Put the fetched llvm-mingw first on PATH, when there is one."""
+    """Put llvm-mingw first on PATH: on Windows the installed one, else the
+    pinned release (tools/pc/fetch_tools.py); elsewhere the one fetched here."""
+    if sys.platform == "win32":
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import fetch_tools
+        fetch_tools.ensure("llvm-mingw")
+        return
     bin_dir = os.path.join(TOOLCHAIN, "bin")
     if os.path.isdir(bin_dir) and bin_dir not in os.environ["PATH"].split(os.pathsep):
         os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
@@ -81,6 +89,10 @@ def main():
     use_toolchain()
     if shutil.which(CC) is None:
         sys.exit(f"{CC} is not on PATH (llvm-mingw)")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import fetch_tools
+    fetch_tools.ensure("cmake")
+    fetch_tools.ensure("ninja")
     cmake("zlib", fetch("zlib"), "-DZLIB_BUILD_SHARED=OFF", "-DZLIB_BUILD_TESTING=OFF", "-DBUILD_SHARED_LIBS=OFF")
     # zlib's static library is libzs.a, which FindZLIB does not look for.
     cmake("libpng", fetch("libpng"), "-DPNG_SHARED=OFF", "-DPNG_STATIC=ON", "-DPNG_TESTS=OFF", "-DPNG_TOOLS=OFF",

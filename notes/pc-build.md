@@ -17,14 +17,35 @@ forms in `src/pc/overrides/model_polygon_drivers.c`; see the table below. Shared
 carry four small `#ifdef MEMORIES_PC` guards (listed below); `make match` and
 `make match-overlays` still reproduce the retail hashes with them.
 
+## Play from a checkout
+
+On Linux and on Windows alike: put the `.bin` of your USA disc in `game/`
+(any name), then run `./play.sh` or `play.bat`. The first run builds the game
+and fetches what that needs into `tmp/` (about a minute on Linux, longer on
+Windows); later runs rebuild what changed and start at once. `trace` and
+`load [slot]` work with both.
+
+What each needs installed: on Linux, `gcc` (with binutils) and `python3`, which
+`play.sh` checks for and names the package to install; not their 32-bit
+(multilib) parts, CMake or Ninja. On Windows, nothing: `play.bat` uses an
+installed Python or fetches the official embeddable one into
+`tmp\pc\tools\python`, and `tools/pc/fetch_tools.py` fetches llvm-mingw, CMake
+and Ninja when they are not on PATH. Every download is pinned to a release and
+its SHA-256.
+
+The matching build (`make match`, which needs the MIPS toolchain) is not
+needed: the retail addresses the link pins game variables to are in
+`config/pc/guest_addresses.txt`, which `build_game32.py` rewrites from the
+matching build's ELFs whenever they are present (commit it when it changes;
+a build from the file and one from the ELFs are byte-identical). The game's
+executable, SLUS_014.11, is read out of the disc image
+(`src/pc/platform/game_files.c`); a path on the command line still names a
+separate copy.
+
 ## 32-bit game executable (bring-up)
 
 The user chose a 32-bit (ILP32) host build as the bring-up memory model on
-2026-09-20; 64-bit is deferred. Requires `gcc -m32` with a 32-bit libc, the
-matching build's ELF (`make match`) to build. To run it needs only the disc
-image: the game's executable, SLUS_014.11, is read out of it
-(`src/pc/platform/game_files.c`); a path on the command line still names a
-separate copy.
+2026-09-20; 64-bit is deferred.
 
 ```sh
 python3 tools/pc/build_game32.py
@@ -267,10 +288,9 @@ only read.
 ### Window and menu bar
 
 Two window backends exist under `src/pc/platform`, chosen at build time
-(`tools/pc/build_game32.py --backend sdl|x11`, or `MEMORIES_BACKEND`; SDL when
-`tmp/pc/sdl-m32/libSDL3.a` exists, which `tools/pc/build_sdl32.sh` builds
-from PSY-Z's bundled SDL 3.4 as a 32-bit static library; `./build-pc.sh`
-runs that first). Both share the menu (`menu.c`), the interrupt clock and the
+(`tools/pc/build_game32.py --backend sdl|x11`, or `MEMORIES_BACKEND`; SDL by
+default: SDL 3.4.16, the release the Windows build ships, built as a 32-bit
+static library by `tools/pc/build_linux_sysroot.py`). Both share the menu (`menu.c`), the interrupt clock and the
 scripted input (`platform_common.c`).
 
 **SDL3/OpenGL** (`sdl.c`, the default) is the portable one: window, keyboard,
@@ -689,17 +709,19 @@ box naming the folder to put it in. Crash and hang reports, minidumps and
 menu frame dumps go to `reports/` in the user directory when the game is not
 run from a checkout (`Crash_ReportDir`; `tmp/pc` in one).
 
-The Linux executable in the archive is not the everyday one. A program built
-on this machine asks for its glibc (2.43 on Arch), so the archive's is built
-with `build_game32.py --portable` against Debian 11's i386 libraries, which
+Every Linux build, the everyday one included, is the one that ships. A
+program built against this machine's libraries would ask for its glibc (2.43
+on Arch), so `build_game32.py` builds against Debian 11's i386 libraries, which
 `tools/pc/build_linux_sysroot.py` fetches into `tmp/pc/linux-sysroot` (no root,
 no container; each package is checked against the archive's SHA-256), with
-SDL3 built against them into `tmp/pc/sdl-m32-portable`. It asks for glibc 2.29
-at most, links FreeType, fontconfig and libpng in, and needs only libc and the
+SDL3 built against them into `tmp/pc/sdl-m32-portable`. Debian's 32-bit
+start-up objects and libgcc are linked by name (`startfiles()`/`endfiles()`,
+`-nostartfiles`), so the host's multilib files are never used or needed. The
+executable asks for glibc 2.29 at most, links FreeType, fontconfig and libpng in, and needs only libc and the
 32-bit GL driver from the system (and a 32-bit PulseAudio or ALSA library for
 sound; SDL loads those at run time). Its SDL has X11 but not Wayland (Debian
 11's is too old); it runs through XWayland, which is also the path that reaches
-the real GPU (llvmpipe otherwise). The smoke frames match the everyday build.
+the real GPU (llvmpipe otherwise). The smoke frames match the old host build.
 
 Only this build's symbol table ships, so a save state from an earlier release
 will not carry over to a later one unless that release's table is added to
@@ -714,21 +736,13 @@ logo, movie, title, main menu, name entry and the opening story into the
 deck (CHEST) screen. Audio output and the rest of the game are not checked
 yet on Windows.
 
-Setup, from a Git Bash or PowerShell with Python 3:
+`play.bat` is the way in ("Play from a checkout" above). By hand, from any
+shell with Python 3:
 
 ```sh
-# llvm-mingw (https://github.com/mstorsjo/llvm-mingw), cmake and ninja on PATH
-python tools/pc/build_win32_deps.py   # zlib, libpng, FreeType, SDL3 into tmp/pc/win32-deps
-python tools/pc/build_game32.py
-tmp/pc/game32/memories-pc.exe game/SLUS_014.11
+python tools/pc/build_game32.py       # fetches llvm-mingw, CMake, Ninja and the libraries the first time
+tmp/pc/game32/memories-pc.exe
 ```
-
-`play.bat` (double-click, or `play.bat trace` / `play.bat load [slot]`) does
-the last two steps, and the first when the libraries are missing.
-
-`make match` / `make match-overlays` (for the symbol addresses) still run on
-Linux; WSL works: build there and copy `tmp/project-build/SLUS_014.11.elf` and
-`tmp/overlays/*/build/*.elf` into the Windows checkout.
 
 ### From Linux
 

@@ -9,17 +9,16 @@ the symbol table save states and crash reports use, an empty "game" folder
 for the player's own disc image, and README.txt (tools/pc/release). Nothing
 from the game's disc is included.
 
-The Linux executable is the portable build (build_game32.py --portable,
-against tools/pc/build_linux_sysroot.py's Debian 11 libraries), not the
-everyday one, so it runs on other people's Linux. Both builds are smoke
-tested before they are packed."""
+The Linux executable is built against Debian 11's libraries
+(tools/pc/build_linux_sysroot.py), as every Linux build is, so it runs on
+other people's Linux. Both builds are smoke tested before they are packed."""
 import argparse, datetime, os, shutil, stat, subprocess, sys, tarfile, zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DIST = os.path.join(ROOT, "dist")
 NAME = "yfm-redecomp"
 BUILDS = {"windows": ("tmp/pc/win32", "memories-pc.exe", ["SDL3.dll"]),
-          "linux": ("tmp/pc/game32-portable", "memories-pc", [])}
+          "linux": ("tmp/pc/game32", "memories-pc", [])}
 GAME_README = """Put your own raw image of Yu-Gi-Oh! Forbidden Memories (USA, SLUS-01411)
 here: the .bin file of a .bin/.cue pair. Any file name ending in .bin will do.
 """
@@ -33,7 +32,7 @@ def version():
 
 def build(system):
     command = [sys.executable, "tools/pc/build_game32.py"]
-    command += ["--target", "windows"] if system == "windows" else ["--portable"]
+    command += ["--target", "windows"] if system == "windows" else ["--target", "linux"]
     subprocess.run(command, cwd=ROOT, check=True)
     smoke = [sys.executable, "tools/pc/smoke.py"]
     smoke += ["--windows"] if system == "windows" else ["--executable", os.path.join(BUILDS[system][0], BUILDS[system][1])]

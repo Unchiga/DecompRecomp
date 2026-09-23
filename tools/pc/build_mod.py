@@ -65,8 +65,10 @@ def compiler():
         if clang:
             resource = subprocess.run([path, "-print-resource-dir"], capture_output=True, text=True).stdout.strip()
             include = os.path.join(resource, "include")
-            beside = os.path.join(os.path.dirname(path), "ld.lld")   # the one that came with this clang
-            linker = beside if os.path.exists(beside) or os.path.exists(beside + ".exe") else tool("ld.lld")
+            # The lld that came with this clang. Windows needs the .exe
+            # spelled out: "ld.lld" already has an extension, so it adds none.
+            beside = os.path.join(os.path.dirname(path), "ld.lld")
+            linker = next((p for p in (beside + ".exe", beside) if os.path.exists(p)), None) or tool("ld.lld")
             return [path], CLANG_FLAGS + ["-isystem", include], [linker, "-r"]
         include = subprocess.run([path, "-m32", "-print-file-name=include"], capture_output=True, text=True).stdout.strip()
         return [path], GCC_FLAGS + ["-isystem", include], [tool("ld") or "ld", "-m", "elf_i386", "-r"]

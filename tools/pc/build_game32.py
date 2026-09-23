@@ -7,7 +7,9 @@ Bring-up driver for the fixed-address memory model (src/pc/guest/image.h):
     retail addresses, read from the matching build's ELF;
   * undefined functions get generated stubs that name themselves and exit,
     unless a native source under src/pc already defines them.
-Requires the matching build's ELF (make match) for symbol addresses.
+The retail addresses come from config/pc/guest_addresses.txt, which this
+script writes from the matching build's ELFs (make match match-overlays)
+whenever they are present, so a checkout without the MIPS toolchain builds too.
 
 On Windows the toolchain is llvm-mingw (i686-w64-mingw32-clang, lld and the
 llvm binutils) and the libraries come from tools/pc/build_win32_deps.py. PE
@@ -20,6 +22,7 @@ import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struc
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ELF = "tmp/project-build/SLUS_014.11.elf"
+ADDRESSES = "config/pc/guest_addresses.txt"
 # --target windows on Linux cross-compiles with the llvm-mingw that
 # build_win32_deps.py fetches; the rest of this file only asks WINDOWS. Read
 # before argparse because the flags and tools below depend on it.
@@ -30,14 +33,16 @@ WIN32_DEPS = "tmp/pc/win32-deps"  # tools/pc/build_win32_deps.py
 CC, OBJCOPY, NM, READELF, OBJDUMP = (("i686-w64-mingw32-clang", "llvm-objcopy", "llvm-nm", "llvm-readelf", "llvm-objdump")
                                      if WINDOWS else ("gcc", "objcopy", "nm", "readelf", "objdump"))
 PREFIX = "_" if WINDOWS else ""  # C symbol names in the object files
-# --portable: the Linux executable to share, built against Debian 11's
-# libraries (tools/pc/build_linux_sysroot.py) so it asks for glibc 2.31
-# rather than this machine's, with FreeType, fontconfig and libpng linked in.
-PORTABLE = "--portable" in sys.argv and not WINDOWS
+# Linux builds are made against Debian 11's libraries
+# (tools/pc/build_linux_sysroot.py fetches them), not this machine's: the
+# executable then asks for glibc 2.29 rather than whatever is installed here,
+# and runs on other people's Linux as well. FreeType, fontconfig and libpng
+# are linked in. The one a developer runs is the one that is shared.
+PORTABLE = not WINDOWS
 if PORTABLE:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import build_linux_sysroot
-if WINDOWS and sys.platform != "win32":
+if WINDOWS:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import build_win32_deps
     build_win32_deps.use_toolchain()
@@ -73,8 +78,8 @@ if PORTABLE:
         "-I" + os.path.join(build_linux_sysroot.SYSROOT, "usr/include/freetype2")]
 # Window backends (src/pc/platform): SDL3 when its 32-bit static build exists
 # (see notes/pc-build.md), else X11. --backend or MEMORIES_BACKEND picks.
-SDL_BUILD = "tmp/pc/sdl-m32-portable" if PORTABLE else "tmp/pc/sdl-m32"
-SDL_SOURCE = "tmp/port-research/psyz/external/SDL"
+SDL_BUILD = "tmp/pc/sdl-m32-portable"   # build_linux_sysroot.py
+SDL_SOURCE = "tmp/pc/sdl-source/SDL3-3.4.16"
 BACKENDS = {"sdl": ["src/pc/platform/sdl.c"],
             "x11": ["src/pc/platform/x11.c", "src/pc/platform/audio_alsa.c", "src/pc/platform/gamepad_evdev.c"]}
 BACKEND_SOURCES = sorted(sum(BACKENDS.values(), []))
@@ -254,6 +259,58 @@ def write_mod_exports(build, names, aliases):
     # ones that share a name with something the compiler knows.
     run([CC, *NATIVE_CFLAGS, "-fno-builtin", "-w", "-c", f"{build}/mod_exports.c", "-o", f"{build}/mod_exports.o"])
 
+def guest_addresses():
+    """The retail address of every global in the resident image and in each
+    module, and the resident .text range: from the matching build's ELFs
+    when they are here, which also refreshes ADDRESSES, else from ADDRESSES.
+    Returns ({name: address}, {module: {name: address}}, (start, end))."""
+    elfs = {"SLUS_014.11": ELF}
+    elfs.update((name, "tmp/overlays/{0}/build/{0}.elf".format(MODULE_CONFIG.get(name, name))) for name, _, _, _ in MODULES)
+    if all(os.path.exists(path) for path in elfs.values()):
+        tables = {}
+        for name, path in elfs.items():
+            found = {}
+            for line in run([READELF, "-sW", path]).splitlines():
+                parts = line.split()
+                if len(parts) == 8 and parts[4] == "GLOBAL" and parts[6] != "UND":
+                    found.setdefault(parts[7], int(parts[1], 16))
+            tables[name] = found
+        text = (0, 0)
+        for line in run([READELF, "-SW", ELF]).splitlines():
+            parts = line.replace("[", " ").replace("]", " ").split()
+            if len(parts) > 5 and parts[1] == ".text":
+                text = (int(parts[3], 16), int(parts[3], 16) + int(parts[5], 16))
+        lines = ["# Retail addresses of the game's globals, for tools/pc/build_game32.py. Written by it\n",
+                 "# from the matching build's ELFs when they are present; commit it when it changes.\n",
+                 f"text {text[0]:08X} {text[1]:08X}\n"]
+        for name, found in tables.items():
+            lines.append(f"[{name}]\n")
+            lines.extend(f"{symbol} {address:08X}\n" for symbol, address in sorted(found.items()))
+        current = open(ADDRESSES).read() if os.path.exists(ADDRESSES) else None
+        if current != "".join(lines):
+            with open(ADDRESSES, "w", newline="\n") as handle:
+                handle.writelines(lines)
+            print(f"{ADDRESSES}: updated from the matching build; commit it")
+    elif not os.path.exists(ADDRESSES):
+        sys.exit(f"{ADDRESSES} is missing, and so are the matching build's ELFs (make match match-overlays)")
+    tables, text, section = {}, (0, 0), None
+    with open(ADDRESSES) as handle:
+        for line in handle:
+            parts = line.split()
+            if not parts or parts[0].startswith("#"):
+                continue
+            if parts[0] == "text":
+                text = (int(parts[1], 16), int(parts[2], 16))
+            elif parts[0].startswith("["):
+                section = tables.setdefault(parts[0][1:-1], {})
+            else:
+                section[parts[0]] = int(parts[1], 16)
+    missing = [name for name in elfs if name not in tables]
+    if missing:
+        sys.exit(f"{ADDRESSES} has no section for {', '.join(missing)}")
+    return tables["SLUS_014.11"], {name: tables[name] for name, _, _, _ in MODULES}, text
+
+
 def build_mods(build):
     """Each directory under mods/ becomes a mod directory beside the game.
 
@@ -322,33 +379,29 @@ def main():
     global NEWEST_HEADER
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=list(BACKENDS), default=os.environ.get("MEMORIES_BACKEND") or
-                        ("sdl" if WINDOWS or os.path.exists(f"{SDL_BUILD}/libSDL3.a") else "x11"))
+                        "sdl")
     parser.add_argument("--target", choices=("linux", "windows"), default=TARGET)
-    parser.add_argument("--portable", action="store_true",
-                        help="Linux: build the executable to share, against tools/pc/build_linux_sysroot.py's libraries")
     # A Windows build made on Linux gets a directory of its own, so both
     # executables and their objects sit side by side.
     parser.add_argument("--build", default="tmp/pc/win32" if WINDOWS and sys.platform != "win32" else
-                        "tmp/pc/game32-portable" if PORTABLE else "tmp/pc/game32")
+                        "tmp/pc/game32")
     options = parser.parse_args()
     NATIVE.extend(BACKENDS[options.backend])
     NATIVE.sort()
     if WINDOWS:
         if options.backend != "sdl":
             sys.exit("Windows builds use the SDL backend")
-        if not os.path.exists(f"{WIN32_DEPS}/lib/libfreetype.a") or not shutil.which(CC):
-            sys.exit(f"{WIN32_DEPS} is missing; run tools/pc/build_win32_deps.py first")
-    elif PORTABLE and options.backend != "sdl":
-        sys.exit("--portable builds use the SDL backend")
-    elif options.backend == "sdl":
-        if PORTABLE and not os.path.exists(f"{SDL_BUILD}/libSDL3.a"):
-            build_linux_sysroot.main()
-        if not os.path.exists(f"{SDL_BUILD}/libSDL3.a"):
-            sys.exit(f"{SDL_BUILD}/libSDL3.a is missing; build SDL3 for -m32 first (notes/pc-build.md)")
-        NATIVE_CFLAGS.extend([f"-I{SDL_SOURCE}/include", f"-I{SDL_BUILD}/include-revision"])
+        if not os.path.exists(f"{WIN32_DEPS}/lib/libfreetype.a") or not os.path.exists(f"{WIN32_DEPS}/sdl"):
+            os.chdir(ROOT)
+            build_win32_deps.main()   # the first build: the Windows libraries
+        if not shutil.which(CC):
+            sys.exit(f"{CC} is not on PATH (llvm-mingw)")
+    else:
+        # The Debian libraries and SDL3, fetched and built the first time.
+        build_linux_sysroot.main()
+        if options.backend == "sdl":
+            NATIVE_CFLAGS.extend([f"-I{SDL_SOURCE}/include", f"-I{SDL_BUILD}/include-revision"])
     os.chdir(ROOT)
-    if not os.path.exists(ELF):
-        sys.exit(f"{ELF} is missing; run `make match` first")
     os.makedirs(options.build + "/obj", exist_ok=True)
     headers = glob.glob("src/**/*.h", recursive=True) + glob.glob("mods/**/*.h", recursive=True) + [__file__, "config/pc/host_symbol_renames.txt"]
     NEWEST_HEADER = max(os.path.getmtime(path) for path in headers)
@@ -375,17 +428,7 @@ def main():
     # also defines, or that their ELFs place at a different address, becomes
     # <module>__<name> inside that module. Their variables move to sections
     # of their own so the registry can reinitialize them on every load.
-    def elf_addresses(elf):
-        if not os.path.exists(elf):
-            sys.exit(f"{elf} is missing; run `make match match-overlays` first")
-        found = {}
-        for line in run([READELF, "-sW", elf]).splitlines():
-            parts = line.split()
-            if len(parts) == 8 and parts[4] == "GLOBAL" and parts[6] != "UND":
-                found.setdefault(parts[7], int(parts[1], 16))
-        return found
-    module_elf = {name: elf_addresses("tmp/overlays/{0}/build/{0}.elf".format(MODULE_CONFIG.get(name, name))) for name, _, _, _ in MODULES}
-    resident_elf = elf_addresses(ELF)
+    resident_elf, module_elf, text = guest_addresses()
     module_symbols = {name: symbols([obj(s) for s in module_sources[name]]) for name, _, _, _ in MODULES}
     resident_defined = symbols([obj(s) for s in resident])[0]
     renamed, sections = {}, {}
@@ -447,12 +490,7 @@ def main():
                 row["bank"], row["identifier"] = bank, identifier if bank else 0
                 overlay_rows.append(row)
     by_address = {int(row["address"], 16): row["name"] for row in rows}
-    addresses, text = {}, (0, 0)
-    for line in run([READELF, "-SW", ELF]).splitlines():
-        parts = line.replace("[", " ").replace("]", " ").split()
-        if len(parts) > 5 and parts[1] == ".text":
-            text = (int(parts[3], 16), int(parts[3], 16) + int(parts[5], 16))
-    addresses.update(resident_elf)
+    addresses = dict(resident_elf)
     for name, _, _, _ in MODULES:
         for symbol, address in module_elf[name].items():
             addresses.setdefault(renamed.get(name, {}).get(symbol, symbol), address)
@@ -592,18 +630,18 @@ def main():
         shutil.copy(f"{WIN32_DEPS}/sdl/bin/SDL3.dll", options.build)
     else:
         # Mods bind through mod_exports.o, so nothing needs -rdynamic.
-        libraries = ["-lm", f"{SDL_BUILD}/libSDL3.a", "-lGL", "-ldl", "-lpthread", "-lfreetype", "-lfontconfig", "-lpng16"]
-        if PORTABLE:
-            # Linked in, so the player needs no 32-bit FreeType or fontconfig:
-            # only libc and the GL driver, which come with the system.
-            libraries = ["-lm", f"{SDL_BUILD}/libSDL3.a", "-Wl,-Bstatic", "-lfontconfig", "-lfreetype", "-lpng16",
-                         "-lbrotlidec", "-lbrotlicommon", "-lbz2", "-lexpat", "-luuid", "-lz", "-Wl,-Bdynamic",
-                         "-lGL", "-ldl", "-lpthread", "-lrt", *SYSROOT_LINK]  # glibc < 2.34 keeps timers in librt
-        run(["gcc", "-m32", "-no-pie", "-o", output,
+        # FreeType, fontconfig and libpng linked in, so the player needs no
+        # 32-bit copies of them: only libc and the GL driver (or X11 and
+        # ALSA for the x11 backend), which come with the system.
+        fonts = ["-Wl,-Bstatic", "-lfontconfig", "-lfreetype", "-lpng16", "-lbrotlidec", "-lbrotlicommon", "-lbz2",
+                 "-lexpat", "-luuid", "-lz", "-Wl,-Bdynamic"]
+        system = ["-ldl", "-lpthread", "-lrt", *SYSROOT_LINK]   # glibc < 2.34 keeps timers in librt
+        libraries = ["-lm", f"{SDL_BUILD}/libSDL3.a", *fonts, "-lGL", *system]
+        run(["gcc", "-m32", "-no-pie", "-o", output, *build_linux_sysroot.startfiles(),
              *[f"-Wl,--section-start={name}=0x{address:08X}" for name, address in sorted(fixed.items())],
              *[obj(s) for s in game + NATIVE],
              f"{options.build}/stubs.o", f"{options.build}/mod_exports.o", f"{options.build}/guest_symbols.ld", *(libraries if options.backend == "sdl"
-               else ["-lm", "-lX11", "-lXext", "-lfreetype", "-lfontconfig", "-lpng16", "-lasound", "-lpthread", "-ldl"])])
+               else ["-lm", *fonts, "-lX11", "-lXext", "-lasound", *system]), *build_linux_sysroot.endfiles()])
     build_mods(options.build)
     # Save states are carried between builds with these tables
     # (src/pc/guest/state.c): every function in the executable, because the
