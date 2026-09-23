@@ -20,7 +20,6 @@
 #include "pc/guest/state.h"
 #include "pc/mods/mods.h"
 #include "pc/render/texture_pack.h"
-#include "pc/render/soft_gpu.h"
 #include "paths.h"
 #include "pc/sdk/display.h"
 #ifdef _WIN32
@@ -503,7 +502,7 @@ void Menu_LoadSettings(void)
     Spu_SetBusVolume(SPU_BUS_STREAM, Settings_Get(SET_STREAM_VOLUME));
     Spu_SetInterpolation((SpuInterpolation)Settings_Get(SET_AUDIO_INTERPOLATION));
     Platform_SetScale(Settings_Get(SET_SCALE));
-    SoftGpu_SetScale(Settings_Get(SET_INTERNAL_SCALE));
+    Memories_SetInternalScale(Settings_Get(SET_INTERNAL_SCALE));
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Platform_SetPresentCap(Settings_Get(SET_FPS));
     Mods_SetTexturePack(TexturePack_Load, TexturePack_Unload);
@@ -519,7 +518,7 @@ static void setting_changed(SettingId id, int value)
     case SET_STREAM_VOLUME: Spu_SetBusVolume(SPU_BUS_STREAM, value); break;
     case SET_AUDIO_INTERPOLATION: Spu_SetInterpolation((SpuInterpolation)value); break;
     case SET_SCALE: Platform_SetScale(value); break;
-    case SET_INTERNAL_SCALE: SoftGpu_SetScale(value); break;
+    case SET_INTERNAL_SCALE: Memories_SetInternalScale(value); break;
     case SET_SPEED: Platform_SetClockRate(value); break;
     case SET_FPS: Platform_SetPresentCap(value); break;
     case SET_MENU_SCALE: Platform_ApplyDisplaySettings(); break;

@@ -16,4 +16,7 @@ const FrameStats *Memories_FrameStats(void);
 void Memories_SetDrawStats(unsigned words, unsigned us);
 /* Write the current display rectangle, or the entire 1024x512 VRAM, as PPM. */
 void Memories_DumpFrame(const char *path, int full_vram);
+/* The internal resolution (SoftGpu_SetScale) from the main thread while
+ * the game runs; 3 and 5 to 7 round down to 2 and 4. */
+int Memories_SetInternalScale(int scale);
 #endif

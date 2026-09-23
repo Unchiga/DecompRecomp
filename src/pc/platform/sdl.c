@@ -1481,9 +1481,12 @@ int Platform_Open(const char *title)
 }
 
 /* Before a frame: input and the menu, then any window change. */
+static int pumped; /* this frame's pump ran already: the OpenGL pass could not show it (Platform_PresentPicture) */
+
 static void begin_present(int w, int h, int at_scale)
 {
-    pump(); /* before the frame, so its input and menu state are current */
+    if (pumped) pumped = 0;
+    else pump(); /* before the frame, so its input and menu state are current */
     if (pending_scale) {
         scale = pending_scale;
         pending_scale = 0;
@@ -1526,7 +1529,10 @@ int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, in
         /* The OpenGL pass's picture: replayed now, shown from its texture. */
         if (!use_gl) return 0;
         begin_present(w, h, at_scale);
-        if (!GlPicture_Replay() || GlPicture_Scale() != at_scale) return 0;
+        if (!GlPicture_Replay() || GlPicture_Scale() != at_scale) {
+            pumped = 1; /* the caller shows VRAM instead: one pump a frame */
+            return 0;
+        }
         gl_pass_shown = 1;
         gl_pass_rect[0] = x;
         gl_pass_rect[1] = y;
@@ -1537,9 +1543,11 @@ int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, in
         gl_pass_shown = 0;
         return 1;
     }
+    if (x < 0 || x + w > stride) return 0;
     begin_present(w, h, at_scale);
-    for (j = 0; j < h; j++) {
-        memcpy(picture_pixels + (size_t)j * (size_t)w, pixels + (size_t)(y + j) * (size_t)stride + x, (size_t)w * 4);
+    for (j = 0; j < h; j++) { /* the picture wraps at the bottom of VRAM, as VRAM does */
+        memcpy(picture_pixels + (size_t)j * (size_t)w,
+               pixels + (size_t)((y + j) & (512 * at_scale - 1)) * (size_t)stride + x, (size_t)w * 4);
     }
     finish_present(w, h);
     return 1;
@@ -1594,6 +1602,7 @@ void Platform_PumpEvents(void)
     uint64_t now;
     if (!window) return;
     pump();
+    if (use_gl && GlPicture_Behind()) GlPicture_Replay();
     /* A running game shows the change with its next frame; paused, the wait
      * loop pumps every half millisecond, so keep hover repaints to ~120/s. */
     if (menu_dirty && overlay_pixels && Platform_ClockRate() == 0 &&

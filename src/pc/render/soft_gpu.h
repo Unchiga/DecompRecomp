@@ -55,9 +55,11 @@ void SoftGpu_PictureFromVram(void);
 /* A second renderer's record of what changes VRAM (gl_picture.h): every
  * GP0 batch as it is executed, every transfer made outside one, in order,
  * and a resync when VRAM or the state changed wholesale (a state load, a
- * reset, a new scale), with the drawing state as GP0 words E1 to E6. While
- * a recorder is set and the scale is above 1 no picture is drawn here and
- * SoftGpu_Picture() is NULL: the recorder draws it. A load's pixels are
+ * reset, a new scale), with the drawing state as GP0 words E1 to E6. At a
+ * scale of 1 only the resyncs are recorded (nothing draws a picture then;
+ * the next scale's resync brings the state). While a recorder is set and
+ * the scale is above 1 no picture is drawn here and SoftGpu_Picture() is
+ * NULL: the recorder draws it. A load's pixels are
  * the caller's and only valid during the call. */
 typedef struct SoftGpuRecorder {
     void (*gp0)(const uint32_t *words, size_t count);
