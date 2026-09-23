@@ -6,6 +6,7 @@
 #include "pc/audio/spu.h"
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
+#include "pc/render/texture_dump.h"
 #include "pc/debug/crash.h"
 #include "pc/debug/log.h"
 #include "pc/compat/signal.h"
@@ -172,7 +173,10 @@ static void subsystems(MemoriesState *state)
     gpu[1].data = SoftGpu_StateData(1, &gpu[1].size);
     gte[0].data = Gte_StateData(&gte_size);
     gte[0].size = gte_size;
-    Memories_StateChunk(state, "soft_gpu", gpu, 2);
+    if (Memories_StateChunk(state, "soft_gpu", gpu, 2)) {
+        /* VRAM restored without the disc: what its words came from is unknown. */
+        TextureDump_Cleared(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+    }
     Memories_StateChunk(state, "gte", gte, 1);
     Spu_State(state);
     LibSpu_State(state);

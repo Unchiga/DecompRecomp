@@ -578,7 +578,8 @@ PNG it was drawn as. `extract_images.py --assets <dir>/assets.txt` then
 writes those images from the archives, and every one comes out identical
 to the PNG the game drew (76 of 76 through the title and main menu), which
 is the proof of the provenance. A state load restores VRAM without
-deliveries, so a capture that should trace assets starts from a cold boot.
+deliveries, so it clears the tags: the textures traced after it are the
+ones loaded after it.
 
 ### Deterministic PC checks
 
