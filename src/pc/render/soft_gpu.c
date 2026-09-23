@@ -70,6 +70,11 @@ uint16_t *SoftGpu_Bank(int bank)
     return banks[bank];
 }
 
+const uint16_t *SoftGpu_BankPixels(int bank)
+{
+    return bank > 0 && bank < SOFT_GPU_BANKS ? banks[bank] : NULL;
+}
+
 static inline __attribute__((always_inline)) uint32_t expand(uint16_t c)
 {
     uint32_t r = c & 0x1f, g = (c >> 5) & 0x1f, b = (c >> 10) & 0x1f;

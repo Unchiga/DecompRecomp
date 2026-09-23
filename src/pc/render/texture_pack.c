@@ -30,6 +30,7 @@ static volatile int wanted_resolve, wanted_images;
 static char directory[1024];
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
+static unsigned generation; /* of the maps and the entries (texture_pack.h) */
 
 static int per_word(int bpp) { return bpp == 4 ? 4 : bpp == 8 ? 2 : 1; }
 
@@ -247,6 +248,7 @@ static void paint(int x, int y, int w, int h)
             uint32_t tag = TextureDump_Tags[vy * SOFT_GPU_WIDTH + vx];
             Entry *entry;
             entry_of[vy * SOFT_GPU_WIDTH + vx] = 0;
+            generation++;
             if (!tag || (index = locate(tag - 1, &row, &word)) < 0) continue;
             entry = &entries[index];
             if (!entry->pixels) {
@@ -259,6 +261,7 @@ static void paint(int x, int y, int w, int h)
             per = per_word(entry->bpp);
             entry_of[vy * SOFT_GPU_WIDTH + vx] = (uint16_t)(index + 1);
             place_of[vy * SOFT_GPU_WIDTH + vx] = ((uint32_t)row << 16) | (uint32_t)word;
+            generation++;
             for (k = 0; k < per; k++) {
                 uint16_t colour = entry->pixels[row * entry->words * per + word * per + k];
                 int sub = k * (4 / per), s;
@@ -416,4 +419,35 @@ void TexturePack_Unload(void)
     free_entries();
     resolved = 0;
     wanted_resolve = wanted_images = 0;
+    generation++;
 }
+
+int TexturePack_EntryFor(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v)
+{
+    int per = depth == 0 ? 4 : depth == 1 ? 2 : 1;
+    int vx = (page_x + (u & 0xff) / per) & (SOFT_GPU_WIDTH - 1), vy = (page_y + (v & 0xff)) & (SOFT_GPU_HEIGHT - 1);
+    uint16_t index;
+    if (!entries || !entry_of || !TextureDump_Tags || !prepare(page_x, page_y, depth, clut_x, clut_y, u, v)) return 0;
+    index = entry_of[vy * SOFT_GPU_WIDTH + vx];
+    return index && entries[index - 1].image ? index : 0;
+}
+
+int TexturePack_EntryImage(int entry, const unsigned char **rgba, int *width, int *height, int *crop_left,
+                           int *crop_width, int *rows, int *texels_per_word)
+{
+    const Entry *at;
+    if (entry < 1 || entry > entry_count || !entries[entry - 1].image) return 0;
+    at = &entries[entry - 1];
+    *rgba = at->image;
+    *width = at->image_width;
+    *height = at->image_height;
+    *crop_left = at->crop_left;
+    *crop_width = at->crop_width;
+    *rows = at->rows;
+    *texels_per_word = per_word(at->bpp);
+    return 1;
+}
+
+unsigned TexturePack_Generation(void) { return generation; }
+const uint16_t *TexturePack_EntryMap(void) { return entry_of; }
+const uint32_t *TexturePack_PlaceMap(void) { return place_of; }

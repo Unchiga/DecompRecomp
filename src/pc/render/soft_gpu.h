@@ -28,6 +28,9 @@ const uint16_t *SoftGpu_Vram(void);
  * Returns NULL if the bank cannot be allocated. */
 #define SOFT_GPU_BANKS 16
 uint16_t *SoftGpu_Bank(int bank);
+/* The bank's pixels if it has been made, NULL otherwise (a primitive naming
+ * a bank that was never made samples VRAM). */
+const uint16_t *SoftGpu_BankPixels(int bank);
 /* Widescreen: full-screen drawing areas get a companion buffer 4/3 as wide
  * (see soft_gpu.c). Turning it off frees them. */
 void SoftGpu_SetWidescreen(int on);

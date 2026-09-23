@@ -110,9 +110,10 @@ traced to its bytes (`src/pc/render/texture_dump.c`), and the words an image
 of the pack covers get its pixels in a shadow of VRAM; a primitive that
 samples them through the palette the image was extracted with takes them
 from the shadow instead (`texture_pack.c`). A pack image may be any size:
-it is resampled to the texture's own size on load, so until the renderer
-draws at a higher resolution a bigger image only changes what the pixels
-are. The palette rule is what keeps a sprite the game draws through several
+at the console's resolution it is resampled to the texture's own size, and
+at an internal resolution (View > Internal 2x, 4x; `notes/pc-build.md`) it
+is sampled at its own, so a bigger image shows its detail there. The
+palette rule is what keeps a sprite the game draws through several
 palettes (a selection bar, a greyed icon) looking right: only the palette
 the image was made for is replaced. One pack is active at a time; the
 extracted images themselves are the game's, so a pack ships painted images

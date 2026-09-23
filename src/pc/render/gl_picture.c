@@ -25,6 +25,7 @@
  * (MEMORIES_GL_PICTURE=0 selects it on the same build). */
 #include "gl_picture.h"
 #include "soft_gpu.h"
+#include "texture_pack.h"
 #include "pc/compat/signal.h"
 #include "pc/debug/log.h"
 #include <SDL3/SDL.h>
@@ -52,6 +53,7 @@
     X(PFNGLGETUNIFORMLOCATIONPROC, GetUniformLocation) \
     X(PFNGLUNIFORM1IPROC, Uniform1i) \
     X(PFNGLUNIFORM2IPROC, Uniform2i) \
+    X(PFNGLUNIFORM3IPROC, Uniform3i) \
     X(PFNGLUNIFORM4IPROC, Uniform4i) \
     X(PFNGLUNIFORM2FPROC, Uniform2f) \
     X(PFNGLGENBUFFERSPROC, GenBuffers) \
@@ -68,7 +70,9 @@
     X(PFNGLDELETEFRAMEBUFFERSPROC, DeleteFramebuffers) \
     X(PFNGLBLENDEQUATIONPROC, BlendEquation) \
     X(PFNGLACTIVETEXTUREPROC, ActiveTexture) \
-    X(PFNGLCLEARBUFFERUIVPROC, ClearBufferuiv)
+    X(PFNGLCLEARBUFFERUIVPROC, ClearBufferuiv) \
+    X(PFNGLTEXIMAGE3DPROC, TexImage3D) \
+    X(PFNGLTEXSUBIMAGE3DPROC, TexSubImage3D)
 
 #define DECLARE(type, name) static type gl_##name;
 GL_FUNCTIONS(DECLARE)
@@ -177,7 +181,21 @@ static int scale;                 /* of the picture in the framebuffer, 0 before
 static GLuint vram_texture, vram_scratch, vram_fbo, vram_scratch_fbo;
 static GLuint picture_texture, picture_scratch, picture_fbo, picture_scratch_fbo;
 static GLuint program, buffer, vertex_array;
-static GLint u_picture_size, u_window, u_op, u_pass, u_scale, u_copy_offset, u_vram, u_scratch;
+static GLint u_picture_size, u_window, u_op, u_pass, u_scale, u_copy_offset, u_vram, u_scratch, u_banks;
+/* The texture banks (soft_gpu.h) a primitive can sample instead of VRAM:
+ * layers 0..14 of an array texture for banks 1..15, each uploaded again when
+ * a replay finds it changed since the copy kept here (a mod writes a bank
+ * directly, so nothing announces the change). */
+static GLuint banks_texture;
+static uint16_t *bank_copy[SOFT_GPU_BANKS];
+static int bank_used[SOFT_GPU_BANKS];
+/* The texture pack (texture_pack.h): its maps as integer textures and its
+ * images as textures, made as primitives need them, dropped when the
+ * pack's generation moves on. */
+static GLuint entry_map_texture, place_map_texture, *entry_textures;
+static int entry_texture_count;
+static unsigned pack_generation = ~0u;
+static GLint u_entry_map, u_place_map, u_pack, u_pack_entry, u_pack_size;
 
 static const char *vertex_source =
     "#version 130\n"
@@ -186,12 +204,12 @@ static const char *vertex_source =
     "in vec2 texcoord;\n"
     "in vec4 colour;\n"
     "in ivec4 texture_page;\n"
-    "in ivec2 texture_mode;\n"
+    "in ivec4 texture_mode;\n"
     "noperspective out vec2 uv;\n"
     "noperspective out vec3 rgb;\n"
     "flat out int flags;\n"
     "flat out ivec4 page;\n"
-    "flat out ivec2 mode;\n"
+    "flat out ivec4 mode;\n"
     "void main() {\n"
     "    gl_Position = vec4(position.x / picture_size.x * 2.0 - 1.0, position.y / picture_size.y * 2.0 - 1.0, 0.0, 1.0);\n"
     "    uv = texcoord;\n"
@@ -202,14 +220,20 @@ static const char *vertex_source =
     "}\n";
 
 /* op 0: a primitive. flags: 1 raw texture, 2 semi-transparent, 4 textured.
- * page: page x, page y, palette x, palette y. mode: depth, blend mode.
+ * page: page x, page y, palette x, palette y. mode: depth, blend mode, bank.
  * window: mask x, mask y, offset x, offset y in texels, as soft_gpu.c has
  * them. pass: 0 every fragment, 1 the opaque ones, 2 the semi-transparent.
  * op 1: VRAM into the picture. op 2: the scratch copy into the picture. */
 static const char *fragment_source =
     "#version 130\n"
     "uniform usampler2D vram;\n"
+    "uniform usampler2DArray banks;\n"
     "uniform sampler2D scratch;\n"
+    "uniform usampler2D entry_map;\n"
+    "uniform usampler2D place_map;\n"
+    "uniform sampler2D pack;\n"
+    "uniform ivec4 pack_entry;\n" /* entry index + 1, crop left, crop width, rows */
+    "uniform ivec3 pack_size;\n"  /* image width, height, texels per word */
     "uniform ivec4 window;\n"
     "uniform int op;\n"
     "uniform int pass;\n"
@@ -219,13 +243,16 @@ static const char *fragment_source =
     "noperspective in vec3 rgb;\n"
     "flat in int flags;\n"
     "flat in ivec4 page;\n"
-    "flat in ivec2 mode;\n"
+    "flat in ivec4 mode;\n"
     "out vec4 fragment;\n"
     "vec3 expand(uint word) {\n"
     "    uint r = word & 31u, g = (word >> 5) & 31u, b = (word >> 10) & 31u;\n"
     "    return vec3(float((r << 3) | (r >> 2)), float((g << 3) | (g >> 2)), float((b << 3) | (b >> 2)));\n"
     "}\n"
-    "uint word_at(int x, int y) { return texelFetch(vram, ivec2(x & 1023, y & 511), 0).r; }\n"
+    "uint word_at(int x, int y) {\n"
+    "    if (mode.z != 0) return texelFetch(banks, ivec3(x & 1023, y & 511, mode.z - 1), 0).r;\n"
+    "    return texelFetch(vram, ivec2(x & 1023, y & 511), 0).r;\n"
+    "}\n"
     "void main() {\n"
     "    if (op == 1) {\n"
     "        ivec2 at = ivec2(gl_FragCoord.xy) / scale;\n"
@@ -239,25 +266,50 @@ static const char *fragment_source =
     "    vec3 c = floor(rgb + 1.0 / 256.0);\n"
     "    bool semi = (flags & 2) != 0;\n"
     "    if ((flags & 4) != 0) {\n"
-    "        int u = int(floor(uv.x + 1.0 / 256.0)) & 255, v = int(floor(uv.y + 1.0 / 256.0)) & 255;\n"
+    "        float ub = uv.x + 1.0 / 256.0, vb = uv.y + 1.0 / 256.0;\n"
+    "        int u = int(floor(ub)) & 255, v = int(floor(vb)) & 255;\n"
     "        uint word;\n"
     "        int y;\n"
-    "        u = ((u & ~window.x) | window.z) & 255;\n"
-    "        v = ((v & ~window.y) | window.w) & 255;\n"
-    "        y = page.y + v;\n"
-    "        if (mode.x == 0) {\n"
-    "            uint w = word_at(page.x + u / 4, y);\n"
-    "            word = word_at(page.z + int((w >> uint((u & 3) * 4)) & 15u), page.w);\n"
-    "        } else if (mode.x == 1) {\n"
-    "            uint w = word_at(page.x + u / 2, y);\n"
-    "            word = word_at(page.z + int((w >> uint((u & 1) * 8)) & 255u), page.w);\n"
-    "        } else {\n"
-    "            word = word_at(page.x + u, y);\n"
+    "        vec3 t;\n"
+    "        bool replaced = false;\n"
+    "        if ((flags & 8) != 0) {\n"
+    /* The pack's image, where it paints this texel (texture_pack.c, sample). */
+    "            int per = pack_size.z;\n"
+    "            int vx = (page.x + u / per) & 1023, vy = (page.y + v) & 511;\n"
+    "            if (int(texelFetch(entry_map, ivec2(vx, vy), 0).r) == pack_entry.x) {\n"
+    "                uint place = texelFetch(place_map, ivec2(vx, vy), 0).r;\n"
+    "                int row = int(place >> 16), word_in = int(place & 0xffffu);\n"
+    "                int texel_x = word_in * per + (u - (u / per) * per) - pack_entry.y;\n"
+    "                if (texel_x >= 0 && texel_x < pack_entry.z) {\n"
+    "                    int px = int(floor((float(texel_x) + fract(ub)) * float(pack_size.x) / float(pack_entry.z)));\n"
+    "                    int py = int(floor((float(row) + fract(vb)) * float(pack_size.y) / float(pack_entry.w)));\n"
+    "                    vec4 p = texelFetch(pack, ivec2(clamp(px, 0, pack_size.x - 1), clamp(py, 0, pack_size.y - 1)), 0);\n"
+    "                    if (p.a < 0.5) discard;\n"
+    "                    t = floor(p.rgb * 255.0 + 0.5);\n"
+    "                    semi = false;\n"
+    "                    replaced = true;\n"
+    "                }\n"
+    "            }\n"
     "        }\n"
-    "        if (word == 0u) discard;\n"
-    "        semi = semi && (word & 0x8000u) != 0u;\n"
-    "        if ((flags & 1) != 0) c = expand(word);\n"
-    "        else c = floor(expand(word) * c / 128.0);\n"
+    "        if (!replaced) {\n"
+    "            u = ((u & ~window.x) | window.z) & 255;\n"
+    "            v = ((v & ~window.y) | window.w) & 255;\n"
+    "            y = page.y + v;\n"
+    "            if (mode.x == 0) {\n"
+    "                uint w = word_at(page.x + u / 4, y);\n"
+    "                word = word_at(page.z + int((w >> uint((u & 3) * 4)) & 15u), page.w);\n"
+    "            } else if (mode.x == 1) {\n"
+    "                uint w = word_at(page.x + u / 2, y);\n"
+    "                word = word_at(page.z + int((w >> uint((u & 1) * 8)) & 255u), page.w);\n"
+    "            } else {\n"
+    "                word = word_at(page.x + u, y);\n"
+    "            }\n"
+    "            if (word == 0u) discard;\n"
+    "            semi = semi && (word & 0x8000u) != 0u;\n"
+    "            t = expand(word);\n"
+    "        }\n"
+    "        if ((flags & 1) != 0) c = t;\n"
+    "        else c = floor(t * c / 128.0);\n"
     "    }\n"
     "    if (pass == 1 && semi) discard;\n"
     "    if (pass == 2 && !semi) discard;\n"
@@ -324,6 +376,12 @@ static int make_program(void)
     u_copy_offset = gl_GetUniformLocation(program, "copy_offset");
     u_vram = gl_GetUniformLocation(program, "vram");
     u_scratch = gl_GetUniformLocation(program, "scratch");
+    u_banks = gl_GetUniformLocation(program, "banks");
+    u_entry_map = gl_GetUniformLocation(program, "entry_map");
+    u_place_map = gl_GetUniformLocation(program, "place_map");
+    u_pack = gl_GetUniformLocation(program, "pack");
+    u_pack_entry = gl_GetUniformLocation(program, "pack_entry");
+    u_pack_size = gl_GetUniformLocation(program, "pack_size");
     return 1;
 }
 
@@ -413,14 +471,14 @@ typedef struct GlVertex {
     float x, y, u, v;
     uint8_t r, g, b, flags;
     uint16_t page_x, page_y, clut_x, clut_y;
-    uint16_t depth, blend;
+    uint16_t depth, blend, bank, unused;
 } GlVertex;
 
 /* A run of vertices drawn under one scissor and texture window, all of one
  * blending equation. */
 typedef struct Run {
     size_t first, count;
-    int clip[4], window[4], subtractive;
+    int clip[4], window[4], subtractive, pack; /* pack: the entry (index + 1) sampled, 0 none */
 } Run;
 
 static GlVertex *vertices;
@@ -432,9 +490,10 @@ static size_t run_count, run_room;
 static struct {
     int clip_x1, clip_y1, clip_x2, clip_y2;
     int offset_x, offset_y;
-    int page_x, page_y, blend, depth;
+    int page_x, page_y, blend, depth, bank;
     int window_mask_x, window_mask_y, window_x, window_y;
     int clut_x, clut_y;
+    int pack; /* the pack entry the primitive being read samples, 0 none */
 } state;
 
 typedef struct Vertex {
@@ -446,7 +505,7 @@ static int run_matches(const Run *run, int subtractive)
     return run->clip[0] == state.clip_x1 && run->clip[1] == state.clip_y1 && run->clip[2] == state.clip_x2 &&
            run->clip[3] == state.clip_y2 && run->window[0] == state.window_mask_x &&
            run->window[1] == state.window_mask_y && run->window[2] == state.window_x &&
-           run->window[3] == state.window_y && run->subtractive == subtractive;
+           run->window[3] == state.window_y && run->subtractive == subtractive && run->pack == state.pack;
 }
 
 static GlVertex *push_vertices(size_t n, int subtractive)
@@ -482,6 +541,7 @@ static GlVertex *push_vertices(size_t n, int subtractive)
         run->window[2] = state.window_x;
         run->window[3] = state.window_y;
         run->subtractive = subtractive;
+        run->pack = state.pack;
     }
     runs[run_count - 1].count += n;
     out = vertices + vertex_count;
@@ -499,13 +559,14 @@ static void set_vertex(GlVertex *out, float x, float y, float u, float v, const 
     out->r = (uint8_t)from->r;
     out->g = (uint8_t)from->g;
     out->b = (uint8_t)from->b;
-    out->flags = (uint8_t)flags;
+    out->flags = (uint8_t)(flags | (state.pack ? 8 : 0));
     out->page_x = (uint16_t)state.page_x;
     out->page_y = (uint16_t)state.page_y;
     out->clut_x = (uint16_t)state.clut_x;
     out->clut_y = (uint16_t)state.clut_y;
     out->depth = (uint16_t)state.depth;
     out->blend = (uint16_t)state.blend;
+    out->bank = (uint16_t)state.bank;
 }
 
 /* A triangle as the software pass rasterizes it: its edges are tested at
@@ -532,17 +593,24 @@ static void triangle(const Vertex *a, const Vertex *b, const Vertex *c, int flag
 }
 
 /* A block of pixels x,y,w,h in picture units with the given corners' texels. */
+/* A block of pixels x,y,w,h in picture units, texels u0,v0 to u1,v1 across
+ * it. The software pass takes a rectangle's texel at each pixel's corner
+ * (i / scale from the first), GL interpolates at the centre: the texels
+ * move back by half a pixel so the two agree, which shows where a pack's
+ * image is sampled between texels. */
 static void block(int x, int y, int w, int h, int u0, int v0, int u1, int v1, const Vertex *colour, int flags)
 {
     GlVertex *out = push_vertices(6, (flags & 2) && state.blend == 2);
     float x0 = (float)x, y0 = (float)y, x1 = (float)(x + w), y1 = (float)(y + h);
+    float half = 0.5f / (float)scale;
+    float s0 = (float)u0 - half, t0 = (float)v0 - half, s1 = (float)u1 - half, t1 = (float)v1 - half;
     if (!out) return;
-    set_vertex(&out[0], x0, y0, (float)u0, (float)v0, colour, flags);
-    set_vertex(&out[1], x1, y0, (float)u1, (float)v0, colour, flags);
-    set_vertex(&out[2], x1, y1, (float)u1, (float)v1, colour, flags);
-    set_vertex(&out[3], x0, y0, (float)u0, (float)v0, colour, flags);
-    set_vertex(&out[4], x1, y1, (float)u1, (float)v1, colour, flags);
-    set_vertex(&out[5], x0, y1, (float)u0, (float)v1, colour, flags);
+    set_vertex(&out[0], x0, y0, s0, t0, colour, flags);
+    set_vertex(&out[1], x1, y0, s1, t0, colour, flags);
+    set_vertex(&out[2], x1, y1, s1, t1, colour, flags);
+    set_vertex(&out[3], x0, y0, s0, t0, colour, flags);
+    set_vertex(&out[4], x1, y1, s1, t1, colour, flags);
+    set_vertex(&out[5], x0, y1, s0, t1, colour, flags);
 }
 
 static void set_colour(Vertex *vertex, uint32_t word)
@@ -560,7 +628,10 @@ static void set_position(Vertex *vertex, uint32_t word)
 
 static void set_page(uint32_t value)
 {
-    /* Bits 11-14 name a texture bank (soft_gpu.h): not sampled here yet. */
+    /* Bits 11-14 name a texture bank (soft_gpu.h); one never made is VRAM. */
+    int bank = (int)((value >> 11) & (SOFT_GPU_BANKS - 1));
+    state.bank = bank && SoftGpu_BankPixels(bank) ? bank : 0;
+    if (state.bank) bank_used[state.bank] = 1;
     state.page_x = (value & 0xf) * 64;
     state.page_y = ((value >> 4) & 1) * 256;
     state.blend = (value >> 5) & 3;
@@ -600,6 +671,10 @@ static size_t polygon(const uint32_t *words, size_t count)
             }
         }
     }
+    state.pack = textured && !state.bank
+                     ? TexturePack_EntryFor(state.page_x, state.page_y, state.depth, state.clut_x, state.clut_y,
+                                            v[0].u, v[0].v)
+                     : 0;
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
     return need;
@@ -629,6 +704,10 @@ static size_t rectangle(const uint32_t *words, size_t count)
         w = words[at] & 0x3ff;
         h = (words[at] >> 16) & 0x1ff;
     }
+    state.pack = textured && !state.bank
+                     ? TexturePack_EntryFor(state.page_x, state.page_y, state.depth, state.clut_x, state.clut_y,
+                                            base.u, base.v)
+                     : 0;
     if (w && h) {
         block(base.x * scale, base.y * scale, w * scale, h * scale, base.u, base.v, base.u + w, base.v + h, &base,
               flags);
@@ -642,6 +721,7 @@ static void line(const Vertex *a, const Vertex *b, int flags)
     int dx = b->x - a->x, dy = b->y - a->y, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
     int steps = adx > ady ? adx : ady, hsteps, n, i;
     if (adx > 1023 || ady > 511) return;
+    state.pack = 0;
     hsteps = steps * scale;
     n = hsteps ? hsteps : 1;
     for (i = 0; i <= hsteps; i++) {
@@ -758,7 +838,42 @@ static void bind_attributes(void)
     gl_VertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GlVertex), &base->u);
     gl_VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(GlVertex), &base->r);
     gl_VertexAttribIPointer(3, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->page_x);
-    gl_VertexAttribIPointer(4, 2, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->depth);
+    gl_VertexAttribIPointer(4, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->depth);
+}
+
+/* The banks this flush samples, uploaded where they changed. */
+static void sync_banks(void)
+{
+    int bank;
+    for (bank = 1; bank < SOFT_GPU_BANKS; bank++) {
+        const uint16_t *pixels;
+        if (!bank_used[bank]) continue;
+        bank_used[bank] = 0;
+        pixels = SoftGpu_BankPixels(bank);
+        if (!pixels) continue;
+        if (!banks_texture) {
+            glGenTextures(1, &banks_texture);
+            gl_ActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, banks_texture);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            gl_TexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R16UI, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT, SOFT_GPU_BANKS - 1, 0,
+                          GL_RED_INTEGER, GL_UNSIGNED_SHORT, NULL);
+            gl_ActiveTexture(GL_TEXTURE0);
+        }
+        if (!bank_copy[bank]) bank_copy[bank] = malloc(sizeof(uint16_t) * SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT);
+        if (bank_copy[bank] && !memcmp(bank_copy[bank], pixels, sizeof(uint16_t) * SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT)) {
+            continue;
+        }
+        if (bank_copy[bank]) memcpy(bank_copy[bank], pixels, sizeof(uint16_t) * SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT);
+        gl_ActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, banks_texture);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+        gl_TexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, bank - 1, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT, 1, GL_RED_INTEGER,
+                         GL_UNSIGNED_SHORT, pixels);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        gl_ActiveTexture(GL_TEXTURE0);
+    }
 }
 
 static void unbind_attributes(void)
@@ -776,6 +891,70 @@ static void scissor_words(int x1, int y1, int x2, int y2)
     glScissor(x1 * scale, y1 * scale, w * scale, h * scale);
 }
 
+static GLuint make_map_texture(GLenum internal, GLenum type)
+{
+    return make_texture(internal, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT, GL_RED_INTEGER, type);
+}
+
+/* The pack's maps, uploaded again when the pack changed since; its image
+ * textures are dropped then, to be made again as needed. */
+static void sync_pack(void)
+{
+    unsigned generation = TexturePack_Generation();
+    const uint16_t *entry_map = TexturePack_EntryMap();
+    const uint32_t *place_map = TexturePack_PlaceMap();
+    int i;
+    if (generation == pack_generation || !entry_map || !place_map) return;
+    pack_generation = generation;
+    for (i = 0; i < entry_texture_count; i++) {
+        if (entry_textures[i]) glDeleteTextures(1, &entry_textures[i]);
+    }
+    free(entry_textures);
+    entry_textures = NULL;
+    entry_texture_count = 0;
+    if (!entry_map_texture) entry_map_texture = make_map_texture(GL_R16UI, GL_UNSIGNED_SHORT);
+    if (!place_map_texture) place_map_texture = make_map_texture(GL_R32UI, GL_UNSIGNED_INT);
+    gl_ActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, entry_map_texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_SHORT,
+                    entry_map);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    gl_ActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, place_map_texture);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                    place_map);
+    gl_ActiveTexture(GL_TEXTURE0);
+}
+
+/* The entry's image on texture unit 5 and its measures in the uniforms;
+ * 0 when the image is not there (the run then samples VRAM). */
+static int bind_pack_entry(int entry)
+{
+    const unsigned char *rgba;
+    int width, height, crop_left, crop_width, rows, per;
+    if (!TexturePack_EntryImage(entry, &rgba, &width, &height, &crop_left, &crop_width, &rows, &per)) return 0;
+    if (entry > entry_texture_count) {
+        GLuint *more = realloc(entry_textures, (size_t)entry * sizeof(*entry_textures));
+        if (!more) return 0;
+        memset(more + entry_texture_count, 0, (size_t)(entry - entry_texture_count) * sizeof(*more));
+        entry_textures = more;
+        entry_texture_count = entry;
+    }
+    gl_ActiveTexture(GL_TEXTURE5);
+    if (!entry_textures[entry - 1]) {
+        entry_textures[entry - 1] = make_texture(GL_RGBA8, width, height, GL_RGBA, GL_UNSIGNED_BYTE);
+        glBindTexture(GL_TEXTURE_2D, entry_textures[entry - 1]);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    } else {
+        glBindTexture(GL_TEXTURE_2D, entry_textures[entry - 1]);
+    }
+    gl_ActiveTexture(GL_TEXTURE0);
+    gl_Uniform4i(u_pack_entry, entry, crop_left, crop_width, rows);
+    gl_Uniform3i(u_pack_size, width, height, per);
+    return 1;
+}
+
 /* The primitives gathered so far, in order, into the picture. */
 static void flush_runs(void)
 {
@@ -785,6 +964,8 @@ static void flush_runs(void)
         run_count = 0;
         return;
     }
+    sync_banks();
+    sync_pack();
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
     gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
@@ -801,6 +982,7 @@ static void flush_runs(void)
         scissor_words(run->clip[0], run->clip[1], run->clip[2], run->clip[3]);
         gl_Uniform4i(u_window, run->window[0] * 8, run->window[1] * 8, (run->window[2] & run->window[0]) * 8,
                     (run->window[3] & run->window[1]) * 8);
+        if (!run->pack || !bind_pack_entry(run->pack)) gl_Uniform4i(u_pack_entry, 0, 0, 0, 0);
         if (!run->subtractive) {
             gl_Uniform1i(u_pass, 0);
             glDrawArrays(GL_TRIANGLES, (GLint)run->first, (GLsizei)run->count);
@@ -1000,6 +1182,10 @@ int GlPicture_Replay(void)
     gl_UseProgram(program);
     gl_Uniform1i(u_vram, 0);
     gl_Uniform1i(u_scratch, 1);
+    gl_Uniform1i(u_banks, 2);
+    gl_Uniform1i(u_entry_map, 3);
+    gl_Uniform1i(u_place_map, 4);
+    gl_Uniform1i(u_pack, 5);
     if (overflow || wanted_resync) {
         /* Too much for the arena: from VRAM as it is now, with the state
          * as it is now; the record is superseded. */
