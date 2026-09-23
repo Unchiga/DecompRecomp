@@ -154,6 +154,8 @@ void TextureDump_Written(const void *destination, unsigned bytes)
 {
     if (!TextureDump_Tags || !bytes) return;
     forget((uintptr_t)destination, (uintptr_t)destination + bytes);
+}
+
 int TextureDump_DiscFile(const char *path, int *lba, unsigned *size)
 {
     return disc_file_info ? disc_file_info(path, lba, size) : -2; /* -2: no disc yet */
