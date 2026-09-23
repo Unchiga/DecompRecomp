@@ -83,7 +83,10 @@ void ControlsRuntime_Reconcile(void)
 }
 static ControlsDeviceProfile *profile(ControlsConfig *cfg, int p, int create)
 {
-    int device = ControlsRuntime_Assigned(cfg, p);
+    int device;
+    if (p < 0 || p >= 2)
+        return NULL; /* cfg->port has two entries */
+    device = ControlsRuntime_Assigned(cfg, p);
     const char *id = cfg->port[p].mode == 2 ? cfg->port[p].identity
                      : device >= 0          ? devices[device].identity
                                             : "";

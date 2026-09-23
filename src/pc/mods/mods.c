@@ -116,6 +116,15 @@ static void say(const char *format, ...)
     LOG(LOG_MODS, "%s", message);
 }
 
+/* A manifest's id, name and file names are cut to fit their fields. */
+static void copy_text(char *out, size_t size, const char *text)
+{
+    size_t length = strlen(text);
+    if (length >= size) length = size - 1;
+    memcpy(out, text, length);
+    out[length] = '\0';
+}
+
 static void note(Mod *mod, const char *format, ...)
 {
     va_list arguments;
@@ -127,29 +136,34 @@ static void note(Mod *mod, const char *format, ...)
 
 /* --- settings -------------------------------------------------------- */
 
-static void setting_key(char *out, size_t size, const char *id, const char *key)
+/* Both names return 0 when they do not fit: a cut name would be another
+ * setting, so the caller treats it as unset. A mod id always fits (ID_MAX);
+ * a key a mod passes may not. */
+static int setting_key(char *out, size_t size, const char *id, const char *key)
 {
-    if (key) snprintf(out, size, "mod.%s.%s", id, key);
-    else snprintf(out, size, "mod.%s", id);
+    int length = key ? snprintf(out, size, "mod.%s.%s", id, key) : snprintf(out, size, "mod.%s", id);
+    return length >= 0 && (size_t)length < size;
 }
 
 /* MEMORIES_MOD_<ID>, or MEMORIES_MOD_<ID>_<KEY> for one of its settings,
  * uppercased, with everything that is not a letter or a digit turned into an
  * underscore: MEMORIES_MOD_3D_MONSTERS=0 for a test run. */
-static void environment_name(char *name, size_t size, const char *id, const char *key)
+static int environment_name(char *name, size_t size, const char *id, const char *key)
 {
     size_t i;
-    snprintf(name, size, "MEMORIES_MOD_%s%s%s", id, key ? "_" : "", key ? key : "");
+    int length = snprintf(name, size, "MEMORIES_MOD_%s%s%s", id, key ? "_" : "", key ? key : "");
+    if (length < 0 || (size_t)length >= size) return 0;
     for (i = strlen("MEMORIES_MOD_"); name[i]; i++) {
         name[i] = isalnum((unsigned char)name[i]) ? (char)toupper((unsigned char)name[i]) : '_';
     }
+    return 1;
 }
 
 static int environment_choice(const char *id, int fallback)
 {
     char name[ID_MAX + 16];
     const char *text;
-    environment_name(name, sizeof(name), id, NULL);
+    if (!environment_name(name, sizeof(name), id, NULL)) return fallback;
     text = getenv(name);
     return text && *text ? atoi(text) != 0 : fallback;
 }
@@ -212,10 +226,10 @@ static int host_setting(const MemoriesModHost *host, const char *key, int fallba
     char name[ID_MAX + 96];
     const char *text;
     if (!mod || !key || !*key) return fallback;
-    environment_name(name, sizeof(name), mod->id, key);
+    if (!environment_name(name, sizeof(name), mod->id, key)) return fallback;
     text = getenv(name);
     if (text && *text) return (int)strtol(text, NULL, 0);
-    setting_key(name, sizeof(name), mod->id, key);
+    if (!setting_key(name, sizeof(name), mod->id, key)) return fallback;
     return Settings_GetNamed(name, fallback);
 }
 
@@ -223,8 +237,7 @@ static void host_set_setting(const MemoriesModHost *host, const char *key, int v
 {
     Mod *mod = owner(host);
     char name[ID_MAX + 96];
-    if (!mod || !key || !*key) return;
-    setting_key(name, sizeof(name), mod->id, key);
+    if (!mod || !key || !*key || !setting_key(name, sizeof(name), mod->id, key)) return;
     Settings_SetNamed(name, value);
 }
 
@@ -665,7 +678,7 @@ static int load_library(Mod *mod)
         return 0;
     }
     if (mod->hooks.name && *mod->hooks.name && !mod->name[0]) {
-        snprintf(mod->name, sizeof(mod->name), "%s", mod->hooks.name);
+        copy_text(mod->name, sizeof(mod->name), mod->hooks.name);
     }
     say("%s: loaded %s", mod->id, mod->library);
     return 1;
@@ -680,14 +693,14 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
     if (snprintf(path, sizeof(path), "%s/mod.json", directory) >= (int)sizeof(path)) return 0;
     if (access(path, R_OK)) return 0;
     memset(mod, 0, sizeof(*mod));
-    snprintf(mod->directory, sizeof(mod->directory), "%s", directory);
+    copy_text(mod->directory, sizeof(mod->directory), directory);
     mod->origin = origin;
     mod->manifest = Json_ParseFile(path, error, sizeof(error));
     root = Json_Root(mod->manifest);
     if (!root || Json_TypeOf(root) != JSON_OBJECT) {
         const char *slash = strrchr(directory, '/');
-        snprintf(mod->id, sizeof(mod->id), "%s", slash ? slash + 1 : directory);
-        snprintf(mod->name, sizeof(mod->name), "%s", mod->id);
+        copy_text(mod->id, sizeof(mod->id), slash ? slash + 1 : directory);
+        copy_text(mod->name, sizeof(mod->name), mod->id);
         mod->broken = 1;
         note(mod, "mod.json %s", root ? "is not an object" : error);
         return 1;
@@ -697,15 +710,15 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         const char *slash = strrchr(directory, '/');
         text = slash ? slash + 1 : directory;
     }
-    snprintf(mod->id, sizeof(mod->id), "%s", text);
-    snprintf(mod->name, sizeof(mod->name), "%s", Json_String(Json_Member(root, "name"), mod->id));
+    copy_text(mod->id, sizeof(mod->id), text);
+    copy_text(mod->name, sizeof(mod->name), Json_String(Json_Member(root, "name"), mod->id));
     text = Json_String(Json_Member(root, "library"), NULL);
     if (text && *text) {
         if (!Paths_Contained(text)) {
             mod->broken = 1;
             note(mod, "\"library\": %s is outside the mod", text);
         } else if (strchr(text, '.')) {
-            snprintf(mod->library, sizeof(mod->library), "%s", text);
+            copy_text(mod->library, sizeof(mod->library), text);
         } else {
             snprintf(mod->library, sizeof(mod->library), "%s.o", text);   /* one object for every system */
         }
@@ -725,8 +738,8 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         char key[ID_MAX + 96];
         int fallback = mod->default_enabled;
         if (legacy && *legacy) fallback = Settings_GetNamed(legacy, fallback);
-        setting_key(key, sizeof(key), mod->id, NULL);
-        mod->enabled = environment_choice(mod->id, Settings_GetNamed(key, fallback)) != 0;
+        if (setting_key(key, sizeof(key), mod->id, NULL)) fallback = Settings_GetNamed(key, fallback);
+        mod->enabled = environment_choice(mod->id, fallback) != 0;
     }
     return 1;
 }
@@ -835,8 +848,9 @@ void Mods_Load(void)
          * is only a live change it cannot take. */
         char key[ID_MAX + 96];
         int want;
-        setting_key(key, sizeof(key), mods[i].id, NULL);
-        want = environment_choice(mods[i].id, Settings_GetNamed(key, mods[i].enabled)) != 0;
+        want = mods[i].enabled;
+        if (setting_key(key, sizeof(key), mods[i].id, NULL)) want = Settings_GetNamed(key, want);
+        want = environment_choice(mods[i].id, want) != 0;
         if (all && (!strcmp(all, "0") || !strcmp(all, "off"))) want = 0;
         mods[i].enabled = want;
         activate(i, want);
@@ -869,8 +883,7 @@ void Mods_SetEnabled(int mod, int enabled)
     char key[ID_MAX + 96];
     if (!at(mod)) return;
     enabled = enabled != 0;
-    setting_key(key, sizeof(key), mods[mod].id, NULL);
-    Settings_SetNamed(key, enabled);
+    if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
     if (mods[mod].enabled == enabled) return;
     mods[mod].enabled = enabled;
     /* A mod that asks for a restart is only recorded here; the next launch
