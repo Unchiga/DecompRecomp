@@ -17,6 +17,7 @@
 #include "settings.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
+#include "pc/cards/cards.h"
 #include "pc/debug/log.h"
 #include "pc/debug/hud.h"
 #include "pc/guest/state.h"
@@ -52,7 +53,7 @@ static int menu_reveal_frames;
 /* 4 puts the 320x240 picture on screen at 1280x960. */
 static int scale = 4, pending_scale, quit, state_slot = 1;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
-static volatile uint16_t scripted_bits, mouse_bits;
+static volatile uint16_t scripted_bits2, scripted_bits, mouse_bits;
 static uint16_t wheel_bits;
 static int wheel_frames;
 static volatile uint16_t wheel_now;
@@ -1615,10 +1616,10 @@ void Platform_PumpEvents(void)
 uint16_t Platform_Pad(int port)
 {
     return port == 0 ? (uint16_t)(ControlsRuntime_Keyboard() | (ControlsRuntime_Blocked()?0:(mouse_bits | wheel_now)) | scripted_bits | Gamepad_Bits(0))
-                     : Gamepad_Bits(1);
+                     : (uint16_t)(Gamepad_Bits(1) | scripted_bits2);
 }
 
-int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port); }
+int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port) || Platform_ScriptedPad2(); }
 
 /* MEMORIES_SDL_SCRIPT="200:click:20:13,260:move:60:69,420:key:escape": events
  * pushed into SDL's queue at presented frames, for testing the menu without
@@ -1724,6 +1725,7 @@ void Platform_Frame(unsigned frame)
     }
     Gamepad_Poll(frame);
     Cheats_Frame();
+    Cards_Frame();
     if (window) {
         run_event_script(frame);
     }
@@ -1744,4 +1746,5 @@ void Platform_Frame(unsigned frame)
     }
     wheel_now = wheel_frames > 0 && wheel_frames-- ? wheel_bits : 0;
     scripted_bits = Platform_ScriptedBits(frame);
+    scripted_bits2 = Platform_ScriptedBits2(frame);
 }

@@ -6,6 +6,7 @@
 #include "pc/debug/crash.h"
 #include "pc/mods/exports.h"
 #include "pc/platform/game_files.h"
+#include "pc/cards/cards.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -96,6 +97,9 @@ int main(int argc, char **argv)
     if (Platform_Open("Yu-Gi-Oh! Forbidden Memories (native port, work in progress)") != 0) {
         return 1;
     }
+    /* The mods are applied by now (Platform_Open reads the settings), and
+     * the executable is in place: the cards they add come after its own. */
+    Cards_Build();
     setvbuf(stdout, NULL, _IOLBF, 0);
     /* The game runs on a stack at a fixed address; see state.h. */
     return Memories_StateRunGame(Main_Init);

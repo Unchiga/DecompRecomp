@@ -63,6 +63,9 @@
 #include "model_slot_support.h"
 #include "model_state_setters.h"
 #include "../psyq/libgs.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 /* The seven contiguous functions of the Library screen: the card-view state
    handler func_8002ACA4, the trivial state handlers for states 0 and 3, the
@@ -156,6 +159,10 @@ void func_8002ACA4(u8 *state)
         if (mode == 1) {
             state[4] = 0;
             id = H(state, 6) - 1;
+#ifdef MEMORIES_PC
+            /* A card past the disc's stands as its base's model. */
+            id = Cards_BaseId(id + 1) - 1;
+#endif
             if (((gDuel_adwCardStats[id] >> 0x1A) & 0x1F) < 0x14) {
                 Model_LoadMonsterMerge(0, id, 0, 0, 0, 0, 4);
                 W(state, 0x20) = 0x12C;
@@ -684,11 +691,25 @@ void Library_MarkOwnedCards(void)
         i++;
         p++;
     } while (i < CARD_COUNT);
+#ifdef MEMORIES_PC
+    /* The cards past the disc's: their trunk and seen marks are the port's
+       (Cards_ChestSlot, Cards_MarkSeen); a campaign flag would run into the
+       password flags at 0x400. */
+    for (i = CARD_ID_END; i <= CARD_COUNT_LIVE; i++) {
+        if (*Cards_ChestSlot(gDuel_awPlayerDeck, i) != 0)
+            Cards_MarkSeen(i);
+    }
+#endif
     q = gDuel_awPlayerDeck;
     i = 0;
     do {
+#ifdef MEMORIES_PC
+        if (*q != 0)
+            Cards_MarkSeen(*q);
+#else
         if (*q != 0)
             Library_UpdateCardUsedFlag(*q + CAMPAIGN_FLAG_LIBRARY_CARD_BASE);
+#endif
         i++;
         q++;
     } while (i < DECK_SIZE);
@@ -788,11 +809,15 @@ void func_8002BFCC(void) {
             break;
         }
         n++;
-    } while (n < CARD_ID_END);
+    } while (n < CARD_ID_END_LIVE);
     D_801D5608[0].library_count = 0;
     n = CARD_ID_FIRST;
     do {
+#ifdef MEMORIES_PC
+        if (Cards_Seen(n) != 0) {
+#else
         if (Campaign_TestStoryFlag(n + CAMPAIGN_FLAG_LIBRARY_CARD_BASE) != 0) {
+#endif
             D_801D5608[0].library_count += 1;
             *(u8 *)(r + n * 4 + 0x56) = 0x80;
             if (Library_CheckCardOwned(n) < 0) {
@@ -800,9 +825,25 @@ void func_8002BFCC(void) {
             }
         }
         n++;
-    } while (n < CARD_ID_END);
+    } while (n < CARD_ID_END_LIVE);
     func_8003B6AC(3, 1);
+#ifdef MEMORIES_PC
+    /* "<seen/total>" in 16-pixel letters: nine of them fill the console's
+       box, and the PC port's totals can run to five digits (Cards_Text).
+       Wider and still centred, or the heading wraps and waits for a page. */
+    {
+        s32 digits = 3;
+        s32 width;
+
+        for (n = CARD_COUNT_LIVE; n >= 1000; n /= 10) {
+            digits++;
+        }
+        width = (3 + 2 * digits) * 0x10;
+        m = TextBox_Create(3, 0xF8, 0xA0 - width / 2, -0x18, width, 0x10);
+    }
+#else
     m = TextBox_Create(3, 0xF8, 0x58, -0x18, 0x90, 0x10);
+#endif
     m[0x5A] = 0x10;
     m[0x5B] = 0x10;
     func_80039A14((struct DuelEffectChannel *)m);

@@ -42,6 +42,9 @@
 #include "text_box_runtime.h"
 #include "display_object_config.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define DUEL_RESULT_ORBIT_ANGLE_STEP 0x30
 
@@ -460,7 +463,13 @@ s32 Duel_SelectCardDrop(s32 pool_index)
     for (i = 0; i < CARD_COUNT; i++) {
         sum += table->weights[i];
         if (sum >= threshold)
+#ifdef MEMORIES_PC
+            /* The disc's tables are of retail cards; a copy that asked to
+               may be won in its base's place (Cards_PickVariant). */
+            return Cards_PickVariant(i + 1, CARDS_USE_DROP);
+#else
             return i + 1;
+#endif
     }
     return 0;
 }
@@ -469,7 +478,11 @@ void Duel_AwardCard(s32 card_id)
 {
     s32 i;
     u8 *base = (u8 *)gDuel_awPlayerDeck;
+#ifdef MEMORIES_PC
+    u8 *quantity = Cards_ChestSlot(base, card_id);
+#else
     u8 *quantity = base + (card_id + 0x4F);
+#endif
     u16 *destination = (u16 *)(base + 0x5BC);
     u16 *entry;
 

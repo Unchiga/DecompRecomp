@@ -75,6 +75,7 @@
 #include "pc/render/packets.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/mods/modapi.h"
+#include "pc/cards/cards.h"
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -807,6 +808,11 @@ static void draw_frame(void)
                 (card->flags & DUEL_CARD_FLAG_FACE_DOWN) || id <= 0 ||
                 ((gDuel_adwCardStats[id - 1] >> 0x1A) & 0x1F) >= 0x14) {
                 continue; /* empty, face down, or a magic or trap card */
+            }
+            /* A card a card mod added stands as the retail card it is a
+             * copy of: MODEL.MRG has the disc's monsters only. */
+            if (!tunable("test", 0)) {
+                id = Cards_BaseId(id);
             }
             /* The record carries a stance of its own for a monster in
              * defence, which is the one the battle presentation would use. */

@@ -52,6 +52,9 @@
 #include "sound.h"
 #include "card_type_icon_table.h"
 #include "func_800323F8.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define CARD_LIST_VIEW(list) ((CardList *)(list))
 #define DISPLAY_OBJECT_VIEW(object) ((DisplayObject *)(object))
@@ -102,6 +105,97 @@ void func_800323F8(u8 *base, void *deck, s32 other, s32 flags)
     all_stats = gDuel_adwCardStats;
     lists = state + 4;
     gBuildDeck_pState = BUILD_DECK_TRANSITION_STATE_VIEW(state);
+#ifdef MEMORIES_PC
+    /* The same through the workspace's members. The PC port's lists and card
+       tables are longer than the console offsets above (card_constants.h),
+       it has CARD_COUNT_LIVE cards, and the trunk of a card past the disc's
+       is kept outside the save (Cards_ChestSlot). */
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)[0].pad_6343 = flags;
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)[0].deck_cards = deck;
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)[1].deck_cards = (u16 *)other;
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)[0].pane_index = 0;
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)[1].pane_index = 0;
+    for (pane = 0; pane < 2; pane++) {
+        BuildDeckTransitionState *ws = BUILD_DECK_TRANSITION_STATE_VIEW(state) + pane;
+        CardList *chest = &ws->lists[0];
+        CardList *decks = &ws->lists[1];
+
+        if (ws->deck_cards == 0) {
+            continue;
+        }
+        drops = (u16 *)gDuel_awRecentCardDrops;
+        ws->card_sort_rank[0] = 0;
+        for (j = 1; j < CARD_ID_END_LIVE; j++) {
+            ws->card_sort_rank[j] = 0;
+            for (n = 15; n >= 0; n--) {
+                if ((s16)drops[n] == j) {
+                    ws->card_sort_rank[j] = n + 1;
+                }
+            }
+        }
+        deck_total = 0;
+        decks->kind = on;
+        decks->first_target = 0;
+        decks->first = 0;
+        decks->cursor = 0;
+        decks->sort_choice = 0;
+        decks->sort_mode = ((u8 *)(decks->kind * 16 + icons))[1] & 0xF;
+        cards = ws->deck_cards;
+        for (j = 0; j < DECK_SIZE; j++, cards++) {
+            entry = (u8 *)&decks->entries[j] + 8;
+            entry[5] = 0;
+            *(s16 *)(entry - 4) = 0;
+            v = *cards;
+            if (v != 0) {
+                stats = &all_stats[v - 1];
+                *(s16 *)(entry - 4) = v;
+                entry[5] = on;
+                entry[2] = (*stats >> 26) & 0x1F;
+                *(s16 *)(entry - 2) = (*stats & 0x1FF) * 10;
+                deck_total++;
+                *(s16 *)entry = ((*stats >> 9) & 0x1FF) * 10;
+            }
+        }
+        decks->entries[DECK_SIZE].id = 0xFFFF;
+        ws->deck_total = deck_total;
+        decks->row_count = DECK_SIZE;
+        decks->sort_row_count = DECK_SIZE;
+        func_80032C48(decks);
+        func_8003201C(ws);
+        n = 0;
+        held = 0x80;
+        chest->kind = 0;
+        chest->first_target = 0;
+        chest->first = 0;
+        chest->row_count = CARD_COUNT_LIVE;
+        chest->cursor = 0;
+        chest->sort_choice = 0;
+        chest->sort_mode = ((u8 *)(chest->kind * 16 + icons))[1] & 0xF;
+        stats = all_stats;
+        for (j = 0; j < CARD_COUNT_LIVE; stats++, j++) {
+            id = j + 1;
+            entry = (u8 *)&chest->entries[j] + 0xD;
+            quantity = Cards_ChestSlot(ws->deck_cards, id);
+            entry[0] = 0;
+            *(s16 *)(entry - 9) = id;
+            entry[-3] = (*stats >> 26) & 0x1F;
+            *(s16 *)(entry - 7) = (*stats & 0x1FF) * 10;
+            *(s16 *)(entry - 5) = ((*stats >> 9) & 0x1FF) * 10;
+            ws->chest_card_quantities[id] = *quantity;
+            if (*quantity != 0) {
+                entry[0] = on;
+                n += *quantity;
+            } else if (ws->deck_card_quantities[id] != 0) {
+                entry[0] = held;
+            }
+        }
+        chest->entries[CARD_COUNT_LIVE].id = 0;
+        ws->chest_total = n;
+        chest->sort_row_count = CARD_COUNT_LIVE;
+        chest->row_count = CARD_COUNT_LIVE;
+        func_80032C48(chest);
+    }
+#else
     state[0x6343] = flags;
     *(void **)state = deck;
     *(s32 *)(state + 0x6344) = other;
@@ -207,6 +301,7 @@ void func_800323F8(u8 *base, void *deck, s32 other, s32 flags)
         lists += 0x6344;
         state += 0x6344;
     } while (pane < 2);
+#endif
 
     state = (u8 *)gBuildDeck_pState;
     object = DisplayObject_AcquireSlot(DisplayObject_FindFreeGeneralSlot(), 2);
@@ -226,22 +321,38 @@ void func_800323F8(u8 *base, void *deck, s32 other, s32 flags)
     DisplayObject_ConfigureSpriteAtPosition(object, 0x136, 0x29, 0, 4, 0xC, 0xC, 0x208);
     *(u16 *)(object + 8) |= 0x20;
     DisplayObject_SetDepthOffset(DISPLAY_OBJECT_VIEW(object), 8);
+#ifdef MEMORIES_PC
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)->lists[0].scroll_box = DISPLAY_OBJECT_VIEW(object);
+#else
     *(u8 **)(state + 0x2D3C) = object;
+#endif
     object = DisplayObject_AcquireSlot(DisplayObject_FindFreeGeneralSlot(), 2);
     DisplayObject_ConfigureSpriteAtPosition(object, 0x26A, 0x29, 0, 4, 0xC, 0xC, 0x208);
     *(u16 *)(object + 8) |= 0x20;
     DisplayObject_SetDepthOffset(DISPLAY_OBJECT_VIEW(object), 8);
+#ifdef MEMORIES_PC
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)->lists[1].scroll_box = DISPLAY_OBJECT_VIEW(object);
+#else
     *(u8 **)(state + 0x5A88) = object;
+#endif
     object = DisplayObject_AcquireSlot(DisplayObject_FindFreeGeneralSlot(), 2);
     DisplayObject_ConfigureSpriteAtPosition(object, 0, 0x2A, 0, 4, 2, 0xC, 0x208);
     *(u16 *)(object + 8) |= 0x20;
     DisplayObject_SetDepthOffset(DISPLAY_OBJECT_VIEW(object), 0xA);
+#ifdef MEMORIES_PC
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)->lists[0].cursor_box = DISPLAY_OBJECT_VIEW(object);
+#else
     *(u8 **)(state + 0x2D38) = object;
+#endif
     object = DisplayObject_AcquireSlot(DisplayObject_FindFreeGeneralSlot(), 2);
     DisplayObject_ConfigureSpriteAtPosition(object, 0x148, 0x2A, 0, 4, 3, 0xC, 0x218);
     *(u16 *)(object + 8) |= 0x20;
     DisplayObject_SetDepthOffset(DISPLAY_OBJECT_VIEW(object), 0xA);
+#ifdef MEMORIES_PC
+    BUILD_DECK_TRANSITION_STATE_VIEW(state)->lists[1].cursor_box = DISPLAY_OBJECT_VIEW(object);
+#else
     *(u8 **)(state + 0x5A84) = object;
+#endif
     object = DisplayObject_AcquireSlot(DisplayObject_FindFreeGeneralSlot(), 2);
     DisplayObject_ConfigureSpriteAtPosition(object, 0, 0, 0, 4, 9, 0xC, 0x208);
     *(u16 *)(object + 8) |= 0x20;

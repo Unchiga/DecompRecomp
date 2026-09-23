@@ -6,7 +6,8 @@
 /* Put `count` copies of every card in the chest (the trunk), capped at
  * the game's own limit. Takes effect at once; open BUILD DECK to see it. */
 void Cheats_GiveAllCards(int count);
-/* Once a frame: MEMORIES_DEBUG_CHEST=N gives N of every card the first
- * time a save is live in the workspace. */
+/* Once a frame: MEMORIES_DEBUG_CHEST=N gives N of every card, and
+ * MEMORIES_DEBUG_DECK="723-762" (ids and ranges, repeated to forty) sets the
+ * deck, the first time a save is live in the workspace. */
 void Cheats_Frame(void);
 #endif

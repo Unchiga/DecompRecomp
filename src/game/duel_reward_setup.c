@@ -8,6 +8,10 @@
 #include "graphics_frame.h"
 #include "duel_reward_setup.h"
 #include "../ygo_types.h"
+#ifdef MEMORIES_PC
+#include "save_data.h"
+#include "pc/cards/cards.h"
+#endif
 
 void func_80032184(FileTransferDescriptor *p, s32 mode) {
     s32 one;
@@ -128,8 +132,15 @@ void func_80032370(void)
     i = DUEL_RECENT_CARD_DROP_COUNT - 1;
     current = (u32)(source + DUEL_RECENT_CARD_DROP_COUNT - 1);
     for (; i >= 0; i--, current -= sizeof(*source)) {
+#ifdef MEMORIES_PC
+        /* A card past the disc's has its trunk outside the save. */
+        if (*(s16 *)current != 0 &&
+            *Cards_ChestSlot(gDuel_awPlayerDeck, *(s16 *)current) == 0)
+            *(s16 *)current = 0;
+#else
         if (*(s16 *)current != 0 && base[*(s16 *)current - 1] == 0)
             *(s16 *)current = 0;
+#endif
     }
     destination = source;
     for (i = 0; i < DUEL_RECENT_CARD_DROP_COUNT; i++, source++) {

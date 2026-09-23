@@ -3,6 +3,7 @@
 #include "paths.h"
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
+#include "pc/cards/cards.h"
 #include "pc/debug/log.h"
 #include "pc/debug/hud.h"
 #include "pc/guest/state.h"
@@ -44,7 +45,7 @@ static int scale = 4, pending_scale, image_w, image_h, quit;
 static MenuCanvas canvas;
 static struct { const uint16_t *vram; int stride, x, y, w, h, rgb24; } last;
 static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last painted */
-static volatile uint16_t scripted_bits;
+static volatile uint16_t scripted_bits2, scripted_bits;
 static int state_slot = 1;
 static unsigned current_frame;
 static char base_title[160];
@@ -744,10 +745,10 @@ void Platform_PumpEvents(void) { if (display) pump(); }
 uint16_t Platform_Pad(int port)
 {
     return port == 0 ? (uint16_t)(ControlsRuntime_Keyboard() | (ControlsRuntime_Blocked()?0:(mouse_bits | wheel_now)) | scripted_bits | Gamepad_Bits(0))
-                     : Gamepad_Bits(1);
+                     : (uint16_t)(Gamepad_Bits(1) | scripted_bits2);
 }
 
-int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port); }
+int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port) || Platform_ScriptedPad2(); }
 
 void Platform_Frame(unsigned frame)
 {
@@ -771,6 +772,8 @@ void Platform_Frame(unsigned frame)
     }
     Gamepad_Poll(frame);
     Cheats_Frame();
+    Cards_Frame();
     wheel_now = wheel_frames > 0 && wheel_frames-- ? wheel_bits : 0;
     scripted_bits = Platform_ScriptedBits(frame);
+    scripted_bits2 = Platform_ScriptedBits2(frame);
 }

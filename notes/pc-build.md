@@ -172,7 +172,12 @@ settings file), `MEMORIES_HEADLESS=1`,
 screenshot key does, into `MEMORIES_SCREENSHOT_DIR` or the user folder),
 `MEMORIES_SCALE_AT=N:S` (change the internal resolution to S at frame N, as
 the View menu would),
-`MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on),
+`MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on;
+`MEMORIES_INPUT2` the same for the second pad, which then counts as
+connected: two-player trades and duels),
+`MEMORIES_DEBUG_CHEST=N` (N of every card in the trunk) and
+`MEMORIES_DEBUG_DECK="723-762"` (the deck, as ids and ranges repeated to
+forty), both once a save is live ([More cards](more-cards.md)),
 `MEMORIES_NO_AUDIO=1`, `MEMORIES_DUMP_AUDIO=path` (raw s16le stereo 44.1 kHz
 instead of a device), and
 `MEMORIES_STUB_TRACE=1`. Traces on stderr: `MEMORIES_TRACE_SPU=1` (every

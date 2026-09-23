@@ -8,7 +8,7 @@ directory in, restart, apply it in **Game > Mods**.
 
 | Directory | What is in it |
 |---|---|
-| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`) |
+| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`, `more-cards`) |
 | `mods/` in the user directory | mods the player installed |
 
 The user directory is where everything the player owns lives: settings,
@@ -55,6 +55,7 @@ Every mod has a `mod.json`:
 | `legacy_setting` | an older settings key to read the player's choice from, once |
 | `data` | what the mod changes on the disc, below |
 | `textures` | a directory inside the mod holding a texture pack, below |
+| `cards` | cards the mod adds after the disc's 722, below |
 
 `version`, `author` and `description` are for people; the game does not read
 them.
@@ -133,6 +134,25 @@ the screen drew from the disc is in `<images>/assets`, backgrounds as the
 128x128 tiles the game uploads them in. Keep the scale in proportion: the
 game holds a pack's images in memory at full size, and a 128x128 tile at
 25x is 40 MB.
+
+## Cards: more than the disc has
+
+A mod may add cards with a `cards` list, no code needed. Each new card is a
+copy of a retail card, which lends it its artwork, 3D model, text, fusions and
+effect, with its own stats and, if the mod gives one, name:
+
+```json
+"cards": [
+    { "copy": "Kuriboh", "count": 100, "name": "Kuriboh {n}" },
+    { "copy": 1, "name": "Blue-eyes Shiny Dragon", "attack": 3500 }
+]
+```
+
+The cards take the ids after 722, in the order the mods are found, and work
+in the Library, Build Deck, duels, rewards, trades and saves.
+[More cards](more-cards.md) has every key, how a new card is won, where what
+the save holds of them is kept, and how the port does it. Like data
+overrides, a mod with cards needs a restart.
 
 ## Code mods
 
@@ -252,15 +272,16 @@ author, as with any plugin. A data-only mod carries no code and is safe to
 install on that ground alone. The Mods window shows every mod it found, and
 the reason beside any that failed to load.
 
-## The two mods the release ships
+## The mods the release ships
 
 | Mod | What it is |
 |---|---|
 | `mods/3d-monsters` | face-up monsters on the duel field stand on their cards as animated models (`notes/pc-build.md`) |
 | `mods/hand-camera` | L1/R1 turn and L3/R3 zoom the duel camera while the hand is up |
+| `mods/more-cards` | a hundred Kuribohs after the disc's cards, the worked example of `cards` (off by default; `MEMORIES_MOD_MORE_CARDS_COUNT` changes how many) |
 
-Both were part of the executable until they became mods; they are the worked
-examples of a code mod that reaches deep into the game. 3D Monsters' knobs
+The first two were part of the executable until they became mods; they are
+the worked examples of a code mod that reaches deep into the game. 3D Monsters' knobs
 are its settings `depth`, `pixels`, `scale`, `lift`, `pitch` and `test`
 (`MEMORIES_MOD_3D_MONSTERS_SCALE=5000` for one run; they were
 `MEMORIES_MODS_SCALE` and so on before it became one object for both systems).

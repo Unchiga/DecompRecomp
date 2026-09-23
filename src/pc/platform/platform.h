@@ -51,8 +51,12 @@ int Gamepad_Connected(int port);
 void Platform_Frame(unsigned frame);
 /* Poll only window/input events while a paused VBlank wait owns the main thread. */
 void Platform_PumpEvents(void);
-/* The scripted pad bits in force at a frame (platform_common.c). */
+/* The scripted pad bits in force at a frame (platform_common.c), for the
+ * first pad (MEMORIES_INPUT) and the second (MEMORIES_INPUT2), and whether
+ * the second is scripted at all. */
 uint16_t Platform_ScriptedBits(unsigned frame);
+uint16_t Platform_ScriptedBits2(unsigned frame);
+int Platform_ScriptedPad2(void);
 
 /* The frame clock, in three independent parts (platform_common.c):
  *

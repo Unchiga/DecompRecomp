@@ -1,11 +1,20 @@
 #include "../types.h"
 #include "card_constants.h"
 #include "duel_card_checks.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define FUSION_TABLE_BYTES(table) ((u8 *)(table))
 #define FUSION_TABLE_OFFSETS(table) ((u16 *)(table))
 
+#ifdef MEMORIES_PC
+/* The equip and fusion tables are the disc's, of retail cards: a card past
+   the disc's is looked up as its base (cards.h). Duel_CheckEquip follows. */
+static s32 Duel_CheckEquipRetail(s32 arg0, s32 arg1)
+#else
 s32 Duel_CheckEquip(s32 arg0, s32 arg1)
+#endif
 {
     u16 *p = gDuel_awEquipTable;
 
@@ -32,6 +41,16 @@ s32 Duel_CheckEquip(s32 arg0, s32 arg1)
     }
 }
 
+#ifdef MEMORIES_PC
+/* An equip answers with the monster it was asked about, so a copy stays
+   itself. */
+s32 Duel_CheckEquip(s32 arg0, s32 arg1)
+{
+    return Duel_CheckEquipRetail(Cards_BaseId(arg0), Cards_BaseId(arg1)) != 0
+        ? arg1 : 0;
+}
+#endif
+
 s32 Duel_CheckFusion(s32 arg0, s32 arg1)
 {
     u8 *base = FUSION_TABLE_BYTES(gDuel_aFusionTable);
@@ -40,6 +59,10 @@ s32 Duel_CheckFusion(s32 arg0, s32 arg1)
     s32 n;
     s32 b;
 
+#ifdef MEMORIES_PC
+    arg0 = Cards_BaseId(arg0);
+    arg1 = Cards_BaseId(arg1);
+#endif
     if (arg1 < arg0) {
         s32 t = arg1;
         arg1 = arg0;

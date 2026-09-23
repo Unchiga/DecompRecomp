@@ -10,6 +10,9 @@
 #include "duel_card.h"
 #include "func_800291E0.h"
 #include "card_preview_callbacks.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define DISPLAY_OBJECT_FIELD_5E_BYTES(object) ((u8 *)&(object)->field_5E)
 
@@ -18,8 +21,14 @@ FileTransferDescriptor *func_80029164(s32 slot, s32 value)
     FileTransferDescriptor *object;
 
     D_800EA0E8[slot].field_30 = value;
+#ifdef MEMORIES_PC
+    /* A card past the disc's has its base's artwork (Cards_BaseId). */
+    object = File_TryRequestAsyncTransfer(
+        0, 0, (Cards_BaseId(value) - 1) * 7 + CARD_COUNT, 7, func_800289BC, 0, 0);
+#else
     object = File_TryRequestAsyncTransfer(
         0, 0, (value - 1) * 7 + CARD_COUNT, 7, func_800289BC, 0, 0);
+#endif
     object->callback_data = (void *)slot;
     D_8009B0F4_abs =
         object->status_flags | FILE_TRANSFER_STATE_PRIMARY_ACTIVE;

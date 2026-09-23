@@ -9,4 +9,14 @@
  * Two callers: Main_RunBuildDeckMenu and Main_RunDuel. */
 void func_800323F8(u8 *base, void *deck, s32 other, s32 flags);
 
+/* The workspace both callers pass: the buffer the console lends it, except
+ * on the PC port, whose two panes have room for more cards
+ * (card_constants.h) and live in src/pc/game/card_storage.c. */
+#ifdef MEMORIES_PC
+extern u8 gBuildDeck_aWorkspace[];
+#define BUILD_DECK_WORKSPACE(console) gBuildDeck_aWorkspace
+#else
+#define BUILD_DECK_WORKSPACE(console) (console)
+#endif
+
 #endif

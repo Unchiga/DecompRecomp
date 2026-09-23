@@ -12,6 +12,9 @@
 
 #include "duel_magic_effect_format.h"
 #include "duel_magic_effect_dispatch.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 void DuelEffect_ApplyHarpiesFeatherDuster(void)
 {
@@ -57,6 +60,14 @@ int DuelEffect_UpdateCardEffect(void)
 void DuelEffect_StartCardEffect(int value, int flag)
 {
     int index;
+
+#ifdef MEMORIES_PC
+    /* A card past the disc's has its base's effect, and the handlers that
+       test gDuel_wEffectCardID for a particular card see the base. */
+    if (value > 0) {
+        value = Cards_BaseId(value);
+    }
+#endif
 
     if (((unsigned)(value - DUEL_EFFECT_FIRST_BLOCK_CARD_ID) <
          DUEL_EFFECT_CARD_BLOCK_SIZE) ||

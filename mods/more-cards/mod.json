@@ -1,0 +1,11 @@
+{
+    "id": "more-cards",
+    "name": "More cards (100 Kuribohs)",
+    "version": "1.0",
+    "author": "DecompRecomp",
+    "description": "Adds cards after the disc's 722: copies of retail cards with their artwork, model, fusions and effects. Edit \"cards\" to add others (notes/more-cards.md).",
+    "enabled": false,
+    "cards": [
+        { "copy": "Kuriboh", "count": 100, "count_setting": "count", "name": "Kuriboh {n}" }
+    ]
+}

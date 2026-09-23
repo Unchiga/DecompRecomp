@@ -24,7 +24,7 @@ void func_8003201C(BuildDeckTransitionState *state)
 
         index = CARD_ID_FIRST;
         count = BUILD_DECK_STATE_BYTES(state) + index;
-        for (; index < CARD_ID_END; index++, count++) {
+        for (; index < CARD_ID_END_LIVE; index++, count++) {
             s32 record_index;
             u8 *record;
             u8 *output;

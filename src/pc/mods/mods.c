@@ -77,6 +77,7 @@ typedef struct {
     MemoriesModHost host;
     JsonDocument *manifest;
     const JsonValue *data;       /* the "data" array, applied when enabled */
+    const JsonValue *cards;      /* the "cards" array: cards the mod adds (src/pc/cards) */
     char textures[PATH_MAX_];    /* a texture pack directory inside the mod, or empty */
 } Mod;
 
@@ -741,9 +742,15 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         mod->broken = 1;
         note(mod, "\"data\" is not an array");
     }
+    mod->cards = Json_Member(root, "cards");
+    if (mod->cards && Json_TypeOf(mod->cards) != JSON_ARRAY) {
+        mod->broken = 1;
+        note(mod, "\"cards\" is not an array");
+    }
     /* Data overrides change what the game loaded on its way up, so they are
-     * only whole while the game starts with them in place. */
-    if (Json_Count(mod->data)) mod->restart = Json_Bool(Json_Member(root, "restart"), 1);
+     * only whole while the game starts with them in place; the cards a mod
+     * adds are counted once, when the game starts. */
+    if (Json_Count(mod->data) || Json_Count(mod->cards)) mod->restart = Json_Bool(Json_Member(root, "restart"), 1);
     {   /* The key this mod's choice was stored under before it was a mod. */
         const char *legacy = Json_String(Json_Member(root, "legacy_setting"), NULL);
         char key[ID_MAX + 96];
@@ -923,6 +930,36 @@ void Mods_SetEnabled(int mod, int enabled)
     /* A mod that asks for a restart is only recorded here; the next launch
      * is what puts it in place (the mods window offers the restart). */
     if (!mods[mod].restart) activate(mod, enabled);
+}
+
+void Mods_VisitCards(void (*visit)(const char *id, const struct JsonValue *cards, void *context), void *context)
+{
+    int i;
+    for (i = 0; i < mod_count; i++) {
+        if (mods[i].active && Json_Count(mods[i].cards)) visit(mods[i].id, mods[i].cards, context);
+    }
+}
+
+int Mods_Setting(const char *id, const char *key, int fallback)
+{
+    char name[ID_MAX + 96];
+    const char *text;
+    if (by_id(id) < 0 || !key || !*key || !environment_name(name, sizeof(name), id, key)) return fallback;
+    text = getenv(name);
+    if (text && *text) return (int)strtol(text, NULL, 0);
+    if (!setting_key(name, sizeof(name), id, key)) return fallback;
+    return Settings_GetNamed(name, fallback);
+}
+
+void Mods_Note(const char *id, const char *format, ...)
+{
+    va_list arguments;
+    int i = by_id(id);
+    if (i < 0) return;
+    va_start(arguments, format);
+    vsnprintf(mods[i].status, sizeof(mods[i].status), format, arguments);
+    va_end(arguments);
+    fprintf(stderr, "memories-pc: mod %s: %s\n", mods[i].id, mods[i].status);
 }
 
 void Mods_DrawFrame(void)

@@ -101,8 +101,33 @@ void func_80031874(DisplayObject *obj, GsOT *ot)
                 sprite->w = 8;
                 sprite->y -= 8;
             }
+#ifdef MEMORIES_PC
+            /* The PC port's ids reach past 999 (card_constants.h): those
+               are drawn with narrower steps, in the same 24 pixels. */
+            if (id >= 1000) {
+                s32 digits = id >= 10000 ? 5 : 4;
+                s32 step = digits == 5 ? 5 : 6;
+                s32 at = sprite->x;
+                s32 d;
+
+                Text_EncodeDecimalNoPadding(id, digits, text);
+                sprite->v = 0x70;
+                for (d = digits - 1; d >= 0; d--) {
+                    if (text[d] < 0xA) {
+                        sprite->u = text[d] * 8 - 0x80;
+                        GsSortFastSprite(sprite, ot, 0);
+                    }
+                    sprite->x += step;
+                }
+                sprite->x = at + 3 * 8;
+            } else {
+                Text_EncodeDecimalNoPadding(id, 3, text);
+                func_800316F0(sprite, ot, text, 3);
+            }
+#else
             Text_EncodeDecimalNoPadding(id, 3, text);
             func_800316F0(sprite, ot, text, 3);
+#endif
             sprite->x += 0x88;
             if (row[2] < 0x14) {
                 /* u 0xD0, v 0x58: the ATK label. */

@@ -38,7 +38,7 @@ s32 Library_GetGridCursorCardId(u8 *state)
     column_ones =
         (s8)(column - column_tens * CARD_GRID_SECTION_SIDE_LENGTH);
     index = base + column_ones;
-    if (index >= CARD_ID_END) {
+    if (index >= CARD_ID_END_LIVE) {
         return 0;
     }
     return index;
@@ -79,8 +79,8 @@ void Library_UpdateGridCursor(u8 *state)
             if ((gInput_wPad1Held & PAD_BUTTON_L1_R1_MASK) != 0) {
                 if ((gInput_wPad1Held & PAD_BUTTON_R1) != 0) {
                     row += 0xA;
-                    if (row >= 0x28) {
-                        row = 0x27;
+                    if (row >= CARD_GRID_ROW_COUNT) {
+                        row = CARD_GRID_ROW_COUNT - 1;
                     }
                 } else {
                     row -= 0xA;
@@ -100,7 +100,7 @@ void Library_UpdateGridCursor(u8 *state)
                         column += 1;
                         if (column >= 0x14) {
                             column = 0x13;
-                            if (row < 0x27) {
+                            if (row < CARD_GRID_ROW_COUNT - 1) {
                                 column = 0;
                                 row += 1;
                                 goto wrap_delay;
@@ -122,8 +122,8 @@ wrap_delay:
                 if ((gInput_wPad1Held & PAD_DIRECTION_VERTICAL_MASK) != 0) {
                     if ((gInput_wPad1Held & PAD_DIRECTION_DOWN) != 0) {
                         row += 1;
-                        if (row >= 0x28) {
-                            row = 0x27;
+                        if (row >= CARD_GRID_ROW_COUNT) {
+                            row = CARD_GRID_ROW_COUNT - 1;
                         }
                     } else {
                         row -= 1;
