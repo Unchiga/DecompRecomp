@@ -140,15 +140,27 @@ What was ruled out, and why:
 - Phase 6: the `.so`/`.dll` path, `pc/compat/dlfcn.h`, `-rdynamic`,
   `--export-all-symbols` and the import library are gone. Crash reports never
   used them; they read `symbols/<buildid>.txt`.
-- **Still open:**
-  - A duel on Windows (Wine and real). Both mods load under Wine, and the
-    loader test passes there. But a Linux save state does not load in the
-    Windows build ("damaged state"), and no input route to a duel exists
-    yet. Free Duel from a loaded memory card gets as far as the opponent
-    grid (Cross first dismisses "Select opponent!"). Picking Teana then
-    opened the chest, and backing out with Triangle hung, with mods off.
-  - Real Windows once, for the items Wine does not prove.
-  - A smoke case with both mods on at a duel frame (needs the route above).
+- **Duel on Windows under Wine: done (2026-09-22).** The smoke cases
+  `duel-3d-monsters` and `duel-hand-camera` reach the first campaign duel
+  from boot (New Game, the name "A", CHEST left with Circle, a card set
+  face-up with Left) with both mods on, and pass with the same hashes on
+  Linux and on the Windows build under Wine: a model stands on the card,
+  and L1 turns the field with the hand up. A state saved mid-duel with the
+  mods on loads on both systems, and the loaded frame is the same on both.
+  What stood in the way:
+  - The two builds dealt different hands: a scripted run's clock followed
+    the host timer, so loads ended on different frames and the random seed
+    (drawn every frame on the name entry screen) parted company. Scripted
+    runs now keep time by the game's own waits (platform_common.c).
+  - "Backing out with Triangle hung": Triangle in the chest opens the card
+    viewer, and Triangle does not close it; Circle does. Nothing hung. The
+    viewer's 30 fps frame bound makes Graphics_SyncFrame spin for a VBlank,
+    which a scripted run never delivered; it now waits for one
+    (`#ifdef MEMORIES_PC` in graphics_frame.c).
+  - A Linux state does not load in the Windows build, nor the other way:
+    a state holds the native game stack, laid out by another compiler. The
+    load now says so instead of "damaged state".
+- **Still open:** real Windows once, for the items Wine does not prove.
 
 **More traps, found while doing it:**
 - **Stack alignment is two-way.** `-mstack-alignment=4` (the first guess)

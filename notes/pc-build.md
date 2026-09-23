@@ -584,19 +584,35 @@ ones loaded after it.
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every
-`pc_*` CTest, then boots the game headless three times. It compares PPM hashes
-for the title at frame 900, the main menu after one cursor move, and Options.
+`pc_*` CTest, then boots the game headless once per case in
+`tests/pc/smoke/`. It compares PPM hashes for the title at frame 900, the
+main menu after one cursor move (4:3 and widescreen), Options, and the first
+campaign duel with both code mods on (a 3D Monsters model standing on a
+face-up card at frame 6760; the field turned by the hand camera's L1 at 6560).
 Failures retain the differing image beneath `tmp/pc/smoke/`. After an
 intentional rendering change, inspect those images and update the fixtures
 with `python3 tools/pc/smoke.py --record`; immediately run the normal command
 twice before committing new hashes.
 
 The smoke runner clears other `MEMORIES_*` switches (except a caller-supplied
-`MEMORIES_DISC`) and uses isolated settings files, a fixed headless dump clock,
-no gamepad and no audio device. It still requires the private disc image and
-the native build prerequisites described above. Each boot gets 120 s;
-`MEMORIES_SMOKE_TIMEOUT=<seconds>` raises it where the headless game runs
-slower (the Windows build reaches frame 1100 in about four minutes).
+`MEMORIES_DISC`) and gives each case its own settings file and an emptied user
+folder (`tmp/pc/smoke/<case>.user`, so the player's memory cards take no part),
+no gamepad and no audio device. A case's `settings` fill that file
+(`"aspect": 2`, `"mod.3d-monsters": 1`). It still requires the private disc
+image and the native build prerequisites described above. Each boot gets
+120 s; `MEMORIES_SMOKE_TIMEOUT=<seconds>` raises it where the headless game
+runs slower.
+
+A run that is headless, uncapped (`MEMORIES_SPEED=-1`) and dumps a frame is
+deterministic: the same input gives the same frame on Linux, on the Windows
+build (under Wine), and with the machine under load. Its game time moves only
+where the game waits: `Platform_WaitVBlank` steps it 1 ms at a time to the next
+VBlank, and a VSync that only reads the count steps it 1 ms (movie playback
+polls that way). The host timer steps it only after a second without a wait,
+so a spinning loop cannot hang. Driven by the host timer, as it used to be, a
+frame that took longer to compute got more ticks, so more disc sectors, and the
+Linux and Windows builds dealt different hands in the first duel. It is also
+fast: frame 1100 in about 3 s on Linux.
 
 ### Save states
 
