@@ -192,10 +192,18 @@ def fetch_sdl():
         bundle.extractall(os.path.dirname(SDL_SOURCE), **({"filter": "data"} if hasattr(tarfile, "data_filter") else {}))
 
 
-def build_sdl():
-    if os.path.exists(os.path.join(SDL_BUILD, "libSDL3.a")):
-        return
+def build_sdl(sysroot_stamp):
+    """SDL3 against the sysroot. Rebuilt when the SDL release or the sysroot
+    changes; the source is fetched first either way, since the game's
+    sdl.c compiles against its headers."""
     fetch_sdl()
+    stamp = os.path.join(SDL_BUILD, ".complete")
+    wanted = f"{SDL_ARCHIVE[0]}\n{sysroot_stamp}"
+    if os.path.exists(os.path.join(SDL_BUILD, "libSDL3.a")) and os.path.exists(stamp):
+        with open(stamp) as handle:
+            if handle.read() == wanted:
+                return
+    shutil.rmtree(SDL_BUILD, ignore_errors=True)
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import fetch_tools
     fetch_tools.ensure("cmake")
@@ -232,11 +240,25 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
                     "-DSDL_IBUS=OFF", "-DSDL_WAYLAND_LIBDECOR=OFF", "-DSDL_SNDIO=OFF"],
                    env=environment, check=True)
     subprocess.run(["cmake", "--build", SDL_BUILD], env=environment, check=True)
+    with open(stamp, "w") as handle:
+        handle.write(wanted)
+
+
+def sysroot_stamp():
+    """The .complete marker's first line: the packages asked for. A sysroot
+    laid out for another list (an older checkout's, before libgcc-10-dev
+    joined it) is laid out again; the .debs stay in DOWNLOADS."""
+    return f"{SUITE} {' '.join(SEEDS)}\n"
 
 
 def main():
     stamp = os.path.join(SYSROOT, ".complete")
-    if not os.path.exists(stamp):
+    wanted = sysroot_stamp()
+    current = None
+    if os.path.exists(stamp):
+        with open(stamp) as handle:
+            current = handle.readline()
+    if current != wanted:
         mirror, found = index()
         chosen = resolve(found)
         shutil.rmtree(SYSROOT, ignore_errors=True)
@@ -249,9 +271,10 @@ def main():
             extract(deb, SYSROOT)
         lay_out()
         with open(stamp, "w") as handle:
+            handle.write(wanted)
             handle.writelines(f"{name} {fields['Version']}\n" for name, fields in sorted(chosen.items()))
         print(f"{SYSROOT}: {len(chosen)} packages from Debian {SUITE}")
-    build_sdl()
+    build_sdl(wanted)
     print(f"{SDL_BUILD}/libSDL3.a")
 
 
