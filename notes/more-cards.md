@@ -160,8 +160,10 @@ The plate is drawn subtractively over the gold frame through its own fixed
 palette: entry 1 takes the most away and is the darkest ink, 7 barely shows,
 0 is clear. The retail plates put their stems at 1 with faint 6 and 7
 fringes, and a plate that inks with 7 reads as a pale ghost. The generated
-plates follow the settings the YuGiOhForbiddenMemoriesRecomp project measured
-against window captures (`src/psx_card_packs.c`, `render_title`): Times
+plates follow the settings the
+[YuGiOhForbiddenMemoriesRecomp](https://github.com/yamyi/YuGiOhForbiddenMemoriesRecomp)
+project measured against window captures (its `psx_card_packs.c`,
+`render_title`): Times
 regular at 13 pixels, the baseline under row 11, whole-pixel advances,
 coverage in hard steps (150 and up ink 1, 96 an edge at 3, 40 a halo at 6),
 and a name wider than 90 pixels squeezed into columns 3 to 93 and brought
