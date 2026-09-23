@@ -18,6 +18,8 @@ Usage: upscale_pack.py --images tmp/pc/images --images tmp/pc/images-story
 --images may be given several times: one pack from all the sets (an image
 in two sets, the same path, is taken once). --merge adds an existing pack's
 images as they are, already upscaled some other way.
+A sheet's columns (the `sheets` family marks them) are joined side by side
+for the model, as they stand in VRAM, and cut apart again: no seam.
 --scale is the whole enlargement (4: a 128x128 background becomes 512x512,
 what the game's Internal 4x shows one to one). It takes ceil(log4 scale)
 passes unless --passes says otherwise; each pass runs the model's 4x and
@@ -147,31 +149,73 @@ def main() -> int:
     if pending:
         work = tempfile.mkdtemp(prefix="upscale-")
         try:
-            # Flat names in the work directories: the manifest's paths have folders.
-            flat = {f"{index:05d}.png": entry for index, entry in enumerate(pending)}
+            # Flat names in the work directories: the manifest's paths have
+            # folders. A sheet's columns (the extractor marks them) stand side
+            # by side in VRAM, so the model sees them joined into one picture
+            # and nothing shows at the joins; the result is cut back apart.
+            jobs = []  # [entries left to right]
+            by_sheet = {}
+            for entry in pending:
+                if "sheet" in entry:
+                    by_sheet.setdefault((entry["sheet"], entry["bpp"], entry.get("clut_offset"), entry["source"]),
+                                        []).append(entry)
+                else:
+                    jobs.append([entry])
+            for parts in by_sheet.values():
+                parts.sort(key=lambda e: e["column"])
+                run = []
+                for entry in parts:
+                    if run and (entry["column"] != run[-1]["column"] + 1 or entry["height"] != run[-1]["height"]):
+                        jobs.append(run)
+                        run = []
+                    run.append(entry)
+                jobs.append(run)
+            flat = {f"{index:05d}.png": parts for index, parts in enumerate(jobs)}
             stage = os.path.join(work, "in")
             os.makedirs(stage)
-            for name, entry in flat.items():
-                shutil.copyfile(os.path.join(entry["source"], entry["file"]), os.path.join(stage, name))
+            for name, parts in flat.items():
+                if len(parts) == 1:
+                    shutil.copyfile(os.path.join(parts[0]["source"], parts[0]["file"]), os.path.join(stage, name))
+                    continue
+                joined = Image.new("RGBA", (sum(e["width"] for e in parts), parts[0]["height"]))
+                x = 0
+                for entry in parts:
+                    with Image.open(os.path.join(entry["source"], entry["file"])) as image:
+                        joined.paste(image.convert("RGBA"), (x, 0))
+                    x += entry["width"]
+                joined.save(os.path.join(stage, name))
+            shares = {}
             for number in range(1, passes + 1):
                 target = os.path.join(work, f"pass{number}")
                 print(f"pass {number}: {len(flat)} images...", flush=True)
                 run_model(upscayl, models, args.model, stage, target)
-                for name, entry in flat.items():
+                for name, parts in flat.items():
                     # This pass's share of the scale, from the original's size; the
-                    # last pass lands exactly on the scale, capped by --max-side.
+                    # last pass lands exactly on the scale, capped by --max-side
+                    # (of one column, when several are joined).
                     scale = args.scale
-                    longest = max(entry["width"], entry["height"])
+                    longest = max(max(e["width"], e["height"]) for e in parts)
                     if longest * scale > args.max_side:
                         scale = args.max_side / longest
                     share = scale ** (number / passes)
-                    resize_to(os.path.join(target, name), max(1, round(entry["width"] * share)),
-                              max(1, round(entry["height"] * share)))
+                    shares[name] = share
+                    resize_to(os.path.join(target, name), max(1, sum(max(1, round(e["width"] * share)) for e in parts)),
+                              max(1, round(parts[0]["height"] * share)))
                 stage = target
-            for name, entry in flat.items():
-                destination = os.path.join(images_out, entry["file"])
-                os.makedirs(os.path.dirname(destination), exist_ok=True)
-                shutil.move(os.path.join(stage, name), destination)
+            for name, parts in flat.items():
+                if len(parts) == 1:
+                    destination = os.path.join(images_out, parts[0]["file"])
+                    os.makedirs(os.path.dirname(destination), exist_ok=True)
+                    shutil.move(os.path.join(stage, name), destination)
+                    continue
+                with Image.open(os.path.join(stage, name)) as joined:
+                    x = 0
+                    for entry in parts:
+                        width = max(1, round(entry["width"] * shares[name]))
+                        destination = os.path.join(images_out, entry["file"])
+                        os.makedirs(os.path.dirname(destination), exist_ok=True)
+                        joined.crop((x, 0, x + width, joined.height)).save(destination)
+                        x += width
         finally:
             shutil.rmtree(work, ignore_errors=True)
     seen = {identity(entry) for entry in chosen}

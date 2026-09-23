@@ -166,7 +166,7 @@ class Extractor:
     def image(self, archive: str, offset: int, words: int, rows: int, bpp: int,
               clut_offset: int | None, path: str, alias: str, clut_entries: int | None = None,
               stride: int | None = None, row_offsets: list[int] | None = None,
-              crop: tuple[int, int] | None = None) -> None:
+              crop: tuple[int, int] | None = None, sheet: str | None = None, column: int = 0) -> None:
         data = self.archive(archive)
         entries = clut_entries if clut_entries is not None else {4: 16, 8: 256, 16: 0}[bpp]
         identity = (archive, offset, words, rows, bpp, clut_offset if entries else None, stride, crop)
@@ -190,12 +190,18 @@ class Extractor:
             os.makedirs(os.path.dirname(full), exist_ok=True)
             write_png(full, width, height, rgba)
             self.identical[digest] = path
-        self.manifest.append({
+        entry = {
             "file": path, "alias": alias, "archive": archive, "offset": offset,
             "words": words, "rows": rows, "bpp": bpp, "width": width, "height": height,
             "clut_offset": clut_offset, "clut_entries": entries, "stride": words if stride is None else stride,
             "row_offsets": row_offsets,
-        })
+        }
+        if sheet is not None:
+            # Columns of one sheet stand side by side in VRAM: a tool that
+            # enlarges them may join them first so nothing shows at the joins.
+            entry["sheet"] = sheet
+            entry["column"] = column
+        self.manifest.append(entry)
 
     def assets(self, listing: str) -> None:
         """assets.txt from a MEMORIES_DUMP_TEXTURES run: every texture the game
@@ -430,7 +436,7 @@ class Extractor:
                     self.image(sheet.archive, offset, 64, rows, bpp, clut if entries else None, f"{name}.png",
                                f"{sheet.alias}, column {column} at VRAM ({x}, {sheet.y}), {bpp} bpp"
                                + (f", palette at 0x{clut:x}" if entries else ""),
-                               clut_entries=entries, stride=64)
+                               clut_entries=entries, stride=64, sheet=sheet.stem, column=column)
 
     def save_manifest(self) -> None:
         with open(os.path.join(self.out, "manifest.json"), "w", encoding="utf-8") as handle:
