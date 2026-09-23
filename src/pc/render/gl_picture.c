@@ -951,7 +951,8 @@ static int bind_pack_entry(int entry)
         glBindTexture(GL_TEXTURE_2D, entry_textures[entry - 1]);
     }
     gl_ActiveTexture(GL_TEXTURE0);
-    gl_Uniform4i(u_pack_entry, entry, crop_left, crop_width, rows);
+    /* The maps name the head of the entry's readings; this entry's image. */
+    gl_Uniform4i(u_pack_entry, TexturePack_EntryHead(entry), crop_left, crop_width, rows);
     gl_Uniform3i(u_pack_size, width, height, per);
     return 1;
 }

@@ -31,8 +31,26 @@ static volatile int wanted_resolve, wanted_images;
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
 static unsigned generation; /* of the maps and the entries (texture_pack.h) */
+/* prepare's pick for the primitive: the head entry (index) whose words it
+ * samples and the sibling read with its depth and palette. */
+static int chosen_head = -1, chosen = -1;
 
 static int per_word(int bpp) { return bpp == 4 ? 4 : bpp == 8 ? 2 : 1; }
+
+/* Readings of the same words: entries of one geometry, differing in depth
+ * or palette (a sheet the game draws with several palettes). Sorted by
+ * offset they are adjacent; the first is the head, the one the maps name. */
+static int sibling(const Entry *a, const Entry *b)
+{
+    return a->offset == b->offset && a->words == b->words && a->rows == b->rows && a->stride == b->stride &&
+           !a->row_offsets && !b->row_offsets;
+}
+
+static int head_of(int index)
+{
+    while (index > 0 && sibling(&entries[index - 1], &entries[index])) index--;
+    return index;
+}
 
 /* The disc byte offset of an archive named as the extractor names it
  * ("WA_MRG.MRG"): -1 if the disc has no such file, -2 while there is no
@@ -143,8 +161,8 @@ static int sample(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb
     const unsigned char *p;
     int64_t px, py;
     int row, word, texel_x;
-    if (!index) return 0;
-    entry = &entries[index - 1];
+    if (!index || index - 1 != chosen_head) return 0; /* prepare's pick: its words, its reading */
+    entry = &entries[chosen];
     if (!entry->image || per != per_word(entry->bpp)) return 0;
     row = (int)(place_of[at] >> 16);
     word = (int)(place_of[at] & 0xffff);
@@ -253,6 +271,7 @@ static void paint(int x, int y, int w, int h)
             entry_of[vy * SOFT_GPU_WIDTH + vx] = 0;
             generation++;
             if (!tag || (index = locate(tag - 1, &row, &word)) < 0) continue;
+            index = head_of(index);
             entry = &entries[index];
             if (!entry->pixels) {
                 if (!entry->failed) {
@@ -274,23 +293,43 @@ static void paint(int x, int y, int w, int h)
     }
 }
 
-/* Once per textured primitive: the shadow applies if the word of a texel it
- * samples was painted from an image and its palette is that image's. */
+/* Once per textured primitive: a pack image applies if the word of a texel
+ * it samples was painted from one and the primitive reads it at that
+ * image's depth with its palette. Among the readings of the same words the
+ * one whose palette this is: 1 when it is the head, whose colours the
+ * shadow holds, so the 1x picture shows them too; 2 for another reading,
+ * for the scaled picture alone (sample). */
 static int prepare(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v)
 {
     int per = depth == 0 ? 4 : depth == 1 ? 2 : 1;
     int vx = (page_x + (u & 0xff) / per) & (SOFT_GPU_WIDTH - 1), vy = (page_y + (v & 0xff)) & (SOFT_GPU_HEIGHT - 1);
     uint16_t index = entry_of[vy * SOFT_GPU_WIDTH + vx];
-    const Entry *entry;
-    int bpp = depth == 0 ? 4 : depth == 1 ? 8 : 16;
+    int bpp = depth == 0 ? 4 : depth == 1 ? 8 : 16, head, i;
+    uint32_t clut = 0;
+    chosen_head = chosen = -1;
     if (!index) return 0;
-    entry = &entries[index - 1];
-    if (entry->bpp != bpp) return 0;
-    if (entry->clut_entries) {
-        uint32_t clut = TextureDump_Tags[(clut_y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (clut_x & (SOFT_GPU_WIDTH - 1))];
-        if (!clut || clut - 1 != entry->clut_offset) return 0;
+    head = index - 1;
+    if (entries[head].clut_entries) {
+        clut = TextureDump_Tags[(clut_y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (clut_x & (SOFT_GPU_WIDTH - 1))];
     }
-    return 1;
+    for (i = head; i < entry_count && (i == head || sibling(&entries[head], &entries[i])); i++) {
+        Entry *entry = &entries[i];
+        if (entry->bpp != bpp) continue;
+        if (entry->clut_entries && (!clut || clut - 1 != entry->clut_offset)) continue;
+        if (!entry->image) {
+            /* Read between frames (TexturePack_Service); the head's colours
+             * are not this reading's, so nothing replaces until then. */
+            if (!entry->failed && !entry->wanted) {
+                entry->wanted = 1;
+                wanted_images = 1;
+            }
+            return 0;
+        }
+        chosen_head = head;
+        chosen = i;
+        return i == head ? 1 : 2;
+    }
+    return 0;
 }
 
 static void free_entries(void)
@@ -435,12 +474,14 @@ void TexturePack_Unload(void)
 
 int TexturePack_EntryFor(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v)
 {
-    int per = depth == 0 ? 4 : depth == 1 ? 2 : 1;
-    int vx = (page_x + (u & 0xff) / per) & (SOFT_GPU_WIDTH - 1), vy = (page_y + (v & 0xff)) & (SOFT_GPU_HEIGHT - 1);
-    uint16_t index;
     if (!entries || !entry_of || !TextureDump_Tags || !prepare(page_x, page_y, depth, clut_x, clut_y, u, v)) return 0;
-    index = entry_of[vy * SOFT_GPU_WIDTH + vx];
-    return index && entries[index - 1].image ? index : 0;
+    return chosen + 1;
+}
+
+int TexturePack_EntryHead(int entry)
+{
+    if (entry < 1 || entry > entry_count) return 0;
+    return head_of(entry - 1) + 1;
 }
 
 int TexturePack_EntryImage(int entry, const unsigned char **rgba, int *width, int *height, int *crop_left,
