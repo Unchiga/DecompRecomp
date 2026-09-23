@@ -278,7 +278,7 @@ the reason beside any that failed to load.
 |---|---|
 | `mods/3d-monsters` | face-up monsters on the duel field stand on their cards as animated models (`notes/pc-build.md`) |
 | `mods/hand-camera` | L1/R1 turn and L3/R3 zoom the duel camera while the hand is up |
-| `mods/more-cards` | a hundred Kuribohs after the disc's cards, the worked example of `cards` (off by default; `MEMORIES_MOD_MORE_CARDS_COUNT` changes how many) |
+| `mods/more-cards` | a thousand made-up cards after the disc's, each a copy of a retail monster: the worked example of `cards` (off by default) |
 
 The first two were part of the executable until they became mods; they are
 the worked examples of a code mod that reaches deep into the game. 3D Monsters' knobs

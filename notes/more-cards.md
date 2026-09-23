@@ -13,7 +13,9 @@ none of these cards, so wherever the game goes to the disc, or to a table laid
 out by the disc, it asks for the base instead.
 
 `mods/more-cards` is the worked example: a data-only mod, off by default, that
-adds a hundred Kuribohs named "Kuriboh 1" to "Kuriboh 100" (ids 723 to 822).
+adds a thousand cards (ids 723 to 1722), each a copy of a retail monster with
+a made-up name and its own ATK and DEF: 723 is "Dingus Shmingus" (Kuriboh's
+art), 724 "Shmungus Mingus" (Blue-eyes') and so on to 1722 "Droodle Spumbus".
 
 ## The manifest
 
@@ -33,7 +35,7 @@ adds a hundred Kuribohs named "Kuriboh 1" to "Kuriboh 100" (ids 723 to 822).
 |---|---|
 | `copy` | the base: a retail card id (1-722) or its name as the game spells it (`"Kuriboh"`, any case) |
 | `count` | how many cards this entry adds (default 1) |
-| `count_setting` | read `count` from one of the mod's settings instead, so `MEMORIES_MOD_MORE_CARDS_COUNT=5000` or `mod.more-cards.count=5000` in the settings file changes it without editing the manifest |
+| `count_setting` | read `count` from one of the mod's settings instead, so `MEMORIES_MOD_<ID>_COUNT=5000` or `mod.<id>.count=5000` in the settings file changes it without editing the manifest |
 | `name` | the cards' own name; `{n}` is the card's number within the entry and `{id}` its card id. Without one a card has its base's name. Letters, digits, spaces and ``!"#$%&'()*+,-./:<>?`` are what the game's font has |
 | `attack`, `defense` | 0 to 5110, in tens, as the game stores them |
 | `type` | a number or a name (`"Dragon"`, `"Winged Beast"`). A copy of a monster stays a monster, since it has its base's 3D model; a copy of a magic, trap, ritual or equip card keeps its type, since it has its base's effect |
