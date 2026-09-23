@@ -17,6 +17,7 @@
 #include "pc/debug/crash.h"
 #include "pc/mods/mods.h"
 #include "pc/render/texture_pack.h"
+#include "pc/compat/signal.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
 #define MAX_FRAME_WORDS 0x80000u
@@ -203,6 +204,22 @@ static void present_wide(int w, int h)
     Platform_Present(sides, SOFT_GPU_WIDTH * 2, 0, 0, w + 2 * margin, h, disp_env.isrgb24);
 }
 
+int Memories_SetInternalScale(int wanted)
+{
+    sigset_t held, previous;
+    int done;
+    /* 1, 2, 4 or 8: the setting's 3 is 2, 5 to 7 are 4. */
+    wanted = wanted >= 8 ? 8 : wanted >= 4 ? 4 : wanted >= 2 ? 2 : 1;
+    /* The old picture is freed and a new one made, and an upload from the
+     * interrupt tick draws into the picture: the clock waits meanwhile. */
+    sigemptyset(&held);
+    sigaddset(&held, SIGALRM);
+    sigprocmask(SIG_BLOCK, &held, &previous);
+    done = SoftGpu_SetScale(wanted);
+    sigprocmask(SIG_SETMASK, &previous, NULL);
+    return done;
+}
+
 void Memories_PresentDisplay(void)
 {
     const char *dump = getenv("MEMORIES_DUMP_FRAME");
@@ -220,7 +237,7 @@ void Memories_PresentDisplay(void)
         const char *rescale = getenv("MEMORIES_SCALE_AT"); /* "<frame>:<scale>": the View menu's change, scripted */
         if (shot && frames_presented == atoi(shot)) Platform_Screenshot(1);
         if (rescale && frames_presented == atoi(rescale) && strchr(rescale, ':')) {
-            SoftGpu_SetScale(atoi(strchr(rescale, ':') + 1));
+            Memories_SetInternalScale(atoi(strchr(rescale, ':') + 1));
         }
     }
     if (dump && frames_presented == atoi(dump)) {

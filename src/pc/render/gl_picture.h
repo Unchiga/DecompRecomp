@@ -21,6 +21,10 @@ int GlPicture_Replay(void);
  * is the top of VRAM), after Replay. */
 unsigned GlPicture_Texture(int *picture_w, int *picture_h);
 int GlPicture_Scale(void);
+/* The record is half the arena: frames went unshown (a raised game speed)
+ * and it should be replayed before it overflows, which would draw the next
+ * frame from VRAM at 1x. */
+int GlPicture_Behind(void);
 /* Pixels x,y,w,h of the picture as 0x00RRGGBB, after a Replay. Returns 0
  * when the pass is off. */
 int GlPicture_Read(int x, int y, int w, int h, uint32_t *out);

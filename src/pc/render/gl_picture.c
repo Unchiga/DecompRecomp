@@ -189,12 +189,12 @@ static GLint u_picture_size, u_window, u_op, u_pass, u_scale, u_copy_offset, u_v
 static GLuint banks_texture;
 static uint16_t *bank_copy[SOFT_GPU_BANKS];
 static int bank_used[SOFT_GPU_BANKS];
-/* The texture pack (texture_pack.h): its maps as integer textures and its
- * images as textures, made as primitives need them, dropped when the
- * pack's generation moves on. */
+/* The texture pack (texture_pack.h): its maps as integer textures,
+ * uploaded again when they change, and its images as textures, made as
+ * primitives need them, dropped when the entries change. */
 static GLuint entry_map_texture, place_map_texture, *entry_textures;
 static int entry_texture_count;
-static unsigned pack_generation = ~0u;
+static unsigned pack_generation = ~0u, map_generation = ~0u;
 static GLint u_entry_map, u_place_map, u_pack, u_pack_entry, u_pack_size;
 
 static const char *vertex_source =
@@ -501,9 +501,12 @@ typedef struct Vertex {
     int x, y, r, g, b, u, v;
 } Vertex;
 
+/* A subtractive primitive is a run of its own: its two passes (opaque
+ * texels, then the semi-transparent ones) must not straddle a later
+ * primitive that overlaps it. */
 static int run_matches(const Run *run, int subtractive)
 {
-    return run->clip[0] == state.clip_x1 && run->clip[1] == state.clip_y1 && run->clip[2] == state.clip_x2 &&
+    return !subtractive && run->clip[0] == state.clip_x1 && run->clip[1] == state.clip_y1 && run->clip[2] == state.clip_x2 &&
            run->clip[3] == state.clip_y2 && run->window[0] == state.window_mask_x &&
            run->window[1] == state.window_mask_y && run->window[2] == state.window_x &&
            run->window[3] == state.window_y && run->subtractive == subtractive && run->pack == state.pack;
@@ -897,22 +900,28 @@ static GLuint make_map_texture(GLenum internal, GLenum type)
     return make_texture(internal, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT, GL_RED_INTEGER, type);
 }
 
-/* The pack's maps, uploaded again when the pack changed since; its image
- * textures are dropped then, to be made again as needed. */
+/* The pack's maps, uploaded again when they changed since; its image
+ * textures are dropped when the entries changed, to be made again as
+ * needed. */
 static void sync_pack(void)
 {
-    unsigned generation = TexturePack_Generation();
+    unsigned generation = TexturePack_Generation(), maps = TexturePack_MapGeneration();
     const uint16_t *entry_map = TexturePack_EntryMap();
     const uint32_t *place_map = TexturePack_PlaceMap();
     int i;
-    if (generation == pack_generation || !entry_map || !place_map) return;
-    pack_generation = generation;
-    for (i = 0; i < entry_texture_count; i++) {
-        if (entry_textures[i]) glDeleteTextures(1, &entry_textures[i]);
+    if (!entry_map || !place_map) return;
+    if (generation != pack_generation) {
+        pack_generation = generation;
+        for (i = 0; i < entry_texture_count; i++) {
+            if (entry_textures[i]) glDeleteTextures(1, &entry_textures[i]);
+        }
+        free(entry_textures);
+        entry_textures = NULL;
+        entry_texture_count = 0;
+        map_generation = maps - 1; /* the maps with them */
     }
-    free(entry_textures);
-    entry_textures = NULL;
-    entry_texture_count = 0;
+    if (maps == map_generation) return;
+    map_generation = maps;
     if (!entry_map_texture) entry_map_texture = make_map_texture(GL_R16UI, GL_UNSIGNED_SHORT);
     if (!place_map_texture) place_map_texture = make_map_texture(GL_R32UI, GL_UNSIGNED_INT);
     gl_ActiveTexture(GL_TEXTURE3);
@@ -1175,6 +1184,7 @@ int GlPicture_Replay(void)
     want_resync = 0;
     sigprocmask(SIG_SETMASK, &previous, NULL);
     if (!taken) return 0;
+    if (!count && !overflow && !wanted_resync && scale < 2) return 0; /* 1x: nothing recorded, nothing to draw */
     if (vertex_array) glBindVertexArray_(vertex_array);
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
@@ -1265,6 +1275,8 @@ unsigned GlPicture_Texture(int *picture_w, int *picture_h)
 }
 
 int GlPicture_Scale(void) { return on ? scale : 0; }
+
+int GlPicture_Behind(void) { return on && arena_used > ARENA_WORDS / 2; }
 
 int GlPicture_Read(int x, int y, int w, int h, uint32_t *out)
 {

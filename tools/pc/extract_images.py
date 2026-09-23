@@ -177,6 +177,7 @@ class Extractor:
         if palette is not None and len(palette) < 256:
             palette = palette + [0] * (256 - len(palette))  # indices past a short palette
         width, height, rgba = decode(data, offset, words, rows, bpp, palette, stride, row_offsets)
+        left = 0
         if crop and (crop[0] or crop[1] != width):
             left, span = crop
             rgba = b"".join(rgba[(y * width + left) * 4:(y * width + left + span) * 4] for y in range(height))
@@ -192,7 +193,7 @@ class Extractor:
             self.identical[digest] = path
         entry = {
             "file": path, "alias": alias, "archive": archive, "offset": offset,
-            "words": words, "rows": rows, "bpp": bpp, "width": width, "height": height,
+            "words": words, "rows": rows, "bpp": bpp, "width": width, "height": height, "crop_left": left,
             "clut_offset": clut_offset, "clut_entries": entries, "stride": words if stride is None else stride,
             "row_offsets": row_offsets,
         }

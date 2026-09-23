@@ -53,10 +53,16 @@ int TextureDump_EnableShadow(void);
  * primitive's page. Returns 0 when the texel is not replaced, 1 with the
  * colour as 0x00RRGGBB, 2 when it is painted transparent. NULL: no pack. */
 extern int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
+/* The pack's own record of what it painted where, kept in step with the
+ * words: cleared (a fill, a state load, an upload not from the disc) and
+ * moved. NULL: no pack. */
+extern void (*TextureDump_Forget)(int x, int y, int w, int h);
+extern void (*TextureDump_Follow)(int sx, int sy, int dx, int dy, int w, int h);
 static inline uint16_t *TextureDump_Cell(int x, int y, int sub)
 {
     return &TextureDump_Shadow[(y & (SOFT_GPU_HEIGHT - 1)) * TEXTURE_SHADOW_WIDTH + (x & (SOFT_GPU_WIDTH - 1)) * 4 + sub];
-}/* The disc layer, which names the archives (Memories_DiscFileInfo). */
+}
+/* The disc layer, which names the archives (Memories_DiscFileInfo). */
 void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsigned *size));
 /* That lookup, for the pack: 0 and the file's first sector when it is on the disc. */
 int TextureDump_DiscFile(const char *path, int *lba, unsigned *size);

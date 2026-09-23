@@ -111,8 +111,12 @@ const uint16_t *SoftGpu_Vram(void)
 
 void SoftGpu_StateWords(uint32_t words[6])
 {
+    uint32_t bank = 0, b;
+    for (b = 1; b < SOFT_GPU_BANKS; b++) {
+        if (banks[b] && texture_source == banks[b]) bank = b; /* bits 11-14, as set_page reads them */
+    }
     words[0] = 0xe1000000u | (uint32_t)(gpu.page_x / 64) | ((uint32_t)(gpu.page_y / 256) << 4) |
-               ((uint32_t)gpu.blend << 5) | ((uint32_t)gpu.depth << 7) | ((uint32_t)gpu.dither << 9);
+               ((uint32_t)gpu.blend << 5) | ((uint32_t)gpu.depth << 7) | ((uint32_t)gpu.dither << 9) | (bank << 11);
     words[1] = 0xe2000000u | (uint32_t)gpu.window_mask_x | ((uint32_t)gpu.window_mask_y << 5) |
                ((uint32_t)gpu.window_x << 10) | ((uint32_t)gpu.window_y << 15);
     words[2] = 0xe3000000u | (uint32_t)gpu.clip_x1 | ((uint32_t)gpu.clip_y1 << 10);
@@ -136,7 +140,7 @@ void SoftGpu_Reset(void)
     TextureDump_Init();
     gpu.clip_x2 = SOFT_GPU_WIDTH - 1;
     gpu.clip_y2 = SOFT_GPU_HEIGHT - 1;
-    if (recorder) { /* the state alone: VRAM and the picture stay */
+    if (recorder && scale > 1) { /* the state alone: VRAM and the picture stay */
         uint32_t words[6];
         SoftGpu_StateWords(words);
         recorder->gp0(words, 6);
@@ -418,19 +422,19 @@ static void fill_words(int x, int y, int w, int h, uint32_t rgb24)
  * transfers are in its record already. */
 void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
 {
-    if (recorder) recorder->load(x, y, w, h, pixels);
+    if (recorder && scale > 1) recorder->load(x, y, w, h, pixels);
     load_words(x, y, w, h, pixels);
 }
 
 void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
 {
-    if (recorder) recorder->move(sx, sy, dx, dy, w, h);
+    if (recorder && scale > 1) recorder->move(sx, sy, dx, dy, w, h);
     move_words(sx, sy, dx, dy, w, h);
 }
 
 void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
 {
-    if (recorder) recorder->fill(x, y, w, h, rgb24);
+    if (recorder && scale > 1) recorder->fill(x, y, w, h, rgb24);
     fill_words(x, y, w, h, rgb24);
 }
 
@@ -1002,7 +1006,7 @@ static size_t lines(const uint32_t *words, size_t count)
 size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
 {
     size_t at = 0;
-    if (recorder) recorder->gp0(words, count);
+    if (recorder && scale > 1) recorder->gp0(words, count);
     while (at < count) {
         uint32_t word = words[at], command = word >> 24;
         size_t used = 1;

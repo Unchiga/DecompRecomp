@@ -30,7 +30,7 @@ static int entry_count, resolved; /* offsets are absolute on the disc, entries s
 static volatile int wanted_resolve, wanted_images;
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
-static unsigned generation; /* of the maps and the entries (texture_pack.h) */
+static unsigned generation, map_generation; /* of the entries, of the maps (texture_pack.h) */
 /* prepare's pick for the primitive: the head entry (index) whose words it
  * samples and the sibling read with its depth and palette. */
 static int chosen_head = -1, chosen = -1;
@@ -169,6 +169,7 @@ static int sample(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb
     int64_t px, py;
     int row, word, texel_x;
     if (!index || index - 1 != chosen_head) return 0; /* prepare's pick: its words, its reading */
+    if (!*TextureDump_Cell(vx, vy, (tu % per) * (4 / per))) return 0; /* drawn over since */
     entry = &entries[chosen];
     if (!entry->image || per != per_word(entry->bpp)) return 0;
     row = (int)(place_of[at] >> 16);
@@ -226,13 +227,14 @@ static int locate(uint32_t offset, int *row, int *word)
 }
 
 /* The disc is open after the mods are applied, so the archives' places are
- * looked up on first use; an archive the disc lacks drops its images. */
+ * looked up on first use; an archive the disc lacks drops its images.
+ * 1 resolved, 0 nothing left to resolve, -1 no disc yet. */
 static int resolve(void)
 {
     int i, kept = 0;
     if (resolved) return 1;
     for (i = 0; i < entry_count; i++) {
-        if (!entries[i].absolute && archive_start(entries[i].archive) == -2) return 0; /* no disc yet: next time */
+        if (!entries[i].absolute && archive_start(entries[i].archive) == -2) return -1; /* no disc yet: next time */
     }
     for (i = 0; i < entry_count; i++) {
         Entry *entry = &entries[i];
@@ -253,6 +255,7 @@ static int resolve(void)
     generation++; /* the entries' order changes: their indexes with it */
     if (!entry_count) {
         fprintf(stderr, "memories-pc: texture packs: none of their archives is on the disc\n");
+        resolved = 1; /* nothing to paint, and nothing to ask again every frame */
         return 0;
     }
     qsort(entries, (size_t)entry_count, sizeof(*entries), compare);
@@ -273,11 +276,15 @@ static void paint(int x, int y, int w, int h)
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             int vx = (x + i) & (SOFT_GPU_WIDTH - 1), vy = (y + j) & (SOFT_GPU_HEIGHT - 1), row, word, index, k, per;
-            uint32_t tag = TextureDump_Tags[vy * SOFT_GPU_WIDTH + vx];
+            size_t at = (size_t)vy * SOFT_GPU_WIDTH + vx;
+            uint32_t tag = TextureDump_Tags[at], place;
+            uint16_t was = entry_of[at];
             Entry *entry;
-            entry_of[vy * SOFT_GPU_WIDTH + vx] = 0;
-            generation++;
-            if (!tag || (index = locate(tag - 1, &row, &word)) < 0) continue;
+            entry_of[at] = 0;
+            if (!tag || (index = locate(tag - 1, &row, &word)) < 0) {
+                if (was) map_generation++;
+                continue;
+            }
             index = head_of(index);
             entry = &entries[index];
             if (!entry->pixels) {
@@ -285,16 +292,50 @@ static void paint(int x, int y, int w, int h)
                     entry->wanted = 1;
                     wanted_images = 1;
                 }
+                if (was) map_generation++;
                 continue;
             }
             per = per_word(entry->bpp);
-            entry_of[vy * SOFT_GPU_WIDTH + vx] = (uint16_t)(index + 1);
-            place_of[vy * SOFT_GPU_WIDTH + vx] = ((uint32_t)row << 16) | (uint32_t)word;
-            generation++;
+            place = ((uint32_t)row << 16) | (uint32_t)word;
+            if (was != index + 1 || place_of[at] != place) map_generation++;
+            entry_of[at] = (uint16_t)(index + 1);
+            place_of[at] = place;
             for (k = 0; k < per; k++) {
                 uint16_t colour = entry->pixels[row * entry->words * per + word * per + k];
                 int sub = k * (4 / per), s;
                 for (s = 0; s < 4 / per; s++) *TextureDump_Cell(vx, vy, sub + s) = colour;
+            }
+        }
+    }
+}
+
+/* The maps follow the words as the shadow does (texture_dump.c): cleared
+ * with them, and moved with them. */
+static void forget(int x, int y, int w, int h)
+{
+    int i, j;
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) {
+            size_t at = (size_t)((y + j) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((x + i) & (SOFT_GPU_WIDTH - 1));
+            if (entry_of[at]) {
+                entry_of[at] = 0;
+                map_generation++;
+            }
+        }
+    }
+}
+
+static void follow(int sx, int sy, int dx, int dy, int w, int h)
+{
+    int i, j;
+    for (j = 0; j < h; j++) {
+        for (i = 0; i < w; i++) {
+            size_t from = (size_t)((sy + j) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((sx + i) & (SOFT_GPU_WIDTH - 1));
+            size_t to = (size_t)((dy + j) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((dx + i) & (SOFT_GPU_WIDTH - 1));
+            if (entry_of[to] != entry_of[from] || (entry_of[from] && place_of[to] != place_of[from])) {
+                entry_of[to] = entry_of[from];
+                place_of[to] = place_of[from];
+                map_generation++;
             }
         }
     }
@@ -379,17 +420,40 @@ int TexturePack_Load(const char *from)
         const char *file = Json_String(Json_Member(item, "file"), NULL);
         const char *archive = Json_String(Json_Member(item, "archive"), NULL);
         Entry *entry = &entries[entry_count];
+        double offset, clut_offset, words, rows_count, bpp, stride, crop_left, crop_width;
         if (!file || !archive || strlen(archive) >= sizeof(entry->archive)) continue; /* not addressed on the disc */
+        if (entry_count >= 65535) break; /* entry_of holds index + 1 in 16 bits */
+        offset = Json_Number(Json_Member(item, "offset"), -1);
+        words = Json_Number(Json_Member(item, "words"), 0);
+        rows_count = Json_Number(Json_Member(item, "rows"), 0);
+        bpp = Json_Number(Json_Member(item, "bpp"), 0);
+        clut_offset = Json_Number(Json_Member(item, "clut_offset"), 0);
+        stride = Json_Number(Json_Member(item, "stride"), words); /* rows contiguous unless said */
+        crop_left = Json_Number(Json_Member(item, "crop_left"), 0);
+        /* What the game could upload: a texture page at most 1024 words
+         * wide, 512 rows, from an offset on a CD. */
+        if (!(offset >= 0 && offset < 1e9) || !(clut_offset >= 0 && clut_offset < 1e9) ||
+            !(words >= 1 && words <= SOFT_GPU_WIDTH) || !(rows_count >= 1 && rows_count <= SOFT_GPU_HEIGHT) ||
+            (bpp != 4 && bpp != 8 && bpp != 16) || !(stride >= 1 && stride <= 1e6) ||
+            !(crop_left >= 0 && crop_left < words * per_word((int)bpp))) {
+            fprintf(stderr, "memories-pc: texture pack %s: %s has measures out of range; skipped\n", from, file);
+            continue;
+        }
+        crop_width = Json_Number(Json_Member(item, "width"), words * per_word((int)bpp) - crop_left);
+        if (!(crop_width >= 1 && crop_left + crop_width <= words * per_word((int)bpp))) {
+            fprintf(stderr, "memories-pc: texture pack %s: %s has measures out of range; skipped\n", from, file);
+            continue;
+        }
         strcpy(entry->archive, archive);
-        entry->offset = (uint32_t)Json_Number(Json_Member(item, "offset"), 0);
-        entry->words = (int)Json_Number(Json_Member(item, "words"), 0);
-        entry->rows = (int)Json_Number(Json_Member(item, "rows"), 0);
-        entry->bpp = (int)Json_Number(Json_Member(item, "bpp"), 0);
+        entry->offset = (uint32_t)offset;
+        entry->words = (int)words;
+        entry->rows = (int)rows_count;
+        entry->bpp = (int)bpp;
         entry->clut_entries = (int)Json_Number(Json_Member(item, "clut_entries"), 0);
-        entry->clut_offset = entry->clut_entries ? (uint32_t)Json_Number(Json_Member(item, "clut_offset"), 0) : 0;
-        entry->stride = (uint32_t)Json_Number(Json_Member(item, "stride"), entry->words); /* rows contiguous unless said */
-        entry->crop_left = (int)Json_Number(Json_Member(item, "crop_left"), 0);
-        entry->crop_width = (int)Json_Number(Json_Member(item, "width"), entry->words * per_word(entry->bpp));
+        entry->clut_offset = entry->clut_entries ? (uint32_t)clut_offset : 0;
+        entry->stride = (uint32_t)stride;
+        entry->crop_left = (int)crop_left;
+        entry->crop_width = (int)crop_width;
         if (rows && Json_Count(rows) == entry->rows) {
             int r;
             entry->row_offsets = malloc(sizeof(int32_t) * (size_t)entry->rows);
@@ -426,6 +490,8 @@ int TexturePack_Load(const char *from)
     TextureDump_Paint = paint;
     TextureDump_Prepare = prepare;
     TextureDump_Sample = sample;
+    TextureDump_Forget = forget;
+    TextureDump_Follow = follow;
     /* The disc's directory and the images wait for TexturePack_Service,
      * between frames: a mod is applied while the game starts, before the
      * disc is open, and an upload can ask for an image from the interrupt
@@ -450,8 +516,9 @@ void TexturePack_Service(void)
     sigprocmask(SIG_BLOCK, &held, &previous);
     if (wanted_resolve) {
         wanted_resolve = 0;
-        if (resolve()) painted = 1; /* uploads since the load were skipped */
-        else wanted_resolve = 1;    /* no disc yet: again next frame */
+        int got = resolve();
+        if (got > 0) painted = 1;        /* uploads since the load were skipped */
+        else if (got < 0) wanted_resolve = 1; /* no disc yet: again next frame */
     }
     if (wanted_images && resolved) {
         wanted_images = 0;
@@ -469,6 +536,8 @@ void TexturePack_Unload(void)
     TextureDump_Paint = NULL;
     TextureDump_Prepare = NULL;
     TextureDump_Sample = NULL;
+    TextureDump_Forget = NULL;
+    TextureDump_Follow = NULL;
     if (TextureDump_Shadow) {
         memset(TextureDump_Shadow, 0, (size_t)TEXTURE_SHADOW_WIDTH * SOFT_GPU_HEIGHT * sizeof(*TextureDump_Shadow));
     }
@@ -477,6 +546,7 @@ void TexturePack_Unload(void)
     resolved = 0;
     wanted_resolve = wanted_images = 0;
     generation++;
+    map_generation++;
 }
 
 int TexturePack_EntryFor(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v)
@@ -508,5 +578,6 @@ int TexturePack_EntryImage(int entry, const unsigned char **rgba, int *width, in
 }
 
 unsigned TexturePack_Generation(void) { return generation; }
+unsigned TexturePack_MapGeneration(void) { return map_generation; }
 const uint16_t *TexturePack_EntryMap(void) { return entry_of; }
 const uint32_t *TexturePack_PlaceMap(void) { return place_of; }
