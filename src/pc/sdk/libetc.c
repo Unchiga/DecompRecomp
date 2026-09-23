@@ -178,7 +178,9 @@ int VSyncCallback(void (*callback)(void))
  * for save states (src/pc/guest/state_i386.S). */
 int Memories_VSync(int mode)
 {
-    unsigned now = Platform_VBlankCount(), elapsed;
+    unsigned now, elapsed;
+    if (mode < 0 || mode == 1) Platform_PollTime();
+    now = Platform_VBlankCount();
     Platform_VSyncHeartbeat();
     if (mode < 0) {
         return (int)now;

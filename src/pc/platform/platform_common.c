@@ -38,7 +38,19 @@ static uint64_t present_next_us;  /* the present pacer's next slot */
 static uint64_t last_vsync_real;
 static unsigned watchdog_seconds = 5;
 static volatile int watchdog_reported;
+/* Headless, uncapped and dumping a frame (smoke tests, scripted runs): the
+ * run must come out the same on every host. Virtual time then moves only in
+ * Platform_WaitVBlank, 1 ms at a time, so the disc, the root counter and the
+ * VBlank see the same time between the same two game frames whatever the
+ * host's speed or its timer. Driven by the host timer, a frame that took
+ * longer to compute got more ticks, so more sectors, and a load finished a
+ * frame or ten earlier on one host than another (the random seed, which the
+ * name entry screen draws on every frame, then parted company). A VSync
+ * that only reads the count steps it too (Platform_PollTime). */
 static int deterministic_dump;
+static volatile uint64_t deterministic_last_wait; /* real time the game last waited for a VBlank */
+#define DETERMINISTIC_STEP 1000
+#define DETERMINISTIC_SPIN 1000000 /* real us outside a wait before the timer steps a spinning game */
 
 static uint64_t now_us(void)
 {
@@ -59,10 +71,14 @@ static void advance(uint64_t real_now)
     real_prev = real_now;
     if (elapsed > 100000) elapsed = 0;
     if (deterministic_dump && rate == -1) {
-        /* Timer-driven disc waits still need progress, but a fixed tick keeps
-         * their completion frame independent of host scheduling. */
-        virtual_now += 1000;
-        if (tick_handler) tick_handler(virtual_now, real_now);
+        /* Time passes in Platform_WaitVBlank. Only a game that has spun for
+         * a second without waiting for a VBlank gets steps from the timer,
+         * so that it cannot hang; no loop the game runs does that today, and
+         * no frame takes that long to compute. */
+        if (deterministic_last_wait && real_now - deterministic_last_wait > DETERMINISTIC_SPIN) {
+            virtual_now += DETERMINISTIC_STEP;
+            if (tick_handler) tick_handler(virtual_now, virtual_now);
+        }
         return;
     }
     if (rate > 0) virtual_now += elapsed * (uint64_t)rate / 100;
@@ -270,6 +286,24 @@ void Platform_NotifyPresent(uint64_t real_now_us, int vsynced)
     }
 }
 
+void Platform_PollTime(void)
+{
+    sigset_t set, previous;
+    if (!(deterministic_dump && rate == -1)) return;
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &set, &previous);
+    if (!next_vblank) next_vblank = virtual_now + vblank_period;
+    virtual_now += DETERMINISTIC_STEP;
+    if (tick_handler) tick_handler(virtual_now, virtual_now);
+    if (virtual_now >= next_vblank) {
+        next_vblank += vblank_period;
+        deliver_vblank();
+    }
+    deterministic_last_wait = now_us();
+    sigprocmask(SIG_SETMASK, &previous, NULL);
+}
+
 void Platform_WaitVBlank(unsigned count_at_entry)
 {
     struct timespec nap = {0, 500000};
@@ -280,15 +314,17 @@ void Platform_WaitVBlank(unsigned count_at_entry)
             sigaddset(&set, SIGALRM);
             sigprocmask(SIG_BLOCK, &set, &previous);
             if (!next_vblank) next_vblank = virtual_now + vblank_period;
-            if (virtual_now >= next_vblank) {
-                next_vblank += vblank_period;
-                deliver_vblank();
+            while (virtual_now < next_vblank) {
+                virtual_now += DETERMINISTIC_STEP;
+                if (tick_handler) tick_handler(virtual_now, virtual_now);
             }
+            next_vblank += vblank_period;
+            deliver_vblank();
+            deterministic_last_wait = now_us();
             sigprocmask(SIG_SETMASK, &previous, NULL);
 #ifdef _WIN32
             Win32_ServiceInterrupt();
 #endif
-            if (vblank_count == count_at_entry) nanosleep(&nap, NULL);
             continue;
         }
         if (rate == -1) {
