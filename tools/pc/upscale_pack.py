@@ -19,7 +19,9 @@ Usage: upscale_pack.py --images tmp/pc/images --images tmp/pc/images-story
 in two sets, the same path, is taken once). --merge adds an existing pack's
 images as they are, already upscaled some other way.
 A sheet's columns (the `sheets` family marks them) are joined side by side
-for the model, as they stand in VRAM, and cut apart again: no seam.
+for the model where one picture runs on from one into the next, as they
+stand in VRAM, and cut apart again: no seam, and no bleeding from a column
+that holds something else.
 --scale is the whole enlargement (4: a 128x128 background becomes 512x512,
 what the game's Internal 4x shows one to one). It takes ceil(log4 scale)
 passes unless --passes says otherwise; each pass runs the model's 4x and
@@ -46,7 +48,7 @@ import sys
 import tempfile
 import zipfile
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 USUAL_UPSCAYL = [
     r"C:\Program Files\Upscayl\resources\bin\upscayl-bin.exe",
@@ -75,6 +77,25 @@ def run_model(upscayl: str, models: str, model: str, source: str, target: str) -
     result = subprocess.run(command, capture_output=True)  # bytes: its messages are UTF-8 whatever the console's page
     if result.returncode != 0:
         sys.exit(f"upscayl-bin failed on {source}:\n{result.stderr.decode('utf-8', 'replace')[-2000:]}")
+
+
+def continuous(left: dict, right: dict) -> bool:
+    """Whether one picture runs on from the left column into the right one:
+    the step across the join is no bigger than the steps just inside each
+    column. A column that holds something else (a mask, another sprite)
+    would bleed into its neighbour's edge under the model."""
+    def step(a: Image.Image, b: Image.Image) -> float:
+        return sum(ImageStat.Stat(ImageChops.difference(a, b)).mean) / 4
+
+    with Image.open(os.path.join(left["source"], left["file"])) as l_image, \
+            Image.open(os.path.join(right["source"], right["file"])) as r_image:
+        l_image, r_image = l_image.convert("RGBA"), r_image.convert("RGBA")
+        h = min(l_image.height, r_image.height)
+        l_edge, l_inner = l_image.crop((l_image.width - 1, 0, l_image.width, h)), l_image.crop((l_image.width - 2, 0, l_image.width - 1, h))
+        r_edge, r_inner = r_image.crop((0, 0, 1, h)), r_image.crop((1, 0, 2, h))
+        across = step(l_edge, r_edge)
+        inside = max(step(l_inner, l_edge), step(r_edge, r_inner))
+        return across <= inside * 2 + 8
 
 
 def resize_to(path: str, width: int, height: int) -> None:
@@ -165,7 +186,8 @@ def main() -> int:
                 parts.sort(key=lambda e: e["column"])
                 run = []
                 for entry in parts:
-                    if run and (entry["column"] != run[-1]["column"] + 1 or entry["height"] != run[-1]["height"]):
+                    if run and (entry["column"] != run[-1]["column"] + 1 or entry["height"] != run[-1]["height"]
+                                or not continuous(run[-1], entry)):
                         jobs.append(run)
                         run = []
                     run.append(entry)
