@@ -43,6 +43,17 @@ void Graphics_SyncFrame(void)
         DrawSync(0);
     }
     while (D_8009B0C8 < D_8009B0C0) {
+#ifdef MEMORIES_PC
+        /* The console's VBlank interrupt ends this spin. Here it burned a
+         * core until the host timer delivered one, and a deterministic run
+         * (headless, dumping a frame), whose VBlanks come only from the
+         * game's waits, never got one: 30 fps screens such as the Free Duel
+         * card viewer set the bound to 1 and hung it. Waiting delivers the
+         * same VBlanks in the same order. */
+        extern void Platform_WaitVBlank(unsigned count);
+        extern unsigned Platform_VBlankCount(void);
+        Platform_WaitVBlank(Platform_VBlankCount());
+#endif
     }
 
     D_8009B0C1 = D_8009B0C8;
