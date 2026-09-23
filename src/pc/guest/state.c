@@ -25,8 +25,12 @@
 
 #ifdef _WIN32
 #define STACK_BASE 0xB0000000u /* 32-bit Windows loads system DLLs around 0x70000000; mods use 0x90000000 */
+#define OTHER_STACK_BASE 0x70000000u
+#define OTHER_SYSTEM "Linux"
 #else
 #define STACK_BASE 0x70000000u
+#define OTHER_STACK_BASE 0xB0000000u
+#define OTHER_SYSTEM "Windows"
 #endif
 #define STACK_SIZE 0x00800000u
 #define STACK_TOP (STACK_BASE + STACK_SIZE)
@@ -564,6 +568,14 @@ static int load(const char *path)
         return -1;
     }
     memcpy(&entry, chunk, sizeof(entry));
+    if (entry.esp >= OTHER_STACK_BASE && entry.esp < OTHER_STACK_BASE + STACK_SIZE) {
+        /* The state holds the game stack, return addresses into the game code
+         * as the other system's compiler laid it out: nothing here to resume. */
+        fprintf(stderr, "memories-pc: %s was saved by the %s build; a state loads only in a build for the "
+                        "system that saved it\n", path, OTHER_SYSTEM);
+        free(image);
+        return -1;
+    }
     chunk = find_chunk(&state, "stack", &size);
     if (!chunk || entry.esp < STACK_BASE || entry.esp >= STACK_TOP || size != STACK_TOP - entry.esp ||
         !find_chunk(&state, "memory", &size) || size != MEMORIES_GUEST_RAM_SIZE + SCRATCHPAD_SIZE) {
