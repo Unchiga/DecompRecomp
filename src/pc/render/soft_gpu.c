@@ -52,9 +52,9 @@ static int wide_on;
 static unsigned wide_clock;
 /* The scaled picture (SoftGpu_SetScale): scale x scale pixels per word. */
 static uint32_t *picture;
-static int scale = 1;
-#define PICTURE_WIDTH (SOFT_GPU_WIDTH * scale)
-#define PICTURE_HEIGHT (SOFT_GPU_HEIGHT * scale)
+static int scale = 1, scale_shift; /* scale is 1, 2, 4 or 8: the picture wraps with masks and divides with shifts */
+#define PICTURE_WIDTH (SOFT_GPU_WIDTH << scale_shift)
+#define PICTURE_HEIGHT (SOFT_GPU_HEIGHT << scale_shift)
 static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y);
 static int owns(const Vertex *a, const Vertex *b);
 
@@ -77,12 +77,7 @@ static inline __attribute__((always_inline)) uint32_t expand(uint16_t c)
 
 static inline __attribute__((always_inline)) uint32_t *picture_pixel(int hx, int hy)
 {
-    int w = PICTURE_WIDTH, h = PICTURE_HEIGHT;
-    hx %= w;
-    hy %= h;
-    if (hx < 0) hx += w;
-    if (hy < 0) hy += h;
-    return &picture[(size_t)hy * (size_t)w + (size_t)hx];
+    return &picture[((size_t)(hy & (PICTURE_HEIGHT - 1)) << (10 + scale_shift)) + (size_t)(hx & (PICTURE_WIDTH - 1))];
 }
 
 /* The words x..x+w-1, y..y+h-1 of VRAM, copied into the picture. */
@@ -135,7 +130,7 @@ static inline __attribute__((always_inline)) uint16_t *vram_pixel(int x, int y)
 int SoftGpu_SetScale(int wanted)
 {
     uint32_t *made = NULL;
-    if (wanted < 1 || wanted > 8) return 0;
+    if (wanted != 1 && wanted != 2 && wanted != 4 && wanted != 8) return 0;
     if (wanted == scale) return 1;
     if (wanted > 1) {
         made = calloc((size_t)SOFT_GPU_WIDTH * wanted * SOFT_GPU_HEIGHT * wanted, sizeof(*made));
@@ -144,6 +139,7 @@ int SoftGpu_SetScale(int wanted)
     free(picture);
     picture = made;
     scale = wanted;
+    scale_shift = wanted == 8 ? 3 : wanted == 4 ? 2 : wanted == 2 ? 1 : 0;
     SoftGpu_PictureFromVram();
     return 1;
 }
@@ -328,11 +324,22 @@ void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
     if (picture) {
         /* The picture's own pixels move, row by row forwards like the words. */
         int hw = w * scale, hh = h * scale, hsx = sx * scale, hsy = sy * scale, hdx = dx * scale, hdy = dy * scale;
-        for (j = 0; j < hh; j++) {
-            for (i = 0; i < hw; i++) {
-                if (!gpu.mask_check || !(*pixel(dx + i / scale, dy + j / scale) & 0x8000) ||
-                    *pixel(dx + i / scale, dy + j / scale) == (uint16_t)(*pixel(sx + i / scale, sy + j / scale) | 0x8000)) {
-                    *picture_pixel(hdx + i, hdy + j) = *picture_pixel(hsx + i, hsy + j);
+        if (!gpu.mask_check) {
+            for (j = 0; j < hh; j++) {
+                for (i = 0; i < hw; i++) *picture_pixel(hdx + i, hdy + j) = *picture_pixel(hsx + i, hsy + j);
+            }
+        } else {
+            /* A word the mask kept was not written: its pixels stay too. */
+            for (j = 0; j < h; j++) {
+                for (i = 0; i < w; i++) {
+                    int px, py;
+                    if (*pixel(dx + i, dy + j) != (uint16_t)(*pixel(sx + i, sy + j) | 0x8000)) continue;
+                    for (py = 0; py < scale; py++) {
+                        for (px = 0; px < scale; px++) {
+                            *picture_pixel(hdx + i * scale + px, hdy + j * scale + py) =
+                                *picture_pixel(hsx + i * scale + px, hsy + j * scale + py);
+                        }
+                    }
                 }
             }
         }
@@ -480,16 +487,12 @@ static inline __attribute__((always_inline)) int picture_texel(int u, int v, uin
     return 1;
 }
 
-static inline __attribute__((always_inline)) void picture_plot(int hx, int hy, int r, int g, int b, int u, int v,
-                                                               int flags)
+static inline __attribute__((always_inline)) void picture_plot_in(int hx, int hy, int r, int g, int b, int u, int v,
+                                                                  int flags)
 {
     uint32_t *target, rgb = 0;
     int semi = flags & 2;
-    if (hx < gpu.clip_x1 * scale || hx >= (gpu.clip_x2 + 1) * scale || hy < gpu.clip_y1 * scale ||
-        hy >= (gpu.clip_y2 + 1) * scale) {
-        return;
-    }
-    if (gpu.mask_check && (*pixel(hx / scale, hy / scale) & 0x8000)) return;
+    if (gpu.mask_check && (*pixel(hx >> scale_shift, hy >> scale_shift) & 0x8000)) return;
     target = picture_pixel(hx, hy);
     if (flags & 4) {
         if (!picture_texel(u, v, &rgb)) return;
@@ -520,6 +523,17 @@ static inline __attribute__((always_inline)) void picture_plot(int hx, int hy, i
         b = clamp8(b);
     }
     *target = ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+/* The same, for a caller that has not clipped (rectangles and lines). */
+static inline __attribute__((always_inline)) void picture_plot(int hx, int hy, int r, int g, int b, int u, int v,
+                                                               int flags)
+{
+    if (hx < gpu.clip_x1 * scale || hx >= (gpu.clip_x2 + 1) * scale || hy < gpu.clip_y1 * scale ||
+        hy >= (gpu.clip_y2 + 1) * scale) {
+        return;
+    }
+    picture_plot_in(hx, hy, r, g, b, u, v, flags);
 }
 
 static int64_t picture_edge(const Vertex *a, const Vertex *b, int x, int y)
@@ -557,40 +571,44 @@ static void picture_triangle(Vertex a, Vertex b, Vertex c, int flags)
         const int32_t ex0 = (b.y - c.y), ey0 = (c.x - b.x), ex1 = (c.y - a.y), ey1 = (a.x - c.x);
         const int32_t ex2 = (a.y - b.y), ey2 = (b.x - a.x);
         const int hx0 = min_x * scale, hx1 = (max_x + 1) * scale - 1, hy0 = min_y * scale, hy1 = (max_y + 1) * scale - 1;
-        int64_t row0 = -picture_edge(&c, &b, hx0, hy0) + (int64_t)bias0 * scale;
-        int64_t row1 = -picture_edge(&a, &c, hx0, hy0) + (int64_t)bias1 * scale;
-        int64_t row2 = -picture_edge(&b, &a, hx0, hy0) + (int64_t)bias2 * scale;
+        /* Everything fits 32 bits: an edge function is at most 8192 * 4096,
+         * an attribute 255 << 20 plus its steps; the machine is 32-bit. */
+        int32_t row0 = (int32_t)(-picture_edge(&c, &b, hx0, hy0)) + bias0 * scale;
+        int32_t row1 = (int32_t)(-picture_edge(&a, &c, hx0, hy0)) + bias1 * scale;
+        int32_t row2 = (int32_t)(-picture_edge(&b, &a, hx0, hy0)) + bias2 * scale;
+        const int32_t sx0 = ex0 * scale, sx1 = ex1 * scale, sx2 = ex2 * scale; /* per picture pixel */
+        const int32_t sy0 = ey0 * scale, sy1 = ey1 * scale, sy2 = ey2 * scale;
         const int values[5][3] = {{a.r, b.r, c.r}, {a.g, b.g, c.g}, {a.b, b.b, c.b}, {a.u, b.u, c.u}, {a.v, b.v, c.v}};
-        int64_t step_x[5], step_y[5], row[5];
+        int32_t step_x[5], step_y[5], row[5];
         int k, hy, hx;
         for (k = 0; k < 5; k++) {
             int64_t nx = (int64_t)ex0 * values[k][0] + (int64_t)ex1 * values[k][1] + (int64_t)ex2 * values[k][2];
             int64_t ny = (int64_t)ey0 * values[k][0] + (int64_t)ey1 * values[k][1] + (int64_t)ey2 * values[k][2];
-            step_x[k] = (nx * (1 << FRACTION) + (nx < 0 ? -area / 2 : area / 2)) / area / scale;
-            step_y[k] = (ny * (1 << FRACTION) + (ny < 0 ? -area / 2 : area / 2)) / area / scale;
-            row[k] = (int64_t)values[k][0] * (1 << FRACTION) + BIAS + step_x[k] * (hx0 - a.x * scale) +
-                     step_y[k] * (hy0 - a.y * scale);
+            step_x[k] = (int32_t)((nx * (1 << FRACTION) + (nx < 0 ? -area / 2 : area / 2)) / area / scale);
+            step_y[k] = (int32_t)((ny * (1 << FRACTION) + (ny < 0 ? -area / 2 : area / 2)) / area / scale);
+            row[k] = (int32_t)(values[k][0] * (1 << FRACTION) + BIAS + (int64_t)step_x[k] * (hx0 - a.x * scale) +
+                               (int64_t)step_y[k] * (hy0 - a.y * scale));
         }
         for (hy = hy0; hy <= hy1; hy++) {
-            int64_t w0 = row0, w1 = row1, w2 = row2;
-            int64_t r = row[0], g = row[1], blue = row[2], u = row[3], v = row[4];
+            int32_t w0 = row0, w1 = row1, w2 = row2;
+            int32_t r = row[0], g = row[1], blue = row[2], u = row[3], v = row[4];
             for (hx = hx0; hx <= hx1; hx++) {
                 if ((w0 | w1 | w2) >= 0) {
-                    picture_plot(hx, hy, (int)(r >> FRACTION), (int)(g >> FRACTION), (int)(blue >> FRACTION),
-                                 (int)(u >> (FRACTION - 16)), (int)(v >> (FRACTION - 16)), flags);
+                    picture_plot_in(hx, hy, r >> FRACTION, g >> FRACTION, blue >> FRACTION, u >> (FRACTION - 16),
+                                    v >> (FRACTION - 16), flags);
                 }
-                w0 += ex0 * scale; /* the edge functions are in picture units squared */
-                w1 += ex1 * scale;
-                w2 += ex2 * scale;
+                w0 += sx0;
+                w1 += sx1;
+                w2 += sx2;
                 r += step_x[0];
                 g += step_x[1];
                 blue += step_x[2];
                 u += step_x[3];
                 v += step_x[4];
             }
-            row0 += ey0 * scale;
-            row1 += ey1 * scale;
-            row2 += ey2 * scale;
+            row0 += sy0;
+            row1 += sy1;
+            row2 += sy2;
             for (k = 0; k < 5; k++) row[k] += step_y[k];
         }
     }

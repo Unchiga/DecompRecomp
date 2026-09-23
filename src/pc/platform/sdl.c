@@ -39,6 +39,7 @@ static int use_gl;
 static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
 static int picture_scale = 1; /* picture pixels per game pixel (internal resolution) */
+static int logical_w, logical_h;  /* the frame in game pixels: what the window is laid out for */
 static MenuCanvas canvas;
 /* Menu/input geometry is in SDL window coordinates (logical pixels). The
  * renderer target may have more physical pixels on a high-DPI display. */
@@ -780,9 +781,10 @@ static void relayout(void)
     int output_w, output_h, window_w, window_h, menu;
     int aspect = Settings_Get(SET_ASPECT);
     /* Widescreen pictures arrive 4/3 as wide as the 4:3 ones (libgpu.c), so
-     * both keep the same pixel shape; the internal resolution scales both. */
-    int pw = (aspect == 1 ? picture_w : aspect == 2 ? picture_h * 16 / 9 : picture_h * 4 / 3) / picture_scale;
-    int ph = picture_h / picture_scale, area_h, mode = Settings_Get(SET_SCALING);
+     * both keep the same pixel shape; the frame's size in game pixels is
+     * what the window is laid out for, whatever the internal resolution. */
+    int pw = aspect == 1 ? logical_w : aspect == 2 ? logical_h * 16 / 9 : logical_h * 4 / 3;
+    int ph = logical_h, area_h, mode = Settings_Get(SET_SCALING);
     float factor;
     if ((!renderer && !use_gl) || picture_w <= 0 || picture_h <= 0 ||
         !SDL_GetWindowSize(window, &window_w, &window_h) ||
@@ -870,9 +872,9 @@ static void relayout(void)
 static void display_picture_size(int *w, int *h)
 {
     int aspect = Settings_Get(SET_ASPECT);
-    *h = picture_h > 0 ? picture_h / picture_scale : 240;
+    *h = logical_h > 0 ? logical_h : 240;
     *w = aspect == 2 ? *h * 16 / 9
-                     : aspect == 1 ? (picture_w > 0 ? picture_w / picture_scale : 320)
+                     : aspect == 1 ? (logical_w > 0 ? logical_w : 320)
                                    : *h * 4 / 3;
 }
 
@@ -1466,9 +1468,14 @@ static void begin_present(int w, int h, int at_scale)
         pending_scale = 0;
         display_settings_pending = 1;
     }
-    if (picture_scale != at_scale) {
+    /* The internal resolution changes the picture, not the frame the
+     * window is laid out for: the movie at 1x beside the game at 2x keeps
+     * the window where it is. */
+    if (picture_scale != at_scale || logical_w != w / at_scale || logical_h != h / at_scale) {
         picture_scale = at_scale;
-        display_settings_pending = 1;
+        logical_w = w / at_scale;
+        logical_h = h / at_scale;
+        relayout();
     }
     if (display_settings_pending) {
         display_settings_pending = 0;
