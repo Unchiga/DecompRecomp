@@ -422,6 +422,8 @@ class Extractor:
                 rows = min(16, sheet.sectors - column * 16) * 16
                 offset = sheet.base + column * COLUMN
                 x = sheet.x + column * 64
+                if not any(self.archive(sheet.archive)[offset:offset + rows * 128]):
+                    continue  # a record kept empty (the story's mode 0 has eight)
                 for bpp, clut in sheet.column_variants(column):
                     entries = {4: 16, 8: 256, 16: 0}[bpp]
                     name = f"{sheet.stem}-c{column}-{bpp}" + (f"-p{clut:x}" if entries else "")

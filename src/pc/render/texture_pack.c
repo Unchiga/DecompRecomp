@@ -77,10 +77,17 @@ static long archive_start(const char *name)
     return (long)lba * 2048;
 }
 
+/* By offset, then geometry, depth and palette: readings of the same words
+ * end up adjacent, whatever packs they came from and in whatever order. */
 static int compare(const void *a, const void *b)
 {
     const Entry *x = a, *y = b;
-    return x->offset < y->offset ? -1 : x->offset > y->offset;
+    if (x->offset != y->offset) return x->offset < y->offset ? -1 : 1;
+    if (x->words != y->words) return x->words < y->words ? -1 : 1;
+    if (x->rows != y->rows) return x->rows < y->rows ? -1 : 1;
+    if (x->stride != y->stride) return x->stride < y->stride ? -1 : 1;
+    if (x->bpp != y->bpp) return x->bpp < y->bpp ? -1 : 1;
+    return x->clut_offset < y->clut_offset ? -1 : x->clut_offset > y->clut_offset;
 }
 
 /* The PNG, as the texture's own grid of 15-bit colours: each texel takes
