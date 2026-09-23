@@ -17,6 +17,8 @@ python3 tools/pc/build_game32.py
 if [ "${MEMORIES_SKIP_WINDOWS:-0}" != 1 ]; then
     [ -f tmp/pc/win32-deps/lib/libfreetype.a ] && [ -d tmp/pc/llvm-mingw ] || python3 tools/pc/build_win32_deps.py
     python3 tools/pc/build_game32.py --target windows
+    # Both builds and every mod share one layout of the game's structures.
+    python3 tools/pc/check_layouts.py
 fi
 case "${1:-}" in
     run) exec tmp/pc/game32/memories-pc ;;
