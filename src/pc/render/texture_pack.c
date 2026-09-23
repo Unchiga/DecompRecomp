@@ -19,6 +19,7 @@ typedef struct Entry {
     unsigned char *image; /* the PNG itself, RGBA, for the scaled picture */
     int image_width, image_height;
     int failed;
+    int absolute; /* offset and clut_offset are the disc's (resolve) */
 } Entry;
 
 static Entry *entries;
@@ -27,7 +28,6 @@ static int entry_count, resolved; /* offsets are absolute on the disc, entries s
  * callback), where reading a PNG or the disc's directory is not safe: paint
  * only notes what it needs, and TexturePack_Service does it between frames. */
 static volatile int wanted_resolve, wanted_images;
-static char directory[1024];
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
 static unsigned generation; /* of the maps and the entries (texture_pack.h) */
@@ -76,7 +76,7 @@ static int load_pixels(Entry *entry)
     int width = entry->words * per_word(entry->bpp), height = entry->rows, x, y;
     if (entry->pixels || entry->failed) return entry->pixels != NULL;
     entry->wanted = 0;
-    snprintf(path, sizeof(path), "%s/%s", directory, entry->file);
+    snprintf(path, sizeof(path), "%s", entry->file);
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
     if (!png_image_begin_read_from_file(&image, path)) {
@@ -207,29 +207,32 @@ static int resolve(void)
     int i, kept = 0;
     if (resolved) return 1;
     for (i = 0; i < entry_count; i++) {
-        if (archive_start(entries[i].archive) == -2) return 0; /* no disc yet: next time */
+        if (!entries[i].absolute && archive_start(entries[i].archive) == -2) return 0; /* no disc yet: next time */
     }
     for (i = 0; i < entry_count; i++) {
         Entry *entry = &entries[i];
-        long base = archive_start(entry->archive);
+        long base = entry->absolute ? 0 : archive_start(entry->archive);
         if (base < 0) {
             free(entry->file);
             free(entry->row_offsets);
             free(entry->pixels);
+            free(entry->image);
             continue;
         }
         entry->offset += (uint32_t)base;
         if (entry->clut_entries) entry->clut_offset += (uint32_t)base;
+        entry->absolute = 1;
         entries[kept++] = *entry;
     }
     entry_count = kept;
+    generation++; /* the entries' order changes: their indexes with it */
     if (!entry_count) {
-        fprintf(stderr, "memories-pc: texture pack %s: none of its archives is on the disc\n", directory);
+        fprintf(stderr, "memories-pc: texture packs: none of their archives is on the disc\n");
         return 0;
     }
     qsort(entries, (size_t)entry_count, sizeof(*entries), compare);
     resolved = 1;
-    fprintf(stderr, "memories-pc: texture pack %s: %d images\n", directory, entry_count);
+    fprintf(stderr, "memories-pc: texture packs: %d images\n", entry_count);
     return 1;
 }
 
@@ -309,9 +312,9 @@ int TexturePack_Load(const char *from)
     char path[1200], error[256];
     JsonDocument *manifest;
     const JsonValue *list;
-    int i, count;
-    TexturePack_Unload();
-    snprintf(directory, sizeof(directory), "%s", from);
+    int i, count, before = entry_count;
+    Entry *more;
+    /* Packs add up: each enabled mod's joins the entries already loaded. */
     snprintf(path, sizeof(path), "%s/manifest.json", from);
     manifest = Json_ParseFile(path, error, sizeof(error));
     if (!manifest) {
@@ -320,8 +323,12 @@ int TexturePack_Load(const char *from)
     }
     list = Json_Root(manifest);
     count = Json_Count(list);
-    entries = calloc((size_t)(count ? count : 1), sizeof(*entries));
-    for (i = 0; entries && i < count; i++) {
+    more = realloc(entries, (size_t)(entry_count + (count ? count : 1)) * sizeof(*entries));
+    if (more) {
+        entries = more;
+        memset(entries + entry_count, 0, (size_t)(count ? count : 1) * sizeof(*entries));
+    }
+    for (i = 0; more && i < count; i++) {
         const JsonValue *item = Json_At(list, i), *rows = Json_Member(item, "row_offsets");
         const char *file = Json_String(Json_Member(item, "file"), NULL);
         const char *archive = Json_String(Json_Member(item, "archive"), NULL);
@@ -350,13 +357,14 @@ int TexturePack_Load(const char *from)
             entry->row_offsets = NULL;
             continue;
         }
-        entry->file = strdup(file);
+        entry->file = malloc(strlen(from) + strlen(file) + 2); /* the whole path: packs from several directories add up */
+        if (entry->file) sprintf(entry->file, "%s/%s", from, file);
         entry_count++;
     }
     Json_Free(manifest);
-    if (!entry_count) {
+    if (entry_count == before) {
         fprintf(stderr, "memories-pc: texture pack %s: no image is addressed on the disc\n", from);
-        free_entries();
+        if (!entry_count) free_entries();
         return 0;
     }
     if (!TextureDump_EnableShadow()) {
@@ -377,8 +385,11 @@ int TexturePack_Load(const char *from)
      * disc is open, and an upload can ask for an image from the interrupt
      * tick. Until then paint only notes what it needs and sample sees no
      * image. */
+    resolved = 0; /* the new entries, and the order, with the others */
     wanted_resolve = 1;
-    return entry_count;
+    generation++;
+    fprintf(stderr, "memories-pc: texture pack %s: %d images\n", from, entry_count - before);
+    return entry_count - before;
 }
 
 /* Between frames, on the main thread with the clock held: the disc's
