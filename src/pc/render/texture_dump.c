@@ -17,6 +17,23 @@ static char directory[1024];
 static FILE *index_file, *assets_file;
 static int (*disc_file_info)(const char *path, int *lba, unsigned *size);
 
+/* Provenance: every copy of disc data into game memory, newest last. */
+typedef struct Delivery {
+    uintptr_t destination;
+    unsigned bytes;
+    uint32_t disc_offset; /* byte offset on the disc of the first byte */
+    unsigned copy_offset; /* where the first byte is in the slot's copy */
+} Delivery;
+#define DELIVERIES 4096
+#define DELIVERY_BYTES 2352 /* a raw sector, the most one delivery can hold */
+static Delivery deliveries[DELIVERIES];
+static unsigned delivery_head;
+/* What each delivery wrote, one slot per ring entry, allocated up front
+ * because deliveries arrive from the disc interrupt. The game's own code
+ * writes game memory without telling anyone, so a word is traced to the disc
+ * only while it still holds the bytes the disc put there. */
+static unsigned char *delivery_copies;
+
 /* Hashes already written, in an open-addressed table that doubles. */
 static uint64_t *seen;
 static size_t seen_count, seen_capacity;
@@ -63,9 +80,13 @@ void TextureDump_Init(void)
     }
     snprintf(name, sizeof(name), "%s/assets.txt", directory);
     assets_file = fopen(name, "a");
-    TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
+    delivery_copies = malloc((size_t)DELIVERIES * DELIVERY_BYTES);
+    TextureDump_Tags = delivery_copies ? calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags))
+                                       : NULL;
     if (!TextureDump_Tags) {
         fprintf(stderr, "memories-pc: no memory for texture provenance\n");
+        free(delivery_copies);
+        delivery_copies = NULL;
         return;
     }
     TextureDump_Enabled = 1;
@@ -75,15 +96,6 @@ void TextureDump_Init(void)
 /* --- provenance ---------------------------------------------------------- */
 
 static uint64_t fnv(uint64_t hash, const void *data, size_t length);
-
-typedef struct Delivery {
-    uintptr_t destination;
-    unsigned bytes;
-    uint32_t disc_offset; /* byte offset on the disc of the first byte */
-} Delivery;
-#define DELIVERIES 4096
-static Delivery deliveries[DELIVERIES];
-static unsigned delivery_head;
 
 void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsigned *size))
 {
@@ -108,6 +120,7 @@ static void forget(uintptr_t first, uintptr_t last)
             delivery->bytes = (unsigned)(first - delivery->destination);
         } else if (delivery->destination >= first && end > last) {
             delivery->disc_offset += (uint32_t)(last - delivery->destination);
+            delivery->copy_offset += (unsigned)(last - delivery->destination);
             delivery->bytes = (unsigned)(end - last);
             delivery->destination = last;
         } else {
@@ -125,29 +138,47 @@ void TextureDump_Written(const void *destination, unsigned bytes)
 void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector)
 {
     Delivery *delivery;
+    unsigned slot;
     if (!TextureDump_Tags || lba < 0 || !bytes) return;
     forget((uintptr_t)destination, (uintptr_t)destination + bytes);
-    delivery = &deliveries[delivery_head++ % DELIVERIES];
+    if (bytes > DELIVERY_BYTES) return;
+    slot = delivery_head++ % DELIVERIES;
+    delivery = &deliveries[slot];
+    memcpy(delivery_copies + (size_t)slot * DELIVERY_BYTES, destination, bytes);
     delivery->destination = (uintptr_t)destination;
     delivery->bytes = bytes;
     delivery->disc_offset = (uint32_t)lba * 2048u + offset_in_sector;
+    delivery->copy_offset = 0;
 }
 
-/* Disc offset + 1 of the byte at address, 0 if no delivery covers it. At
- * most one delivery does (forget), so the last hit is a valid cache. */
+/* Disc offset + 1 of the word at address if the delivery covers it and its
+ * bytes (those the delivery covers) are still the ones it wrote, else 0. */
+static uint32_t traced(const Delivery *delivery, uintptr_t address)
+{
+    size_t at = (size_t)(address - delivery->destination);
+    size_t length = delivery->bytes - at < 2 ? delivery->bytes - at : 2;
+    const unsigned char *copy =
+        delivery_copies + (size_t)(delivery - deliveries) * DELIVERY_BYTES + delivery->copy_offset + at;
+    if (memcmp((const void *)address, copy, length) != 0) return 0; /* rewritten since */
+    return delivery->disc_offset + (uint32_t)at + 1;
+}
+
+/* Disc offset + 1 of the word at address, 0 if no delivery covers it or the
+ * word has changed since. At most one delivery covers an address (forget),
+ * so the last hit is a valid cache. */
 static uint32_t provenance(uintptr_t address)
 {
     static unsigned last;
     const Delivery *delivery = &deliveries[last];
     unsigned i;
     if (delivery->bytes && address >= delivery->destination && address < delivery->destination + delivery->bytes) {
-        return delivery->disc_offset + (uint32_t)(address - delivery->destination) + 1;
+        return traced(delivery, address);
     }
     for (i = 0; i < DELIVERIES; i++) {
         delivery = &deliveries[i];
         if (delivery->bytes && address >= delivery->destination && address < delivery->destination + delivery->bytes) {
             last = i;
-            return delivery->disc_offset + (uint32_t)(address - delivery->destination) + 1;
+            return traced(delivery, address);
         }
     }
     return 0;
@@ -228,18 +259,26 @@ static void note_asset(int page_x, int page_y, int depth, int clut_x, int clut_y
     int x = page_x + u0 / per_word, y = page_y + v0, words = u1 / per_word - u0 / per_word + 1, rows = v1 - v0 + 1;
     uint32_t first, palette, key[6], stride = 0;
     int32_t row_offsets[256];
-    int j, linear = 1;
+    int i, j, linear = 1;
     if (!TextureDump_Tags || !assets_file || rows > 256) return;
     first = *tag_at(x, y);
     palette = entries ? *tag_at(clut_x, clut_y) : 0;
     if (!first || (entries && !palette)) return;
     /* Each row must be one run of consecutive bytes, and so must the palette;
      * the rows themselves may lie anywhere (the sector streamer places 64x16
-     * blocks in columns or side by side). */
-    if (entries && *tag_at(clut_x + entries - 1, clut_y) != palette + (uint32_t)(entries - 1) * 2) return;
+     * blocks in columns or side by side). Every word is checked, not just the
+     * ends: a word drawn over or uploaded from elsewhere in between (a text
+     * line on a texture page, one palette entry of a fade) would otherwise
+     * name disc bytes that are not what was drawn. */
+    for (i = 1; i < entries; i++) {
+        if (*tag_at(clut_x + i, clut_y) != palette + (uint32_t)i * 2) return;
+    }
     for (j = 0; j < rows; j++) {
         uint32_t start = *tag_at(x, y + j);
-        if (!start || *tag_at(x + words - 1, y + j) != start + (uint32_t)(words - 1) * 2) return;
+        if (!start) return;
+        for (i = 1; i < words; i++) {
+            if (*tag_at(x + i, y + j) != start + (uint32_t)i * 2) return;
+        }
         row_offsets[j] = (int32_t)(start - first);
         if (j == 1) stride = (uint32_t)row_offsets[1] / 2;
         if (j >= 1 && (row_offsets[j] != (int32_t)(stride * 2 * (uint32_t)j) || row_offsets[j] <= 0)) linear = 0;

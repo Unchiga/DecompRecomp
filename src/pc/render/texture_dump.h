@@ -21,7 +21,9 @@ void TextureDump_Primitive(const uint16_t *source, int page_x, int page_y, int d
  * drawn texture can be named by origin (archive, offset, stride, size,
  * palette), the identity a texture pack goes by. The disc layer reports
  * every copy of sector data into game memory; an upload looks its pixels
- * up in those; moves carry the tags, fills and drawing clear them. A
+ * up in those, and a word counts only while it still holds the bytes the
+ * disc delivered (the game's own code rewrites buffers unannounced); moves
+ * carry the tags, fills and drawing clear them. A
  * primitive whose texels and palette are all tagged adds a line to
  * assets.txt beside the PNGs, which tools/pc/extract_images.py replays. */
 extern uint32_t *TextureDump_Tags; /* per VRAM word, disc byte offset + 1; NULL when off */
