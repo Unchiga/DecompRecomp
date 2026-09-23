@@ -170,6 +170,8 @@ settings file), `MEMORIES_HEADLESS=1`,
 `MEMORIES_DUMP_VRAM=1` (write frame N as PPM and exit),
 `MEMORIES_WINDOW_SHOT=N` (save the window as shown at frame N, as the
 screenshot key does, into `MEMORIES_SCREENSHOT_DIR` or the user folder),
+`MEMORIES_SCALE_AT=N:S` (change the internal resolution to S at frame N, as
+the View menu would),
 `MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on),
 `MEMORIES_NO_AUDIO=1`, `MEMORIES_DUMP_AUDIO=path` (raw s16le stereo 44.1 kHz
 instead of a device), and

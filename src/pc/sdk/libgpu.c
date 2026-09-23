@@ -217,7 +217,11 @@ void Memories_PresentDisplay(void)
          * as the screenshot key would save it (checking the window itself
          * from a scripted run). */
         const char *shot = getenv("MEMORIES_WINDOW_SHOT");
+        const char *rescale = getenv("MEMORIES_SCALE_AT"); /* "<frame>:<scale>": the View menu's change, scripted */
         if (shot && frames_presented == atoi(shot)) Platform_Screenshot(1);
+        if (rescale && frames_presented == atoi(rescale) && strchr(rescale, ':')) {
+            SoftGpu_SetScale(atoi(strchr(rescale, ':') + 1));
+        }
     }
     if (dump && frames_presented == atoi(dump)) {
         const char *path = getenv("MEMORIES_DUMP_PATH");
