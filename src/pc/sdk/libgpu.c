@@ -212,6 +212,13 @@ void Memories_PresentDisplay(void)
     TexturePack_Service();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
+    {
+        /* MEMORIES_WINDOW_SHOT=<frame>: the window as shown at that frame,
+         * as the screenshot key would save it (checking the window itself
+         * from a scripted run). */
+        const char *shot = getenv("MEMORIES_WINDOW_SHOT");
+        if (shot && frames_presented == atoi(shot)) Platform_Screenshot(1);
+    }
     if (dump && frames_presented == atoi(dump)) {
         const char *path = getenv("MEMORIES_DUMP_PATH");
         Memories_DumpFrame(path ? path : "tmp/pc/frame.ppm", getenv("MEMORIES_DUMP_VRAM") != NULL);
