@@ -932,11 +932,12 @@ void Mods_SetEnabled(int mod, int enabled)
     if (!mods[mod].restart) activate(mod, enabled);
 }
 
-void Mods_VisitCards(void (*visit)(const char *id, const struct JsonValue *cards, void *context), void *context)
+void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const struct JsonValue *cards, void *context),
+                     void *context)
 {
     int i;
     for (i = 0; i < mod_count; i++) {
-        if (mods[i].active && Json_Count(mods[i].cards)) visit(mods[i].id, mods[i].cards, context);
+        if (mods[i].active && Json_Count(mods[i].cards)) visit(mods[i].id, mods[i].directory, mods[i].cards, context);
     }
 }
 

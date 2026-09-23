@@ -365,6 +365,22 @@ const char *Win32_FontPath(int japanese)
     return NULL;
 }
 
+/* A bold serif, for the title plates of the cards mods add (cards/art.c). */
+const char *Win32_SerifFontPath(void)
+{
+    static const char *const serif[] = {"timesbd.ttf", "georgiab.ttf", "times.ttf", "georgia.ttf", NULL};
+    static char path[MAX_PATH];
+    const char *const *name;
+    char directory[MAX_PATH];
+    UINT length = GetWindowsDirectoryA(directory, sizeof(directory));
+    if (!length || length >= sizeof(directory)) return NULL;
+    for (name = serif; *name; name++) {
+        snprintf(path, sizeof(path), "%s\\Fonts\\%s", directory, *name);
+        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) return path;
+    }
+    return NULL;
+}
+
 void Win32_StackRange(uintptr_t *low, uintptr_t *high)
 {
     ULONG_PTR bottom, top;

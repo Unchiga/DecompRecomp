@@ -6,27 +6,31 @@ wherever a card does: the Library, Build Deck, duels (the hand, the field, the
 3D battle, fusions, equips, rituals and card effects), duel rewards, the card
 viewer, saves, save states, trading and two-player duels.
 
-Each new card is a **copy** of a retail card, its *base*. It has the base's
-artwork, 3D model, card text, fusions, equips and effect, and its own ATK, DEF,
-type, guardian stars, level, attribute and, optionally, name. The disc has
-none of these cards, so wherever the game goes to the disc, or to a table laid
-out by the disc, it asks for the base instead.
+Each new card is a **copy** of a retail card, its *base*: it has the base's
+3D model, fusions, equips and effect. Everything a player reads off the card
+can be its own: name, artwork, card text, ATK, DEF, type, guardian stars,
+level and attribute. What a mod leaves out is the base's. The disc has none
+of these cards, so wherever the game goes to the disc, or to a table laid out
+by the disc, it asks for the base instead, and lays the card's own art and
+text over what comes back.
 
-`mods/more-cards` is the worked example: a data-only mod, off by default, that
-adds a thousand cards (ids 723 to 1722), each a copy of a retail monster with
-a made-up name and its own ATK and DEF: 723 is "Dingus Shmingus" (Kuriboh's
-art), 724 "Shmungus Mingus" (Blue-eyes') and so on to 1722 "Droodle Spumbus".
+The release ships no card mod; the checks below were made with test mods
+(a thousand made-up names, and a card with its own picture).
 
 ## The manifest
 
 ```json
 {
-    "id": "more-cards",
-    "name": "More cards",
+    "id": "wacky",
+    "name": "Wacky cards",
     "cards": [
-        { "copy": "Kuriboh", "count": 100, "count_setting": "count", "name": "Kuriboh {n}" },
-        { "copy": 1, "name": "Blue-eyes Shiny Dragon", "attack": 3500, "defense": 3000,
-          "stars": ["Sun", "Moon"], "drops": false, "opponents": true }
+        { "copy": "Kuriboh", "name": "Dingus Shmingus", "art": "images/dingus.png",
+          "description": "A round and cheerful fellow who has never once been on time.",
+          "type": "Beast", "attribute": "Fire", "level": 7, "stars": ["Moon", "Venus"],
+          "attack": 2500, "defense": 2100 },
+        { "copy": 1, "name": "Shmungus Mingus", "description": "Blue-eyes' cousin from out of town." },
+        { "copy": "Kuriboh", "count": 100, "count_setting": "count", "name": "Kuriboh {n}",
+          "drops": false, "opponents": true }
     ]
 }
 ```
@@ -37,6 +41,10 @@ art), 724 "Shmungus Mingus" (Blue-eyes') and so on to 1722 "Droodle Spumbus".
 | `count` | how many cards this entry adds (default 1) |
 | `count_setting` | read `count` from one of the mod's settings instead, so `MEMORIES_MOD_<ID>_COUNT=5000` or `mod.<id>.count=5000` in the settings file changes it without editing the manifest |
 | `name` | the cards' own name; `{n}` is the card's number within the entry and `{id}` its card id. Without one a card has its base's name. Letters, digits, spaces and ``!"#$%&'()*+,-./:<>?`` are what the game's font has |
+| `description` | the card's own text, wrapped as the retail texts are (lines of up to twenty letters, broken at spaces; `\n` breaks a line where it stands). Eight lines is the most any retail text has. Without one a card has its base's text |
+| `art` | a PNG in the mod (a path relative to its directory): the card's picture and, made from the same image, the small one the hand and field show. Any size: the middle of it at the card's shape is taken and scaled to 102x96 and 40x32, and its colours reduced to the 255 and 63 each has. 102x96 or a multiple looks best |
+| `thumbnail` | a PNG for the small picture alone, when the scaled-down `art` does not read well at 40x32 |
+| `title` | a PNG for the name plate at the top of the card's picture (96x14; dark is ink). Without one, a card with its own name gets a plate with that name set in the system's bold serif (Times New Roman or Georgia on Windows, fontconfig's `serif:bold` elsewhere), or a blank plate when there is none |
 | `attack`, `defense` | 0 to 5110, in tens, as the game stores them |
 | `type` | a number or a name (`"Dragon"`, `"Winged Beast"`). A copy of a monster stays a monster, since it has its base's 3D model; a copy of a magic, trap, ritual or equip card keeps its type, since it has its base's effect |
 | `attribute` | a number or a name (`"Light"` to `"Wind"`) |
@@ -139,6 +147,19 @@ when they last played with the mod. A deck that holds a card the run does not
 have (the mod was removed) gets each such slot's base back, from its `deck`
 line, so a duel never deals a card that is not there.
 
+**Its own art and text.** The game still loads the base's art record
+(`func_80029164`) and the base's thumbnail sector
+(`Duel_RequestCombinedDeckData`); `Cards_PatchArtRecord`, called in
+`func_800289BC` before the four uploads, and `Cards_PatchThumbnail`, called in
+`Duel_PopulateCombinedDeckData` after each block is copied, lay the card's own
+picture, plate and thumbnail over them
+([`art.c`](../src/pc/cards/art.c) makes them from the PNGs: the record layout
+is in its header comment and in
+[modding-tutorial-evidence.md](modding-tutorial-evidence.md#card-image-editor-dimensions)).
+The plate uses its own fixed palette, of which the retail plates use entries
+0 (clear) to 7 (darkest ink). Card text goes in beside the name, at the text
+engine's insert command (`duel_effect_command.c`, op 0x40).
+
 **What spells out 722.** The Library's heading string (`"<seen/722>"`,
 0x801B121D, text 0xF8) is replaced by the port's own for the real total, in a
 box wide enough for it: nine 16-pixel letters fill the console's, and a
@@ -162,8 +183,10 @@ rows of 200 (`CARD_GRID_SECTION_ROW_COUNT`).
 
 * Ids stop at 32766 (`CARD_ID_LIMIT`): card ids are signed 16-bit in the
   duel's records and 0x7FFF-masked beside their flags.
-* A card's artwork has its base's name baked into its name plate; the text
-  (the card viewer's name line, the lists, the duel) shows its own name.
+* A card has its base's 3D model, and its base's effect and place in the
+  fusion, equip and ritual tables.
+* The generated name plate is set in a system font, not the retail plates'
+  own lettering; a `title` PNG replaces it.
 * Copies of Exodia's pieces do not complete Exodia, and Build Deck's one-copy
   rule for the pieces is by id: a copy is another card.
 * The sidecar records ids, so a save only makes sense with the same card mods
@@ -183,5 +206,7 @@ placement, a guardian star, a direct attack, the opponent's attack, and the
 cards (`MEMORIES_INPUT2` drives the second pad) with both sidecars rewritten
 only after the write; a two-player duel; a save state taken in Build Deck and
 resumed in a new process; 5,722 cards; a save with a new card in its deck
-loaded without the mod; and the Windows build under Wine. Without a card mod
+loaded without the mod; a card with its own picture, plate, text, type,
+level, attribute and stars in the card view and in the duel's hand; and the
+Windows build under Wine. Without a card mod
 the smoke screenshots are unchanged on both systems.

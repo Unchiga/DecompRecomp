@@ -8,7 +8,7 @@ directory in, restart, apply it in **Game > Mods**.
 
 | Directory | What is in it |
 |---|---|
-| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`, `more-cards`) |
+| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`) |
 | `mods/` in the user directory | mods the player installed |
 
 The user directory is where everything the player owns lives: settings,
@@ -138,13 +138,16 @@ game holds a pack's images in memory at full size, and a 128x128 tile at
 ## Cards: more than the disc has
 
 A mod may add cards with a `cards` list, no code needed. Each new card is a
-copy of a retail card, which lends it its artwork, 3D model, text, fusions and
-effect, with its own stats and, if the mod gives one, name:
+copy of a retail card, which lends it its 3D model, fusions and effect; its
+name, picture, text, stats, type, level, attribute and guardian stars can be
+its own:
 
 ```json
 "cards": [
-    { "copy": "Kuriboh", "count": 100, "name": "Kuriboh {n}" },
-    { "copy": 1, "name": "Blue-eyes Shiny Dragon", "attack": 3500 }
+    { "copy": "Kuriboh", "name": "Dingus Shmingus", "art": "images/dingus.png",
+      "description": "A round and cheerful fellow who has never once been on time.",
+      "level": 7, "attribute": "Fire", "stars": ["Moon", "Venus"], "attack": 2500 },
+    { "copy": "Kuriboh", "count": 100, "name": "Kuriboh {n}" }
 ]
 ```
 
@@ -272,16 +275,15 @@ author, as with any plugin. A data-only mod carries no code and is safe to
 install on that ground alone. The Mods window shows every mod it found, and
 the reason beside any that failed to load.
 
-## The mods the release ships
+## The two mods the release ships
 
 | Mod | What it is |
 |---|---|
 | `mods/3d-monsters` | face-up monsters on the duel field stand on their cards as animated models (`notes/pc-build.md`) |
 | `mods/hand-camera` | L1/R1 turn and L3/R3 zoom the duel camera while the hand is up |
-| `mods/more-cards` | a thousand made-up cards after the disc's, each a copy of a retail monster: the worked example of `cards` (off by default) |
 
-The first two were part of the executable until they became mods; they are
-the worked examples of a code mod that reaches deep into the game. 3D Monsters' knobs
+Both were part of the executable until they became mods; they are the worked
+examples of a code mod that reaches deep into the game. 3D Monsters' knobs
 are its settings `depth`, `pixels`, `scale`, `lift`, `pitch` and `test`
 (`MEMORIES_MOD_3D_MONSTERS_SCALE=5000` for one run; they were
 `MEMORIES_MODS_SCALE` and so on before it became one object for both systems).

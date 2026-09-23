@@ -33,10 +33,12 @@ int Mods_RequiresRestart(int mod);
  * saves the settings (the mods window reverts the change if that fails). */
 void Mods_SetEnabled(int mod, int enabled);
 
-/* The "cards" array of every applied mod, in the order the mods were found,
- * for src/pc/cards (json.h reads them). A data mod needs no code for them. */
+/* The "cards" array of every applied mod, with the directory its images are
+ * named from, in the order the mods were found, for src/pc/cards (json.h
+ * reads them). A data mod needs no code for them. */
 struct JsonValue;
-void Mods_VisitCards(void (*visit)(const char *id, const struct JsonValue *cards, void *context), void *context);
+void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const struct JsonValue *cards, void *context),
+                     void *context);
 /* One of a mod's settings (`mod.<id>.<key>`, or MEMORIES_MOD_<ID>_<KEY> for
  * the run), as a code mod's host->setting reads it. */
 int Mods_Setting(const char *id, const char *key, int fallback);

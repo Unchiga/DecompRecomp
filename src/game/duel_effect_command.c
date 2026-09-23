@@ -73,6 +73,11 @@ void func_80037DA4(DuelEffectChannel *object)
 #endif
     } else if (op & 0x40) {
 #ifdef MEMORIES_PC
+        if (Cards_DescriptionText(gDuel_wSelectedCardID) != 0) {
+            object->stream_58++;
+            text = (u8 *)Cards_DescriptionText(gDuel_wSelectedCardID);
+            goto store;
+        }
         id = Cards_BaseId(gDuel_wSelectedCardID) + 0xD100;
 #else
         id = gDuel_wSelectedCardID + 0xD100;

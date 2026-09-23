@@ -5,6 +5,9 @@
 #include "duel_effect_resource_record.h"
 #include "duel_effect_resource_setup.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/cards.h"
+#endif
 
 #define VRAM_UPLOAD_WORDS(address) ((u32 *)(address))
 
@@ -25,6 +28,10 @@ void func_800289BC(FileTransferDescriptor *object, s32 mode)
     }
 
     e = &D_800EA0E8[(s32)object->callback_data];
+#ifdef MEMORIES_PC
+    /* A card a mod added may have artwork of its own over its base's. */
+    Cards_PatchArtRecord(e->field_30, (u8 *)D_8009B118);
+#endif
 
     rect = &e->rects[0];
     b = D_8009B118;

@@ -8,6 +8,7 @@
  * that fit nowhere in the save, a name, and a share of the drops. */
 #define _POSIX_C_SOURCE 200809L
 #include "cards.h"
+#include "art.h"
 #include "pc/mods/mods.h"
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
@@ -49,6 +50,14 @@ extern int Campaign_TestStoryFlag(int flag);
 extern void Library_UpdateCardUsedFlag(int flag);
 
 static unsigned char *names[CARD_TABLE_ID_END];     /* own names, glyph codes */
+static unsigned char *descriptions[CARD_TABLE_ID_END];  /* own card text, glyph codes */
+/* Own artwork: an art record (art.h) shared by an entry's cards, which of its
+ * parts are the card's own, and the card's own title plate. */
+#define ART_PICTURE 1
+#define ART_THUMBNAIL 2
+static unsigned char *art_records[CARD_TABLE_ID_END];
+static unsigned char art_parts[CARD_TABLE_ID_END];
+static unsigned char *plates[CARD_TABLE_ID_END];
 static unsigned short *variants[2];                 /* per use: copies, grouped by base */
 static unsigned short variant_start[2][CARD_ID_END + 1];
 
@@ -147,6 +156,47 @@ static unsigned char *encode_name(const char *mod, const char *pattern, int n, i
     return glyphs;
 }
 
+/* Card text, wrapped as the retail texts are: lines of twenty letters at
+ * most, broken at spaces (0xFE between them); "\n" breaks where it stands. */
+#define TEXT_LINE_LETTERS 20
+#define TEXT_LINES 8
+static unsigned char *encode_description(const char *mod, const char *text, int id)
+{
+    size_t length = strlen(text), n = 0;
+    unsigned char *glyphs = malloc(length * 2 + 2);
+    const char *word = text;
+    int column = 0, lines = 1, warned = 0;
+    if (!glyphs) return NULL;
+    while (*word) {
+        const char *end = word;
+        int letters;
+        if (*word == '\n') {
+            glyphs[n++] = 0xFE; lines++; column = 0; word++;
+            continue;
+        }
+        if (*word == ' ') { word++; continue; }
+        while (*end && *end != ' ' && *end != '\n') end++;
+        letters = (int)(end - word);
+        if (column && column + 1 + letters > TEXT_LINE_LETTERS) {
+            glyphs[n++] = 0xFE; lines++; column = 0;
+        } else if (column) {
+            glyphs[n++] = 0; column++;   /* glyph 0 is the space */
+        }
+        for (; word < end; word++) {
+            int code = glyph_of((unsigned char)*word);
+            if (code < 0) {
+                if (!warned++) Mods_Note(mod, "card %d: the game has no letter '%c'; left out of its text", id, *word);
+                continue;
+            }
+            glyphs[n++] = (unsigned char)code;
+            column++;
+        }
+    }
+    glyphs[n] = 0xFF;
+    if (lines > TEXT_LINES) Mods_Note(mod, "card %d: its text runs to %d lines; the card view shows %d", id, lines, TEXT_LINES);
+    return glyphs;
+}
+
 /* The Library's heading, "<" then the seen count (F8 03: four address bytes
  * and a width byte, 0x80 for zero padding) then "/722>". */
 #define LIBRARY_HEADING 0x801B121Du
@@ -228,12 +278,15 @@ static int clamp(int value, int low, int high)
     return value < low ? low : value > high ? high : value;
 }
 
-static void add_entry(const char *mod, int index, const JsonValue *entry, BuildContext *context)
+static void add_entry(const char *mod, const char *directory, int index, const JsonValue *entry, BuildContext *context)
 {
     const JsonValue *copy = Json_Member(entry, "copy");
     const JsonValue *stars = Json_Member(entry, "stars");
     const char *name = Json_String(Json_Member(entry, "name"), NULL);
     const char *setting = Json_String(Json_Member(entry, "count_setting"), NULL);
+    const char *description = Json_String(Json_Member(entry, "description"), NULL);
+    unsigned char *record = NULL, *title = NULL;
+    int parts = 0;
     int base = 0, count, n, value;
     unsigned stats;
     unsigned char level_attr;
@@ -289,6 +342,32 @@ static void add_entry(const char *mod, int index, const JsonValue *entry, BuildC
     if ((value = choice(Json_Member(entry, "attribute"), attribute_names, 6)) >= 0) {
         level_attr = (unsigned char)((level_attr & 0x0F) | (clamp(value, 0, 15) << 4));
     }
+    /* Artwork: PNGs relative to the mod's directory, shared by the entry's
+     * cards; a card with a name of its own gets a title plate that says it. */
+    {
+        static const char *const keys[] = {"art", "thumbnail", "title"};
+        int k;
+        for (k = 0; k < 3 && count; k++) {
+            const char *file = Json_String(Json_Member(entry, keys[k]), NULL);
+            char path[1200], why[1300];
+            int ok;
+            if (!file || !*file) continue;
+            if (!Paths_Contained(file) || snprintf(path, sizeof(path), "%s/%s", directory, file) >= (int)sizeof(path)) {
+                Mods_Note(mod, "cards[%d]: \"%s\": %s is outside the mod", index, keys[k], file);
+                continue;
+            }
+            if (k == 2) {
+                if (!title) title = calloc(1, CARD_ART_RECORD);
+                ok = title && CardArt_TitleFromImage(path, title, why, sizeof(why));
+            } else {
+                if (!record) record = calloc(1, CARD_ART_RECORD);
+                ok = record && (k == 0 ? CardArt_FromImage(path, record, why, sizeof(why))
+                                       : CardArt_ThumbnailFromImage(path, record, why, sizeof(why)));
+                if (ok) parts |= k == 0 ? ART_PICTURE | ART_THUMBNAIL : ART_THUMBNAIL;
+            }
+            if (!ok) Mods_Note(mod, "cards[%d]: \"%s\": %s", index, keys[k], why);
+        }
+    }
     for (n = 1; n <= count; n++) {
         int id = ++gCard_nCount;
         gCard_awBaseId[id] = (unsigned short)base;
@@ -296,6 +375,30 @@ static void add_entry(const char *mod, int index, const JsonValue *entry, BuildC
         gCard_asNameSortKey[id - 1] = gCard_asNameSortKey[base - 1];
         gDuel_abCardLevelAttr[id] = level_attr;
         names[id] = name && *name ? encode_name(mod, name, n, id) : NULL;
+        descriptions[id] = description && *description ? encode_description(mod, description, id) : NULL;
+        art_records[id] = parts ? record : NULL;
+        art_parts[id] = (unsigned char)parts;
+        if (title) {
+            plates[id] = title + CARD_TITLE_PIXELS;
+        } else if (name && *name) {
+            /* The name as it will read, "{n}" and all, on the card's plate. */
+            unsigned char *plate = calloc(1, CARD_ART_RECORD);
+            char text[128];
+            size_t length = 0;
+            const char *p;
+            for (p = name; *p && length + 8 < sizeof(text); p++) {
+                if (!strncmp(p, "{n}", 3)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", n); p += 2; }
+                else if (!strncmp(p, "{id}", 4)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", id); p += 3; }
+                else text[length++] = *p;
+            }
+            text[length] = '\0';
+            /* Without a serif font the plate is left blank: better no name
+             * on the card than its base's. */
+            if (plate) {
+                CardArt_TitleFromName(text, plate);
+                plates[id] = plate + CARD_TITLE_PIXELS;
+            }
+        }
         context->use[id] = (unsigned char)((Json_Bool(Json_Member(entry, "drops"), 1) ? 1 : 0) |
                                            (Json_Bool(Json_Member(entry, "opponents"), 0) ? 2 : 0));
         if (context->use[id] & 1) context->use_count[CARDS_USE_DROP][base]++;
@@ -308,10 +411,10 @@ static void add_entry(const char *mod, int index, const JsonValue *entry, BuildC
     }
 }
 
-static void add_mod(const char *mod, const struct JsonValue *cards, void *context)
+static void add_mod(const char *mod, const char *directory, const struct JsonValue *cards, void *context)
 {
     int i;
-    for (i = 0; i < Json_Count(cards); i++) add_entry(mod, i, Json_At(cards, i), context);
+    for (i = 0; i < Json_Count(cards); i++) add_entry(mod, directory, i, Json_At(cards, i), context);
 }
 
 void Cards_Build(void)
@@ -398,6 +501,28 @@ void Cards_MarkSeen(int id)
 const unsigned char *Cards_NameText(int id)
 {
     return Cards_Valid(id) ? names[id] : NULL;
+}
+
+const unsigned char *Cards_DescriptionText(int id)
+{
+    return Cards_Valid(id) ? descriptions[id] : NULL;
+}
+
+void Cards_PatchArtRecord(int id, unsigned char *record)
+{
+    if (!Cards_Valid(id)) return;
+    if (art_parts[id] & ART_PICTURE) memcpy(record, art_records[id], CARD_TITLE_PIXELS);
+    if (plates[id]) memcpy(record + CARD_TITLE_PIXELS, plates[id], CARD_TITLE_BYTES);
+    if (art_parts[id] & ART_THUMBNAIL) {
+        memcpy(record + CARD_THUMB_PIXELS, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
+    }
+}
+
+void Cards_PatchThumbnail(int id, unsigned char *block)
+{
+    if (Cards_Valid(id) && (art_parts[id] & ART_THUMBNAIL)) {
+        memcpy(block, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
+    }
 }
 
 int Cards_PickVariant(int id, int use)

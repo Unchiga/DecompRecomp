@@ -73,6 +73,9 @@ void Duel_PopulateCombinedDeckData(void)
             goto search;
         }
         Util_CopyWords(dst, src, DUEL_CARD_DATA_BLOCK_SIZE);
+#ifdef MEMORIES_PC
+        Cards_PatchThumbnail((s16)v, dst);
+#endif
         dst += DUEL_CARD_DATA_BLOCK_SIZE;
         rec++;
     }

@@ -58,6 +58,16 @@ void Cards_MarkSeen(int id);
  * when it has the name of its base. */
 const unsigned char *Cards_NameText(int id);
 
+/* A card's own text (glyph codes, 0xFE between lines, 0xFF at the end), or
+ * NULL when it has its base's. */
+const unsigned char *Cards_DescriptionText(int id);
+
+/* A card's own artwork over its base's, as the game loads it: the art record
+ * func_80029164 read (the picture, the title plate, the thumbnail), and the
+ * 0x580-byte thumbnail block the duel copies for the hand and field. */
+void Cards_PatchArtRecord(int id, unsigned char *record);
+void Cards_PatchThumbnail(int id, unsigned char *block);
+
 /* The game's text at `text`, or the port's own version of it where the
  * retail string counts the disc's 722 cards (the Library's "<seen/722>"). */
 const unsigned char *Cards_Text(const unsigned char *text);
