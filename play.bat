@@ -2,7 +2,8 @@
 rem Windows counterpart of play.sh: build anything that changed, then launch the
 rem native PC game. "trace" logs unported calls and keeps going; "load [slot]"
 rem starts from a save state slot (default 1). Keys and save states are as in
-rem build-pc.sh. Needs Python 3 and llvm-mingw on PATH (notes/pc-build.md,
+rem build-pc.sh. The game reads your disc image from game\ (any .bin of the USA
+rem disc). Needs Python 3 and llvm-mingw on PATH (notes/pc-build.md,
 rem "Windows"); the matching build's ELFs come from Linux or WSL.
 setlocal
 cd /d "%~dp0"
@@ -17,7 +18,7 @@ if /i "%~1"=="load" (
     if "%~2"=="" (set MEMORIES_LOAD_STATE=1) else (set MEMORIES_LOAD_STATE=%~2)
 )
 for /f %%t in ('python -c "import time; print(int(time.time()))"') do set STARTED=%%t
-tmp\pc\game32\memories-pc.exe game\SLUS_014.11
+tmp\pc\game32\memories-pc.exe
 set CODE=%errorlevel%
 rem A crash code (negative) means Windows ended the game before its own
 rem handler could write tmp\pc\crash-*.txt; the report comes from Windows' dump.
