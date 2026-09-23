@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "pc/compat/posix.h"
+#include "scratch.h"
 #include <unistd.h>
 
 #define CARD_LBA 5000
@@ -57,7 +58,7 @@ const unsigned Memories_ModExportCount = sizeof(Memories_ModExports) / sizeof(Me
 
 /* --- fixtures -------------------------------------------------------- */
 
-static char root[] = "/tmp/memories-mods-XXXXXX";
+static char root[SCRATCH_MAX];
 
 static void write_file(const char *relative, const void *data, size_t size)
 {
@@ -115,6 +116,7 @@ int main(void)
     assert(Mods_Lookup("vsnprintf") && Mods_Lookup("strtol"));
     assert(!Mods_Lookup("fopen") && !Mods_Lookup("system") && !Mods_Lookup("getenv"));
 
+    scratch_template(root, sizeof(root), "memories-mods");
     assert(mkdtemp(root));
     make_dir("mods");
     /* A patch mod: bytes at a file offset, which crosses a sector boundary. */

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pc/compat/posix.h"
+#include "scratch.h"
 #include <unistd.h>
 
 static int contains(const char *path, const char *wanted)
@@ -21,9 +22,11 @@ static int contains(const char *path, const char *wanted)
 
 int main(void)
 {
-    char path[] = "/tmp/memories-settings-XXXXXX";
-    int fd = mkstemp(path);
+    char path[SCRATCH_MAX];
+    int fd;
     FILE *file;
+    scratch_template(path, sizeof(path), "memories-settings");
+    fd = mkstemp(path);
     assert(fd >= 0);
     file = fdopen(fd, "w");
     assert(file);

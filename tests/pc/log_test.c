@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pc/compat/posix.h"
+#include "scratch.h"
 #include <unistd.h>
 
 unsigned Memories_PresentedFrames(void) { return 12; }
@@ -12,9 +13,11 @@ unsigned Platform_VBlankCount(void) { return 34; }
 
 int main(void)
 {
-    char path[] = "/tmp/memories-log-XXXXXX", line[1024];
-    int fd = mkstemp(path), count = 0, dropped = 0, i;
+    char path[SCRATCH_MAX], line[1024];
+    int fd, count = 0, dropped = 0, i;
     FILE *file;
+    scratch_template(path, sizeof(path), "memories-log");
+    fd = mkstemp(path);
     assert(fd >= 0);
     close(fd);
     assert(!setenv("MEMORIES_LOG", path, 1));

@@ -3,6 +3,7 @@
 #include "../../src/pc/platform/controls_window.c"
 #include <assert.h>
 #include "pc/compat/posix.h"
+#include "scratch.h"
 #include <unistd.h>
 static int test_scale = 1;
 int Menu_Scale(void) { return test_scale; }
@@ -23,7 +24,8 @@ void Menu_DrawTextScaled(MenuCanvas *c, int x, int y, const char *s, uint32_t co
 }
 int main(void)
 {
-    char dir[] = "/tmp/memories-window-XXXXXX", path[256];
+    char dir[SCRATCH_MAX], path[SCRATCH_MAX + 64];
+    scratch_template(dir, sizeof(dir), "memories-window");
     assert(mkdtemp(dir));
     snprintf(path, sizeof(path), "%s/controls.txt", dir);
     setenv("MEMORIES_CONTROLS", path, 1);

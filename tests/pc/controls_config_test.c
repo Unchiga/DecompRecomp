@@ -6,10 +6,12 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "pc/compat/posix.h"
+#include "scratch.h"
 #include <unistd.h>
 int main(void)
 {
-    char dir[] = "/tmp/memories-controls-XXXXXX", path[256], error[256] = {0};
+    char dir[SCRATCH_MAX], path[SCRATCH_MAX + 64], error[256] = {0};
+    scratch_template(dir, sizeof(dir), "memories-controls");
     assert(mkdtemp(dir));
     snprintf(path, sizeof(path), "%s/controls.txt", dir);
     assert(!setenv("MEMORIES_CONTROLS", path, 1));

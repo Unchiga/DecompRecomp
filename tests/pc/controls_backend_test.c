@@ -2,6 +2,7 @@
 #include "../../src/pc/platform/sdl.c"
 #include <assert.h>
 #include "pc/compat/posix.h"
+#include "scratch.h"
 #include <unistd.h>
 int Menu_Scale(void) { return 1; }
 int Menu_TextWidthScaled(const char *s, int sc) { return (int)strlen(s) * 7 * sc; }
@@ -64,7 +65,8 @@ static void controls_press(SDL_Scancode code, int down)
 }
 int main(void)
 {
-    char dir[] = "/tmp/memories-backend-XXXXXX", path[256], error[256];
+    char dir[SCRATCH_MAX], path[SCRATCH_MAX + 64], error[256];
+    scratch_template(dir, sizeof(dir), "memories-backend");
     assert(mkdtemp(dir));
     snprintf(path, sizeof(path), "%s/controls.txt", dir);
     setenv("MEMORIES_CONTROLS", path, 1);
