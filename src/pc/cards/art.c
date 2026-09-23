@@ -5,16 +5,25 @@
  *
  *   +0x0000  102 x 96 art, one byte per pixel      (indices 1-255)
  *   +0x2640  its CLUT, 256 BGR555 entries          (entry 0 unused, 0x8000)
- *   +0x2840  the title plate, 96 x 14 at 4 bits    (0 clear, 1-7 light to dark)
+ *   +0x2840  the title plate, 96 x 14 at 4 bits    (0 clear, 1 darkest ink to 7 faintest)
  *   +0x2AE0  40 x 32 thumbnail, one byte per pixel (indices 1-63)
  *   +0x2FE0  its CLUT, 64 BGR555 entries
  *
  * and the thumbnail block (+0x2AE0, 0x580 bytes) is also the card's own sector
  * the duel reads for the hand and field. This file makes those bytes from a
  * PNG: cropped to the shape, averaged down to the size, and reduced to the
- * colours by median cut. The plate is the card's name set in a bold serif
- * (the system's; the retail plates' own face is not available as a font),
- * shaded into the plate's seven inks, or a PNG the mod gives. */
+ * colours by median cut. The plate is the card's name set in Times (the
+ * system's; the retail plates' own face is not available as a font), or a
+ * PNG the mod gives.
+ *
+ * The plate is drawn subtractively over the card's gold frame through a
+ * fixed 16-entry CLUT (index 1 a light grey, 7 a dark one), so index 1 takes
+ * the most away: it is the darkest ink, and 7 barely shows. The retail
+ * plates are authored that way, stems at 1 with faint 6 and 7 fringes. The
+ * measurements, and the settings below that make a legible plate (Times
+ * regular at 13 pixels, baseline under row 11, whole-pixel advances, hard
+ * coverage steps), are the YuGiOhForbiddenMemoriesRecomp project's
+ * (src/psx_card_packs.c, render_title), found against window captures. */
 #include "cards.h"
 #include "art.h"
 #include <ft2build.h>
@@ -34,8 +43,10 @@ typedef struct { unsigned char r, g, b; } Rgb;
 
 /* --- images ---------------------------------------------------------- */
 
-/* The PNG as RGB over black. */
-static Rgb *load_png(const char *path, int *width, int *height)
+/* The PNG as RGB over black or, with `ink`, as ink coverage in all three
+ * channels: dark and opaque is full ink, so a strip drawn in black on white
+ * and one drawn on a transparent background read the same. */
+static Rgb *load_png_as(const char *path, int *width, int *height, int ink)
 {
     png_image image;
     unsigned char *rgba;
@@ -55,6 +66,11 @@ static Rgb *load_png(const char *path, int *width, int *height)
     out = malloc(count * sizeof(*out));
     for (i = 0; out && i < count; i++) {
         unsigned a = rgba[i * 4 + 3];
+        if (ink) {
+            unsigned luma = (rgba[i * 4] * 3u + rgba[i * 4 + 1] * 6u + rgba[i * 4 + 2]) / 10u;
+            out[i].r = out[i].g = out[i].b = (unsigned char)((255 - luma) * a / 255);
+            continue;
+        }
         out[i].r = (unsigned char)(rgba[i * 4] * a / 255);
         out[i].g = (unsigned char)(rgba[i * 4 + 1] * a / 255);
         out[i].b = (unsigned char)(rgba[i * 4 + 2] * a / 255);
@@ -64,6 +80,11 @@ static Rgb *load_png(const char *path, int *width, int *height)
     free(rgba);
     png_image_free(&image);
     return out;
+}
+
+static Rgb *load_png(const char *path, int *width, int *height)
+{
+    return load_png_as(path, width, height, 0);
 }
 
 /* `w` x `h` from the middle of the image at that shape, each pixel the
@@ -225,27 +246,26 @@ static void put_ink(unsigned char *plate, int x, int y, int ink)
     else *byte = (unsigned char)((*byte & 0xF0) | ink);
 }
 
-/* Coverage (0-255) to the plate's inks: 0 clear, 1 to 7 light to dark. */
+/* Coverage (0-255) to the plate's inks: full coverage is 1, the darkest;
+ * an edge 3; a faint halo 6, as the retail plates carry; else clear. */
 static int ink_of(int coverage)
 {
-    return coverage < 40 ? 0 : 1 + (coverage - 40) * 6 / 215;
+    return coverage >= 150 ? 1 : coverage >= 96 ? 3 : coverage >= 40 ? 6 : 0;
 }
 
 int CardArt_TitleFromImage(const char *path, unsigned char *record, char *why, size_t why_size)
 {
     int width, height, x, y;
-    Rgb *source = load_png(path, &width, &height), small[CARD_TITLE_WIDTH * CARD_TITLE_HEIGHT];
+    Rgb *source = load_png_as(path, &width, &height, 1), small[CARD_TITLE_WIDTH * CARD_TITLE_HEIGHT];
     if (!source) {
         snprintf(why, why_size, "%s is not a PNG it could read", path);
         return 0;
     }
-    /* Dark is ink, as on the card. */
     resample(source, width, height, small, CARD_TITLE_WIDTH, CARD_TITLE_HEIGHT);
     memset(record + CARD_TITLE_PIXELS, 0, CARD_TITLE_BYTES);
     for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
         for (x = 0; x < CARD_TITLE_WIDTH; x++) {
-            const Rgb *p = &small[y * CARD_TITLE_WIDTH + x];
-            put_ink(record + CARD_TITLE_PIXELS, x, y, ink_of(255 - (p->r * 3 + p->g * 6 + p->b) / 10));
+            put_ink(record + CARD_TITLE_PIXELS, x, y, ink_of(small[y * CARD_TITLE_WIDTH + x].r));
         }
     }
     free(source);
@@ -266,7 +286,7 @@ static const char *serif_file(void)
     FcResult result;
     FcChar8 *file = NULL;
     if (!FcInit()) return NULL;
-    pattern = FcNameParse((const FcChar8 *)"serif:bold");
+    pattern = FcNameParse((const FcChar8 *)"Times:regular");
     FcConfigSubstitute(NULL, pattern, FcMatchPattern);
     FcDefaultSubstitute(pattern);
     match = FcFontMatch(NULL, pattern, &result);
@@ -280,14 +300,15 @@ static const char *serif_file(void)
 #endif
 }
 
-/* The name, in the size the retail plates are set in: capitals from row 0
- * to the baseline under row 8, starting at column 3, squeezed across when
- * it would not fit (as the long retail names are). */
+/* The name as the retail plates set theirs: Times at 13 pixels, the
+ * baseline under row 11, from column 3, each glyph on a whole pixel so stems
+ * fill whole columns; a name wider than 90 pixels is squeezed into columns
+ * 3 to 93, as the long retail names are. */
 int CardArt_TitleFromName(const char *name, unsigned char *record)
 {
-    enum { WIDE = 400, BASELINE = 9, LEFT = 3 };
-    static unsigned char line[WIDE * CARD_TITLE_HEIGHT];
-    int pen = LEFT, x, y, width;
+    enum { WIDE = 512, BASELINE = 11, LEFT = 3, ROOM = 90 };
+    static unsigned char line[CARD_TITLE_HEIGHT][WIDE];
+    int pen = LEFT, x, y, ink_low = WIDE, ink_high = -1, previous = 0;
     const char *c;
     if (!face_tried) {
         const char *file = serif_file();
@@ -300,37 +321,57 @@ int CardArt_TitleFromName(const char *name, unsigned char *record)
     if (!face) return 0;
     memset(line, 0, sizeof(line));
     for (c = name; *c; c++) {
+        FT_UInt index = FT_Get_Char_Index(face, (FT_ULong)(unsigned char)*c);
         FT_Bitmap *bitmap;
-        int top;
-        if (FT_Load_Char(face, (FT_ULong)(unsigned char)*c, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT)) continue;
+        if (previous && index && FT_HAS_KERNING(face)) {
+            FT_Vector kern;
+            if (!FT_Get_Kerning(face, previous, index, FT_KERNING_DEFAULT, &kern)) pen += (int)((kern.x + 32) >> 6);
+        }
+        previous = index;
+        if (FT_Load_Glyph(face, index, FT_LOAD_RENDER | FT_LOAD_NO_HINTING)) continue;
         bitmap = &face->glyph->bitmap;
-        top = BASELINE - face->glyph->bitmap_top;
         for (y = 0; y < (int)bitmap->rows; y++) {
+            int ty = BASELINE - face->glyph->bitmap_top + y;
+            if (ty < 0 || ty >= CARD_TITLE_HEIGHT) continue;
             for (x = 0; x < (int)bitmap->width; x++) {
-                int tx = pen + face->glyph->bitmap_left + x, ty = top + y;
+                int tx = pen + face->glyph->bitmap_left + x;
                 unsigned char v = bitmap->buffer[y * bitmap->pitch + x];
-                if (tx >= 0 && tx < WIDE && ty >= 0 && ty < CARD_TITLE_HEIGHT && v > line[ty * WIDE + tx]) {
-                    line[ty * WIDE + tx] = v;
-                }
+                if (tx < 0 || tx >= WIDE || !v) continue;
+                if (v > line[ty][tx]) line[ty][tx] = v;
+                if (tx < ink_low) ink_low = tx;
+                if (tx > ink_high) ink_high = tx;
             }
         }
         pen += (int)((face->glyph->advance.x + 32) >> 6);
         if (pen >= WIDE) break;
     }
-    width = pen < WIDE ? pen : WIDE;
     memset(record + CARD_TITLE_PIXELS, 0, CARD_TITLE_BYTES);
-    for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
-        for (x = 0; x < CARD_TITLE_WIDTH; x++) {
-            int coverage;
-            if (width <= CARD_TITLE_WIDTH - 1) {
-                coverage = x < WIDE ? line[y * WIDE + x] : 0;
-            } else {   /* the columns under this one, averaged */
-                int from = x * width / (CARD_TITLE_WIDTH - 1), to = (x + 1) * width / (CARD_TITLE_WIDTH - 1), s, sum = 0;
-                if (to <= from) to = from + 1;
-                for (s = from; s < to; s++) sum += line[y * WIDE + s];
-                coverage = sum / (to - from);
+    if (ink_high < ink_low) return 1;
+    if (ink_high - ink_low + 1 <= ROOM) {
+        for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
+            for (x = 0; x < CARD_TITLE_WIDTH; x++) put_ink(record + CARD_TITLE_PIXELS, x, y, ink_of(line[y][x]));
+        }
+    } else {
+        /* Squeezed with a linear filter, then brought back up to full ink:
+         * averaging thins every stem, and thin stems are faint ones. */
+        static float squeezed[CARD_TITLE_HEIGHT][ROOM];
+        float step = (float)(ink_high - ink_low + 1) / ROOM, peak = 1.0f;
+        for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
+            for (x = 0; x < ROOM; x++) {
+                float at = ink_low + (x + 0.5f) * step - 0.5f, t;
+                int i0 = (int)at, i1;
+                if (at < 0) at = 0;
+                i0 = (int)at;
+                t = at - i0;
+                i1 = i0 + 1 < WIDE ? i0 + 1 : i0;
+                squeezed[y][x] = line[y][i0] * (1.0f - t) + line[y][i1] * t;
+                if (squeezed[y][x] > peak) peak = squeezed[y][x];
             }
-            put_ink(record + CARD_TITLE_PIXELS, x, y, ink_of(coverage));
+        }
+        for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
+            for (x = 0; x < ROOM; x++) {
+                put_ink(record + CARD_TITLE_PIXELS, LEFT + x, y, ink_of((int)(squeezed[y][x] * 255.0f / peak + 0.5f)));
+            }
         }
     }
     return 1;

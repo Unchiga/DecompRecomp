@@ -365,10 +365,10 @@ const char *Win32_FontPath(int japanese)
     return NULL;
 }
 
-/* A bold serif, for the title plates of the cards mods add (cards/art.c). */
+/* Times, for the title plates of the cards mods add (cards/art.c). */
 const char *Win32_SerifFontPath(void)
 {
-    static const char *const serif[] = {"timesbd.ttf", "georgiab.ttf", "times.ttf", "georgia.ttf", NULL};
+    static const char *const serif[] = {"times.ttf", "georgia.ttf", "timesbd.ttf", "georgiab.ttf", NULL};
     static char path[MAX_PATH];
     const char *const *name;
     char directory[MAX_PATH];

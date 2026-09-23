@@ -44,7 +44,7 @@ The release ships no card mod; the checks below were made with test mods
 | `description` | the card's own text, wrapped as the retail texts are (lines of up to twenty letters, broken at spaces; `\n` breaks a line where it stands). Eight lines is the most any retail text has. Without one a card has its base's text |
 | `art` | a PNG in the mod (a path relative to its directory): the card's picture and, made from the same image, the small one the hand and field show. Any size: the middle of it at the card's shape is taken and scaled to 102x96 and 40x32, and its colours reduced to the 255 and 63 each has. 102x96 or a multiple looks best |
 | `thumbnail` | a PNG for the small picture alone, when the scaled-down `art` does not read well at 40x32 |
-| `title` | a PNG for the name plate at the top of the card's picture (96x14; dark is ink). Without one, a card with its own name gets a plate with that name set in the system's bold serif (Times New Roman or Georgia on Windows, fontconfig's `serif:bold` elsewhere), or a blank plate when there is none |
+| `title` | a PNG for the name plate at the top of the card's picture (96x14; dark ink on white, or on a transparent background). Without one, a card with its own name gets a plate with that name set in Times at the retail plates' size (Times New Roman on Windows, fontconfig's match for `Times` elsewhere, Liberation Serif on most Linux systems), or a blank plate when there is none |
 | `attack`, `defense` | 0 to 5110, in tens, as the game stores them |
 | `type` | a number or a name (`"Dragon"`, `"Winged Beast"`). A copy of a monster stays a monster, since it has its base's 3D model; a copy of a magic, trap, ritual or equip card keeps its type, since it has its base's effect |
 | `attribute` | a number or a name (`"Light"` to `"Wind"`) |
@@ -156,8 +156,16 @@ picture, plate and thumbnail over them
 ([`art.c`](../src/pc/cards/art.c) makes them from the PNGs: the record layout
 is in its header comment and in
 [modding-tutorial-evidence.md](modding-tutorial-evidence.md#card-image-editor-dimensions)).
-The plate uses its own fixed palette, of which the retail plates use entries
-0 (clear) to 7 (darkest ink). Card text goes in beside the name, at the text
+The plate is drawn subtractively over the gold frame through its own fixed
+palette: entry 1 takes the most away and is the darkest ink, 7 barely shows,
+0 is clear. The retail plates put their stems at 1 with faint 6 and 7
+fringes, and a plate that inks with 7 reads as a pale ghost. The generated
+plates follow the settings the YuGiOhForbiddenMemoriesRecomp project measured
+against window captures (`src/psx_card_packs.c`, `render_title`): Times
+regular at 13 pixels, the baseline under row 11, whole-pixel advances,
+coverage in hard steps (150 and up ink 1, 96 an edge at 3, 40 a halo at 6),
+and a name wider than 90 pixels squeezed into columns 3 to 93 and brought
+back up to full ink. Card text goes in beside the name, at the text
 engine's insert command (`duel_effect_command.c`, op 0x40).
 
 **What spells out 722.** The Library's heading string (`"<seen/722>"`,
