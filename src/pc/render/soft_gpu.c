@@ -78,6 +78,16 @@ static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y)
     return &target[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
 }
 
+/* VRAM itself, whatever `target` is. Loads, stores, copies and fills always
+ * mean VRAM, and they can arrive from the interrupt tick (a LoadImage in a
+ * callback) while a primitive is being drawn a second time into a widescreen
+ * target: through pixel() they landed there instead, and VRAM missed the
+ * upload (the password screen's letters, differently on every run). */
+static inline __attribute__((always_inline)) uint16_t *vram_pixel(int x, int y)
+{
+    return &vram[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
+}
+
 /* The same word in whichever bank the current texture page names. */
 static inline __attribute__((always_inline)) uint16_t sample(int x, int y)
 {
@@ -165,6 +175,21 @@ void SoftGpu_SetWidescreen(int on)
     }
 }
 
+int SoftGpu_WideFrameView(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w)
+{
+    int t;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        const WideTarget *wt = &wide[t];
+        if (wt->pixels && wt->x1 == x && wt->y1 == y && wt->x2 - wt->x1 + 1 == w && wt->y2 - wt->y1 + 1 >= h) {
+            *pixels = wt->pixels;
+            *out_x = x;
+            *out_w = w + 2 * wt->margin;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w)
 {
     int t;
@@ -196,7 +221,7 @@ void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
     int i, j;
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            uint16_t *target = pixel(x + i, y + j);
+            uint16_t *target = vram_pixel(x + i, y + j);
             if (!gpu.mask_check || !(*target & 0x8000)) {
                 *target = (uint16_t)(pixels[j * w + i] | (gpu.mask_set ? 0x8000 : 0));
             }
@@ -210,7 +235,7 @@ void SoftGpu_Store(int x, int y, int w, int h, uint16_t *pixels)
     int i, j;
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            pixels[j * w + i] = *pixel(x + i, y + j);
+            pixels[j * w + i] = *vram_pixel(x + i, y + j);
         }
     }
 }
@@ -221,9 +246,9 @@ void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
     for (j = 0; j < h; j++) {
         /* Overlapping copies read each row forwards, as the hardware does. */
         for (i = 0; i < w; i++) {
-            uint16_t *target = pixel(dx + i, dy + j);
+            uint16_t *target = vram_pixel(dx + i, dy + j);
             if (!gpu.mask_check || !(*target & 0x8000)) {
-                *target = (uint16_t)(*pixel(sx + i, sy + j) | (gpu.mask_set ? 0x8000 : 0));
+                *target = (uint16_t)(*vram_pixel(sx + i, sy + j) | (gpu.mask_set ? 0x8000 : 0));
             }
         }
     }
@@ -242,7 +267,7 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
     uint16_t colour = pack(rgb24);
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            *pixel(x + i, y + j) = colour;
+            *vram_pixel(x + i, y + j) = colour;
         }
     }
     wide_mirror(x, y, w, h, 1, colour);
@@ -595,16 +620,27 @@ size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
             WideTarget *wt;
             used = draw(words + at, count - at);
             if (used && (wt = wide_target()) != NULL) {
-                /* Again into the widescreen target, shifted and unclipped
-                 * at the sides. The primitive's state words are idempotent. */
-                int clip_x2 = gpu.clip_x2, offset_x = gpu.offset_x;
-                gpu.clip_x2 += 2 * wt->margin;
+                /* Again into the widescreen target, shifted. Polygons and
+                 * lines, which is what the GTE projects, are unclipped at the
+                 * sides, so the scene carries on past the 4:3 edges. Sprites
+                 * keep the 4:3 clip: they are the 2D screens, and those park
+                 * what they do not show just past the edge (the deck
+                 * builder's column of card numbers), where the console's clip
+                 * hides it. The primitive's state words are idempotent. */
+                int clip_x1 = gpu.clip_x1, clip_x2 = gpu.clip_x2, offset_x = gpu.offset_x;
+                if (command < 0x60) {
+                    gpu.clip_x2 += 2 * wt->margin;
+                } else {
+                    gpu.clip_x1 += wt->margin;
+                    gpu.clip_x2 += wt->margin;
+                }
                 gpu.offset_x += wt->margin;
                 target = wt->pixels;
                 dither_shift = wt->margin;
                 draw(words + at, count - at);
                 target = vram;
                 dither_shift = 0;
+                gpu.clip_x1 = clip_x1;
                 gpu.clip_x2 = clip_x2;
                 gpu.offset_x = offset_x;
                 wt->drawn++;

@@ -79,7 +79,10 @@ def run_smoke(executable: Path, record: bool) -> bool:
         name = str(case["name"])
         image = OUTPUT / f"{name}.ppm"
         settings = OUTPUT / f"{name}.settings"
-        settings.write_text("", encoding="utf-8")
+        # A case may set some of the player's settings ("aspect=2" for
+        # widescreen); everything else is the defaults.
+        settings.write_text("".join(f"{key}={value}\n" for key, value in case.get("settings", {}).items()),
+                            encoding="utf-8")
         print(f"smoke: {name} (frame {case['frame']})", flush=True)
         try:
             result = subprocess.run(

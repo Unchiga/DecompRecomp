@@ -95,10 +95,20 @@ void Memories_DumpFrame(const char *path, int full_vram)
     int x, y, w = disp_env.disp.w > 0 ? disp_env.disp.w : 320;
     int h = disp_env.disp.h > 0 ? disp_env.disp.h : 240;
     int x0 = full_vram ? 0 : disp_env.disp.x, y0 = full_vram ? 0 : disp_env.disp.y;
+    const uint16_t *source = SoftGpu_Vram();
     flush_drawing();
     if (full_vram) {
         w = SOFT_GPU_WIDTH;
         h = SOFT_GPU_HEIGHT;
+    } else if (Platform_Widescreen() && !disp_env.isrgb24) {
+        /* The picture the window shows: the widened one, when there is one. */
+        const uint16_t *pixels;
+        int wide_x, wide_w;
+        if (SoftGpu_WideFrameView(x0, y0, w, h, &pixels, &wide_x, &wide_w)) {
+            source = pixels;
+            x0 = wide_x;
+            w = wide_w;
+        }
     }
     file = fopen(path, "wb");
     if (!file) {
@@ -108,7 +118,7 @@ void Memories_DumpFrame(const char *path, int full_vram)
     fprintf(file, "P6\n%d %d\n255\n", w, h);
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            uint16_t c = SoftGpu_Vram()[((y0 + y) & 511) * SOFT_GPU_WIDTH + ((x0 + x) & 1023)];
+            uint16_t c = source[((y0 + y) & 511) * SOFT_GPU_WIDTH + ((x0 + x) & 1023)];
             if (disp_env.isrgb24 && !full_vram) {
                 fwrite((const uint8_t *)&SoftGpu_Vram()[((y0 + y) & 511) * SOFT_GPU_WIDTH + x0] + x * 3,
                        1, 3, file);

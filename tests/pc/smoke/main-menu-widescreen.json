@@ -1,0 +1,9 @@
+{
+  "name": "main-menu-widescreen",
+  "input": "910:0008,916:0000,1040:0040,1046:0000",
+  "frame": 1100,
+  "settings": {
+    "aspect": 2
+  },
+  "sha256": "8af00f4b630d5d187899d78197a271d911b448d7adcb0db8077a4a5798f4ea17"
+}

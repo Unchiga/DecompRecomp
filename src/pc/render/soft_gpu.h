@@ -34,6 +34,8 @@ void SoftGpu_SetWidescreen(int on);
 /* The widened picture of the display area x,y,w,h, if it has a target:
  * VRAM-shaped pixels, and the x and width to show. Returns 0 otherwise. */
 int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w);
+/* The same picture without presenting it (frame dumps): nothing changes. */
+int SoftGpu_WideFrameView(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w);
 /* Save states: VRAM (index 0) and the drawing state (index 1). */
 void *SoftGpu_StateData(int index, size_t *size);
 #endif
