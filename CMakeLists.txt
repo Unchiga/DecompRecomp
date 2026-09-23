@@ -67,7 +67,10 @@ if(BUILD_TESTING)
         src/pc/mods/object_loader.c src/pc/mods/json.c
         src/pc/platform/paths.c src/pc/platform/settings.c)
     target_include_directories(memories_mods_test PRIVATE src)
-    target_link_libraries(memories_mods_test PRIVATE m)
+    # The mod C library hands mods the maths functions and reads the monotonic
+    # clock, which on Windows (clock_gettime) comes from the threads library.
+    find_package(Threads REQUIRED)
+    target_link_libraries(memories_mods_test PRIVATE m Threads::Threads)
     if(NOT MSVC)
         target_compile_options(memories_mods_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

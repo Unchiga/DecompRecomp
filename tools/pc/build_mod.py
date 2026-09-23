@@ -69,6 +69,8 @@ def compiler():
             # spelled out: "ld.lld" already has an extension, so it adds none.
             beside = os.path.join(os.path.dirname(path), "ld.lld")
             linker = next((p for p in (beside + ".exe", beside) if os.path.exists(p)), None) or tool("ld.lld")
+            if not linker:
+                continue  # clang without lld cannot merge the objects; try the next compiler
             return [path], CLANG_FLAGS + ["-isystem", include], [linker, "-r"]
         include = subprocess.run([path, "-m32", "-print-file-name=include"], capture_output=True, text=True).stdout.strip()
         return [path], GCC_FLAGS + ["-isystem", include], [tool("ld") or "ld", "-m", "elf_i386", "-r"]

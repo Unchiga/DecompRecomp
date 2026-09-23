@@ -10,8 +10,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      # The controls window test draws the pad picture through libpng.
-      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev
+      # The controls window test draws the pad picture through libpng; the
+      # object loader test builds 32-bit (gcc -m32) and its mods with clang
+      # and lld, as a player's build_mod.py does.
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev gcc-multilib lld
       - run: cmake -S . -B tmp/pc -DBUILD_TESTING=ON
       - run: cmake --build tmp/pc --config Release
       - run: ctest --test-dir tmp/pc -C Release --output-on-failure
@@ -66,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev gcc-multilib lld
       - run: cmake -S . -B tmp/pc -DMEMORIES_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
       - run: cmake --build tmp/pc
       - run: ctest --test-dir tmp/pc --output-on-failure
