@@ -292,9 +292,9 @@ int CdGetSector(void *destination, int words)
         bytes = RAW_SECTOR - sector_cursor;
     }
     memcpy(destination, sector + sector_cursor, bytes);
-    TextureDump_Delivered(destination, bytes, head_lba - 1, sector_cursor - USER_DATA);
     sector_cursor += bytes;
     Memories_GuestWritten(destination, bytes);
+    TextureDump_Delivered(destination, bytes, head_lba - 1, sector_cursor - bytes - USER_DATA); /* after the write notice, which forgets deliveries */
     Log_Signal(LOG_DISC, "lba %ld -> 0x%lx, %ld bytes", head_lba - 1,
                (long)(uintptr_t)destination, bytes, 0, 0, 0);
     return 1;
