@@ -506,6 +506,55 @@ tiles them): the monster keeps its facing through the swing and ends facing
 the camera on the opponent's turn. A battle presentation with the mod on has
 not been watched yet.
 
+### Images from the disc
+
+`python tools/pc/extract_images.py [family ...]` writes the game's images
+from `game/DATA/*.MRG` as PNG under `tmp/pc/images/`, named by where they
+come from, with `manifest.json` giving each one's provenance (archive, byte
+offset, size in VRAM words and rows, depth, palette offset): the identity a
+texture pack goes by, with names as aliases on top. The archives hold no
+image files, so the tool replays the game's own loaders, one family at a
+time; so far `cards`, the 722 cards' artwork from `func_800289BC` (WA
+sector `(n-1)*7 + 722`, seven sectors: the 102x96 8-bit picture, its
+256-entry palette, the name strip under it and the strip beside it), 2,166
+files, and `portraits`, the 48x48 dialogue portraits through their 64-entry
+palettes (the campaign's 25 and Free Duel's 40, `0x980`-byte records).
+`--names cards.tsv` (card_number, name) puts the card's name in the file
+name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
+(below), under `assets/`, named by archive, offset, size, depth and palette:
+the way to cover screens no family describes yet. Next: monster textures
+(`MODEL.MRG`) as a family, and aliases for the screens.
+
+### Texture dump (what is on screen)
+
+`MEMORIES_DUMP_TEXTURES=<directory>` writes every texture the software GPU
+draws as a PNG named by its hash (`src/pc/render/texture_dump.c`), a
+discovery tool: what a screen is made of, at what size and depth, through
+which palette. A texture is the rectangle of texels one textured primitive
+covers, decoded through its palette, so a sprite comes out at its own size
+and colours and the same one drawn again is the same file; the hash covers
+the texel indices and the palette entries, so a palette swap is another
+image. `textures.txt` in the directory lists each hash with its size, depth,
+page and palette coordinates. Dumping costs a hash per primitive, so it is
+for a capture session, not play; a duel dumps about 1,900 images. The hash
+is not what a texture pack goes by: images are named by where they come
+from on the disc (the archives stream raw VRAM blocks, `notes/mrg-files.md`;
+the loader call sites are the asset table), the way a decompiled port can
+and an emulator cannot. So the same run also traces provenance: the disc
+layer reports every copy of sector data into game memory
+(`TextureDump_Delivered`), an upload looks its pixels up in those and tags
+each VRAM word with its disc byte offset, moves carry the tags, fills and
+drawing clear them, and a primitive whose texels and palette are all tagged
+adds a line to `assets.txt`: offset, row layout (a stride, or each row's
+offset when the streamer laid the blocks side by side), size, depth,
+palette offset, the pixel crop within the first word, and the hash of the
+PNG it was drawn as. `extract_images.py --assets <dir>/assets.txt` then
+writes those images from the archives, and every one comes out identical
+to the PNG the game drew (76 of 76 through the title and main menu), which
+is the proof of the provenance. A state load restores VRAM without
+deliveries, so it clears the tags: the textures traced after it are the
+ones loaded after it.
+
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every
@@ -519,7 +568,9 @@ twice before committing new hashes.
 The smoke runner clears other `MEMORIES_*` switches (except a caller-supplied
 `MEMORIES_DISC`) and uses isolated settings files, a fixed headless dump clock,
 no gamepad and no audio device. It still requires the private disc image and
-the native build prerequisites described above.
+the native build prerequisites described above. Each boot gets 120 s;
+`MEMORIES_SMOKE_TIMEOUT=<seconds>` raises it where the headless game runs
+slower (the Windows build reaches frame 1100 in about four minutes).
 
 ### Save states
 

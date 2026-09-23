@@ -9,6 +9,7 @@
  *   variables live in host sections of their own (the build renames them), a
  *   copy of which is taken at startup and put back whenever the module's
  *   first sector arrives. */
+#include "pc/render/texture_dump.h"
 #include "image.h"
 #include <stdint.h>
 #include <stdlib.h>
@@ -43,6 +44,7 @@ int Memories_ModuleIsResident(unsigned bank, unsigned identifier)
 /* Async-signal-safe: sectors are delivered from the disc interrupt. */
 void Memories_GuestWritten(void *destination, size_t length)
 {
+    TextureDump_Written(destination, (unsigned)length); /* a delivery no longer describes these bytes */
     uintptr_t first = (uintptr_t)destination;
     unsigned i;
     for (i = 0; snapshots && i < Memories_ModuleCount; i++) {

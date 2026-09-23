@@ -1,4 +1,5 @@
 #include "soft_gpu.h"
+#include "texture_dump.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -69,6 +70,7 @@ void SoftGpu_Reset(void)
 {
     memset(&gpu, 0, sizeof(gpu));
     texture_source = vram;
+    TextureDump_Init();
     gpu.clip_x2 = SOFT_GPU_WIDTH - 1;
     gpu.clip_y2 = SOFT_GPU_HEIGHT - 1;
 }
@@ -194,6 +196,7 @@ int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *
 void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
 {
     int i, j;
+    if (TextureDump_Tags) TextureDump_Loaded(x, y, w, h, pixels);
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             uint16_t *target = pixel(x + i, y + j);
@@ -218,6 +221,7 @@ void SoftGpu_Store(int x, int y, int w, int h, uint16_t *pixels)
 void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
 {
     int i, j;
+    if (TextureDump_Tags) TextureDump_Moved(sx, sy, dx, dy, w, h);
     for (j = 0; j < h; j++) {
         /* Overlapping copies read each row forwards, as the hardware does. */
         for (i = 0; i < w; i++) {
@@ -240,6 +244,7 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
 {
     int i, j;
     uint16_t colour = pack(rgb24);
+    if (TextureDump_Tags) TextureDump_Cleared(x, y, w, h);
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             *pixel(x + i, y + j) = colour;
@@ -272,10 +277,19 @@ static inline __attribute__((always_inline)) int clamp8(int value)
     return value < 0 ? 0 : value > 255 ? 255 : value;
 }
 
+/* The provenance tag of the word plot is about to draw, or NULL when it draws
+ * into a widescreen target (whose words have no tags) or tracing is off.
+ * Outside plot, whose local target hides the global one. */
+static inline __attribute__((always_inline)) uint32_t *drawn_tag(const uint16_t *word)
+{
+    return TextureDump_Tags && target == vram ? &TextureDump_Tags[word - vram] : NULL;
+}
+
 /* flags: 1 raw texture, 2 semi-transparent, 4 textured, 8 dither-eligible */
 static inline __attribute__((always_inline)) void plot(int x, int y, int r, int g, int b, int u, int v, int flags)
 {
     uint16_t *target, source;
+    uint32_t *tag;
     int semi = flags & 2;
     if (x < gpu.clip_x1 || x > gpu.clip_x2 || y < gpu.clip_y1 || y > gpu.clip_y2) {
         return;
@@ -284,6 +298,7 @@ static inline __attribute__((always_inline)) void plot(int x, int y, int r, int 
     if (gpu.mask_check && (*target & 0x8000)) {
         return;
     }
+    if ((tag = drawn_tag(target)) != NULL) *tag = 0; /* drawn, not from the disc */
     if (flags & 4) {
         source = texel(u, v);
         if (!source) {
@@ -505,6 +520,18 @@ static size_t polygon(const uint32_t *words, size_t count)
             }
         }
     }
+    if (textured && TextureDump_Enabled) {
+        /* The texels the primitive covers: a quad's far edge is exclusive. */
+        int u0 = v[0].u, u1 = v[0].u, v0 = v[0].v, v1 = v[0].v;
+        for (i = 1; i < vertices; i++) {
+            if (v[i].u < u0) u0 = v[i].u;
+            if (v[i].u > u1) u1 = v[i].u;
+            if (v[i].v < v0) v0 = v[i].v;
+            if (v[i].v > v1) v1 = v[i].v;
+        }
+        TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, u0, v0,
+                              u1 > u0 ? u1 - 1 : u1, v1 > v0 ? v1 - 1 : v1);
+    }
     triangle(v[0], v[1], v[2], flags);
     if (quad) {
         triangle(v[1], v[2], v[3], flags);
@@ -537,6 +564,10 @@ static size_t rectangle(const uint32_t *words, size_t count)
     if (kind == 0) {
         w = words[at] & 0x3ff;
         h = (words[at] >> 16) & 0x1ff;
+    }
+    if (textured && TextureDump_Enabled && w && h) {
+        TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u,
+                              base.v, base.u + w - 1, base.v + h - 1);
     }
     switch (flags) {
 #define CASE(n) case n: \

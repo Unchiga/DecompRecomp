@@ -60,7 +60,7 @@ BACKENDS = {"sdl": ["src/pc/platform/sdl.c"],
             "x11": ["src/pc/platform/x11.c", "src/pc/platform/audio_alsa.c", "src/pc/platform/gamepad_evdev.c"]}
 BACKEND_SOURCES = sorted(sum(BACKENDS.values(), []))
 NATIVE = sorted(glob.glob("src/pc/guest/*.[cS]") + glob.glob("src/pc/sdk/*.c") +
-                [f for f in glob.glob("src/pc/platform/*.c") if f not in BACKEND_SOURCES] + glob.glob("src/pc/overlays/*.c") + glob.glob("src/pc/overrides/*.c") + glob.glob("src/pc/audio/*.c") + glob.glob("src/pc/mods/*.c") + glob.glob("src/pc/debug/*.c") + ["src/pc/render/soft_gpu.c"]) + [
+                [f for f in glob.glob("src/pc/platform/*.c") if f not in BACKEND_SOURCES] + glob.glob("src/pc/overlays/*.c") + glob.glob("src/pc/overrides/*.c") + glob.glob("src/pc/audio/*.c") + glob.glob("src/pc/mods/*.c") + glob.glob("src/pc/debug/*.c") + ["src/pc/render/soft_gpu.c", "src/pc/render/texture_dump.c"]) + [
     "src/pc/rng.c", "src/pc/compat/gte.c", "src/pc/compat/libgs_ot.c", "src/pc/render/packets.c"]
 # Same contract as the host C library, so the host's version is used directly.
 # Runtime-loaded modules linked into the executable: name, sources, identifier
