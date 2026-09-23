@@ -27,6 +27,8 @@ typedef struct Delivery {
     unsigned bytes;
     uint32_t disc_offset; /* byte offset on the disc of the first byte */
     unsigned copy_offset; /* where the first byte is in the slot's copy */
+    unsigned copy_bytes;  /* the slot's copy as delivered, whatever forget did since: */
+    uint32_t copy_disc;   /* its length and its disc offset (found_by_content) */
 } Delivery;
 #define DELIVERIES 4096
 #define DELIVERY_BYTES 2352 /* a raw sector, the most one delivery can hold */
@@ -178,6 +180,8 @@ void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, uns
     delivery->bytes = bytes;
     delivery->disc_offset = (uint32_t)lba * 2048u + offset_in_sector;
     delivery->copy_offset = 0;
+    delivery->copy_bytes = bytes;
+    delivery->copy_disc = delivery->disc_offset;
 }
 
 /* Disc offset + 1 of the word at address if the delivery covers it and its
@@ -231,16 +235,54 @@ static uint32_t *tag_at(int x, int y)
     return &TextureDump_Tags[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
 }
 
+/* An upload of bytes no delivery wrote where they are: the game copied them
+ * out of a delivery (the duel keeps its deck's card thumbnails in a table
+ * filled from the streamed sectors, Duel_RequestCombinedDeckData). The
+ * ring's copies (as delivered, whether or not their bytes in memory were
+ * written over since) are searched for the block itself, newest first, at
+ * every word; a match gives the disc offset of the block's first byte, 0
+ * none. A block of one value (a clear, a fill) is not looked for: it would
+ * match anywhere. */
+static uint32_t found_by_content(const uint16_t *pixels, size_t words)
+{
+    size_t bytes = words * 2, i, o;
+    unsigned n;
+    uint16_t first = pixels[0];
+    if (bytes < 64 || bytes > DELIVERY_BYTES) return 0;
+    for (i = 1; i < words && pixels[i] == first; i++) {}
+    if (i == words) return 0;
+    for (n = 0; n < DELIVERIES; n++) {
+        unsigned slot = (delivery_head + DELIVERIES - 1 - n) % DELIVERIES;
+        const Delivery *delivery = &deliveries[slot];
+        const unsigned char *copy = delivery_copies + (size_t)slot * DELIVERY_BYTES;
+        if (delivery->copy_bytes < bytes) continue;
+        for (o = 0; o + bytes <= delivery->copy_bytes; o += 2) {
+            uint16_t word;
+            memcpy(&word, copy + o, 2);
+            if (word == first && memcmp(copy + o, pixels, bytes) == 0) return delivery->copy_disc + (uint32_t)o;
+        }
+    }
+    return 0;
+}
+
 void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
 {
     int i, j;
+    uint32_t disc = 0;
     if (!TextureDump_Tags) return;
-    if (!delivered((uintptr_t)pixels, (uintptr_t)(pixels + (size_t)w * h))) {
-        TextureDump_Cleared(x, y, w, h);
-        return;
+    if (!delivered((uintptr_t)pixels, (uintptr_t)(pixels + (size_t)w * h)) ||
+        (!provenance((uintptr_t)pixels) && !provenance((uintptr_t)&pixels[(size_t)w * h - 1]))) {
+        disc = found_by_content(pixels, (size_t)w * h);
+        if (!disc) {
+            TextureDump_Cleared(x, y, w, h);
+            return;
+        }
     }
     for (j = 0; j < h; j++) {
-        for (i = 0; i < w; i++) *tag_at(x + i, y + j) = provenance((uintptr_t)&pixels[j * w + i]);
+        for (i = 0; i < w; i++) {
+            *tag_at(x + i, y + j) = disc ? disc + (uint32_t)((size_t)j * w + i) * 2 + 1
+                                         : provenance((uintptr_t)&pixels[j * w + i]);
+        }
     }
     if (TextureDump_Shadow) {
         for (j = 0; j < h; j++) {

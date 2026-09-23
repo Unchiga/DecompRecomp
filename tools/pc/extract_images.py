@@ -297,6 +297,13 @@ class Extractor:
                        f"card {card} strip below")
             self.image(WA, base + 0x2AE0, 0x08, 0x58, 8, clut, f"cards/{stem}.side.png",
                        f"card {card} strip beside")
+            # The 40x32 thumbnail with its 64-colour palette, 0x580 bytes at
+            # +0x2AE0 of the record and again as the card's own sector n-1
+            # (the first 722 sectors), which the duel reads for the hand
+            # (Duel_RequestCombinedDeckData).
+            small = (card - 1) * SECTOR
+            self.image(WA, small, 20, 32, 8, small + 0x500, f"cards/{stem}.small.png", f"card {card} thumbnail",
+                       clut_entries=64)
 
     def portraits(self) -> None:
         """Campaign_LoadScenePackage and FreeDuel_Init: 0x980-byte records."""
