@@ -53,6 +53,7 @@ static unsigned wide_clock;
 /* The scaled picture (SoftGpu_SetScale): scale x scale pixels per word. */
 static uint32_t *picture;
 static int scale = 1, scale_shift; /* scale is 1, 2, 4 or 8: the picture wraps with masks and divides with shifts */
+static const SoftGpuRecorder *recorder; /* draws the picture instead, from a record (soft_gpu.h) */
 #define PICTURE_WIDTH (SOFT_GPU_WIDTH << scale_shift)
 #define PICTURE_HEIGHT (SOFT_GPU_HEIGHT << scale_shift)
 static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y);
@@ -103,6 +104,26 @@ const uint16_t *SoftGpu_Vram(void)
     return vram;
 }
 
+void SoftGpu_StateWords(uint32_t words[6])
+{
+    words[0] = 0xe1000000u | (uint32_t)(gpu.page_x / 64) | ((uint32_t)(gpu.page_y / 256) << 4) |
+               ((uint32_t)gpu.blend << 5) | ((uint32_t)gpu.depth << 7) | ((uint32_t)gpu.dither << 9);
+    words[1] = 0xe2000000u | (uint32_t)gpu.window_mask_x | ((uint32_t)gpu.window_mask_y << 5) |
+               ((uint32_t)gpu.window_x << 10) | ((uint32_t)gpu.window_y << 15);
+    words[2] = 0xe3000000u | (uint32_t)gpu.clip_x1 | ((uint32_t)gpu.clip_y1 << 10);
+    words[3] = 0xe4000000u | (uint32_t)gpu.clip_x2 | ((uint32_t)gpu.clip_y2 << 10);
+    words[4] = 0xe5000000u | ((uint32_t)gpu.offset_x & 0x7ff) | (((uint32_t)gpu.offset_y & 0x7ff) << 11);
+    words[5] = 0xe6000000u | (uint32_t)gpu.mask_set | ((uint32_t)gpu.mask_check << 1);
+}
+
+static void resync_recorder(void)
+{
+    uint32_t words[6];
+    if (!recorder) return;
+    SoftGpu_StateWords(words);
+    recorder->resync(scale, words);
+}
+
 void SoftGpu_Reset(void)
 {
     memset(&gpu, 0, sizeof(gpu));
@@ -110,6 +131,11 @@ void SoftGpu_Reset(void)
     TextureDump_Init();
     gpu.clip_x2 = SOFT_GPU_WIDTH - 1;
     gpu.clip_y2 = SOFT_GPU_HEIGHT - 1;
+    if (recorder) { /* the state alone: VRAM and the picture stay */
+        uint32_t words[6];
+        SoftGpu_StateWords(words);
+        recorder->gp0(words, 6);
+    }
 }
 
 static inline __attribute__((always_inline)) uint16_t *pixel(int x, int y)
@@ -132,7 +158,7 @@ int SoftGpu_SetScale(int wanted)
     uint32_t *made = NULL;
     if (wanted != 1 && wanted != 2 && wanted != 4 && wanted != 8) return 0;
     if (wanted == scale) return 1;
-    if (wanted > 1) {
+    if (wanted > 1 && !recorder) {
         made = calloc((size_t)SOFT_GPU_WIDTH * wanted * SOFT_GPU_HEIGHT * wanted, sizeof(*made));
         if (!made) return 0;
     }
@@ -151,6 +177,22 @@ const uint32_t *SoftGpu_Picture(void) { return picture; }
 void SoftGpu_PictureFromVram(void)
 {
     if (picture) picture_from_words(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+    resync_recorder();
+}
+
+void SoftGpu_SetRecorder(const SoftGpuRecorder *wanted)
+{
+    if (wanted == recorder) return;
+    recorder = wanted;
+    if (recorder) {
+        free(picture);
+        picture = NULL;
+        resync_recorder();
+    } else if (scale > 1) {
+        int at_scale = scale;
+        scale = 1; /* so that SetScale makes the picture again */
+        SoftGpu_SetScale(at_scale);
+    }
 }
 
 /* The same word in whichever bank the current texture page names. */
@@ -281,7 +323,7 @@ int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *
     return 0;
 }
 
-void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
+static void load_words(int x, int y, int w, int h, const uint16_t *pixels)
 {
     int i, j;
     if (TextureDump_Tags) TextureDump_Loaded(x, y, w, h, pixels);
@@ -307,7 +349,7 @@ void SoftGpu_Store(int x, int y, int w, int h, uint16_t *pixels)
     }
 }
 
-void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
+static void move_words(int sx, int sy, int dx, int dy, int w, int h)
 {
     int i, j;
     if (TextureDump_Tags) TextureDump_Moved(sx, sy, dx, dy, w, h);
@@ -352,7 +394,7 @@ static uint16_t pack(uint32_t rgb24)
                       (((rgb24 >> 19) & 0x1f) << 10));
 }
 
-void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
+static void fill_words(int x, int y, int w, int h, uint32_t rgb24)
 {
     int i, j;
     uint16_t colour = pack(rgb24);
@@ -364,6 +406,27 @@ void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
     }
     wide_mirror(x, y, w, h, 1, colour);
     picture_from_words(x, y, w, h);
+}
+
+/* The transfers from outside a batch (LoadImage and the like, which can
+ * come from the interrupt tick): recorded one by one. A batch's own
+ * transfers are in its record already. */
+void SoftGpu_Load(int x, int y, int w, int h, const uint16_t *pixels)
+{
+    if (recorder) recorder->load(x, y, w, h, pixels);
+    load_words(x, y, w, h, pixels);
+}
+
+void SoftGpu_Move(int sx, int sy, int dx, int dy, int w, int h)
+{
+    if (recorder) recorder->move(sx, sy, dx, dy, w, h);
+    move_words(sx, sy, dx, dy, w, h);
+}
+
+void SoftGpu_Fill(int x, int y, int w, int h, uint32_t rgb24)
+{
+    if (recorder) recorder->fill(x, y, w, h, rgb24);
+    fill_words(x, y, w, h, rgb24);
 }
 
 static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
@@ -922,6 +985,7 @@ static size_t lines(const uint32_t *words, size_t count)
 size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
 {
     size_t at = 0;
+    if (recorder) recorder->gp0(words, count);
     while (at < count) {
         uint32_t word = words[at], command = word >> 24;
         size_t used = 1;
@@ -958,15 +1022,15 @@ size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
         } else if (command == 0x02) {
             used = count - at >= 3 ? 3 : 0;
             if (used) {
-                SoftGpu_Fill(words[at + 1] & 0x3f0, (words[at + 1] >> 16) & 0x1ff,
+                fill_words(words[at + 1] & 0x3f0, (words[at + 1] >> 16) & 0x1ff,
                              ((words[at + 2] & 0x3ff) + 15) & ~15, (words[at + 2] >> 16) & 0x1ff, word);
             }
         } else if (command >= 0x80 && command < 0xa0) {
             used = count - at >= 4 ? 4 : 0;
             if (used) {
-                SoftGpu_Move(words[at + 1] & 0x3ff, (words[at + 1] >> 16) & 0x1ff,
-                             words[at + 2] & 0x3ff, (words[at + 2] >> 16) & 0x1ff,
-                             ((words[at + 3] - 1) & 0x3ff) + 1, (((words[at + 3] >> 16) - 1) & 0x1ff) + 1);
+                move_words(words[at + 1] & 0x3ff, (words[at + 1] >> 16) & 0x1ff,
+                           words[at + 2] & 0x3ff, (words[at + 2] >> 16) & 0x1ff,
+                           ((words[at + 3] - 1) & 0x3ff) + 1, (((words[at + 3] >> 16) - 1) & 0x1ff) + 1);
             }
         } else if (command >= 0xa0 && command < 0xc0) {
             if (count - at < 3) {
@@ -977,8 +1041,8 @@ size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
                 size_t data = ((size_t)w * (size_t)h + 1) / 2;
                 used = count - at >= 3 + data ? 3 + data : 0;
                 if (used) {
-                    SoftGpu_Load(words[at + 1] & 0x3ff, (words[at + 1] >> 16) & 0x1ff, w, h,
-                                 (const uint16_t *)(words + at + 3));
+                    load_words(words[at + 1] & 0x3ff, (words[at + 1] >> 16) & 0x1ff, w, h,
+                               (const uint16_t *)(words + at + 3));
                 }
             }
         } else if (command >= 0xc0 && command < 0xe0) {

@@ -22,6 +22,7 @@
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
+#include "pc/render/gl_picture.h"
 #include "pc/compat/signal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +36,7 @@ static SDL_Renderer *renderer;
 static SDL_Texture *picture, *overlay;
 static SDL_GLContext gl_context;
 static GLuint gl_picture, gl_overlay;
+static int gl_pass_shown, gl_pass_rect[4]; /* this frame shows the OpenGL picture pass's texture, this part of it */
 static int use_gl;
 static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
@@ -986,15 +988,20 @@ static void upload_overlay(int x, int y, int w, int h)
     }
 }
 
-static void gl_quad(GLuint texture, float x, float y, float w, float h)
+static void gl_quad_part(GLuint texture, float x, float y, float w, float h, float s0, float t0, float s1, float t1)
 {
     glBindTexture(GL_TEXTURE_2D, texture);
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex2f(x, y);
-    glTexCoord2f(1, 0); glVertex2f(x + w, y);
-    glTexCoord2f(1, 1); glVertex2f(x + w, y + h);
-    glTexCoord2f(0, 1); glVertex2f(x, y + h);
+    glTexCoord2f(s0, t0); glVertex2f(x, y);
+    glTexCoord2f(s1, t0); glVertex2f(x + w, y);
+    glTexCoord2f(s1, t1); glVertex2f(x + w, y + h);
+    glTexCoord2f(s0, t1); glVertex2f(x, y + h);
     glEnd();
+}
+
+static void gl_quad(GLuint texture, float x, float y, float w, float h)
+{
+    gl_quad_part(texture, x, y, w, h, 0, 0, 1, 1);
 }
 
 static void draw_overlay(int *x, int *y, int *w, int *h)
@@ -1037,7 +1044,19 @@ static void show(void)
         glEnable(GL_TEXTURE_2D);
         glDisable(GL_BLEND);
         glColor4f(1, 1, 1, 1);
-        gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);
+        if (gl_pass_shown) {
+            int pw, ph;
+            GLuint texture = (GLuint)GlPicture_Texture(&pw, &ph);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+            gl_quad_part(texture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h,
+                         (float)gl_pass_rect[0] / (float)pw, (float)gl_pass_rect[1] / (float)ph,
+                         (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
+                         (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
+        } else {
+            gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);
+        }
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         gl_quad(gl_overlay, 0, 0, (float)layout.win_w, (float)layout.win_h);
@@ -1447,7 +1466,9 @@ int Platform_Open(const char *title)
     }
     update_display_refresh();
     if (use_gl) {
-        LOG(LOG_WINDOW, "OpenGL renderer %s, video %s", glGetString(GL_RENDERER), SDL_GetCurrentVideoDriver());
+        LOG(LOG_WINDOW, "OpenGL renderer %s, version %s, video %s", glGetString(GL_RENDERER),
+            glGetString(GL_VERSION), SDL_GetCurrentVideoDriver());
+        GlPicture_Init();
     } else {
         LOG(LOG_WINDOW, "SDL fallback renderer %s, video %s", SDL_GetRendererName(renderer), SDL_GetCurrentVideoDriver());
     }
@@ -1501,6 +1522,21 @@ int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, in
 {
     int j;
     if ((!renderer && !use_gl) || w <= 0 || h <= 0 || at_scale < 1) return 0;
+    if (!pixels) {
+        /* The OpenGL pass's picture: replayed now, shown from its texture. */
+        if (!use_gl) return 0;
+        begin_present(w, h, at_scale);
+        if (!GlPicture_Replay() || GlPicture_Scale() != at_scale) return 0;
+        gl_pass_shown = 1;
+        gl_pass_rect[0] = x;
+        gl_pass_rect[1] = y;
+        gl_pass_rect[2] = w;
+        gl_pass_rect[3] = h;
+        compose_menu_if_changed();
+        show();
+        gl_pass_shown = 0;
+        return 1;
+    }
     begin_present(w, h, at_scale);
     for (j = 0; j < h; j++) {
         memcpy(picture_pixels + (size_t)j * (size_t)w, pixels + (size_t)(y + j) * (size_t)stride + x, (size_t)w * 4);
@@ -1515,6 +1551,7 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
     if ((!renderer && !use_gl) || w <= 0 || h <= 0) {
         return;
     }
+    if (use_gl) GlPicture_Replay(); /* a frame shown from VRAM (a movie, a widescreen frame) still keeps the pass in step */
     begin_present(w, h, 1);
     for (j = 0; j < h; j++) {
         const uint16_t *row = vram + ((y + j) & 511) * stride;
@@ -1531,6 +1568,13 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
         }
     }
     finish_present(w, h);
+}
+
+int Platform_ReadPicture(uint32_t *out, int x, int y, int w, int h)
+{
+    if (!use_gl) return 0;
+    GlPicture_Replay(); /* what was recorded since the last present */
+    return GlPicture_Read(x, y, w, h, out);
 }
 
 int Platform_ShouldQuit(void) { return quit; }

@@ -689,6 +689,12 @@ int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, in
     return 0; /* the X11 backend shows VRAM as it is */
 }
 
+int Platform_ReadPicture(uint32_t *out, int x, int y, int w, int h)
+{
+    (void)out; (void)x; (void)y; (void)w; (void)h;
+    return 0;
+}
+
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
 {
     int width, height;

@@ -49,6 +49,22 @@ int SoftGpu_Scale(void);
 const uint32_t *SoftGpu_Picture(void);
 /* Redraw the picture from VRAM (after a state load). */
 void SoftGpu_PictureFromVram(void);
+/* A second renderer's record of what changes VRAM (gl_picture.h): every
+ * GP0 batch as it is executed, every transfer made outside one, in order,
+ * and a resync when VRAM or the state changed wholesale (a state load, a
+ * reset, a new scale), with the drawing state as GP0 words E1 to E6. While
+ * a recorder is set and the scale is above 1 no picture is drawn here and
+ * SoftGpu_Picture() is NULL: the recorder draws it. A load's pixels are
+ * the caller's and only valid during the call. */
+typedef struct SoftGpuRecorder {
+    void (*gp0)(const uint32_t *words, size_t count);
+    void (*load)(int x, int y, int w, int h, const uint16_t *pixels);
+    void (*move)(int sx, int sy, int dx, int dy, int w, int h);
+    void (*fill)(int x, int y, int w, int h, uint32_t rgb24);
+    void (*resync)(int scale, const uint32_t state[6]);
+} SoftGpuRecorder;
+void SoftGpu_SetRecorder(const SoftGpuRecorder *recorder);
+void SoftGpu_StateWords(uint32_t words[6]);
 
 /* Save states: VRAM (index 0) and the drawing state (index 1). */
 void *SoftGpu_StateData(int index, size_t *size);
