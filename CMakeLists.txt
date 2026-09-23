@@ -72,6 +72,8 @@ if(BUILD_TESTING)
     target_include_directories(memories_mods_test PRIVATE src)
     target_link_libraries(memories_mods_test PRIVATE Threads::Threads)
     if(NOT MSVC)
+        # modlibc.c hands mods the C maths functions.
+        target_link_libraries(memories_mods_test PRIVATE m)
         target_compile_options(memories_mods_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_mods COMMAND memories_mods_test)
