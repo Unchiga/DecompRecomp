@@ -65,6 +65,9 @@ uint16_t Platform_ScriptedBits(unsigned frame);
 int Platform_StartTimers(void (*tick)(uint64_t game_us, uint64_t real_us), void (*vblank)(void));
 /* Wait while the VBlank count still equals `count` (the caller's count at entry). */
 void Platform_WaitVBlank(unsigned count);
+/* No more ticks or VBlanks: called before the game exits, so that none
+ * interrupts the C runtime while it shuts down. */
+void Platform_StopTimers(void);
 /* A VSync that does not wait (the running count): in a deterministic run it
  * lets 1 ms of game time pass, since a loop polling it is waiting for time
  * (movie playback waits for its strips that way). Nothing otherwise. */

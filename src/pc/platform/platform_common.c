@@ -286,6 +286,18 @@ void Platform_NotifyPresent(uint64_t real_now_us, int vsynced)
     }
 }
 
+void Platform_StopTimers(void)
+{
+#ifdef _WIN32
+    Win32_StopInterrupt();
+#else
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &set, NULL);
+#endif
+}
+
 void Platform_PollTime(void)
 {
     sigset_t set, previous;

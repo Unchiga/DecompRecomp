@@ -259,6 +259,7 @@ int Memories_VSync(int mode)
     }
     if (Platform_ShouldQuit()) {
         Mods_Shutdown(); /* mods get a word in before the process goes */
+        Platform_StopTimers();
         exit(0);
     }
     return (int)(elapsed * 263u);

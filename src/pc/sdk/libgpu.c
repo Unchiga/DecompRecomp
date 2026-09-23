@@ -180,6 +180,7 @@ void Memories_PresentDisplay(void)
     if (dump && frames_presented == atoi(dump)) {
         const char *path = getenv("MEMORIES_DUMP_PATH");
         Memories_DumpFrame(path ? path : "tmp/pc/frame.ppm", getenv("MEMORIES_DUMP_VRAM") != NULL);
+        Platform_StopTimers();
         exit(0);
     }
     if (display_enabled && Platform_PresentDue()) {

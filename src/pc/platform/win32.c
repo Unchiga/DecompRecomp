@@ -114,6 +114,11 @@ int Memories_SigProcMask(int how, const sigset_t *set, sigset_t *previous)
     return 0;
 }
 
+/* Set by Win32_StopInterrupt; the clock leaves its loop before it next
+ * touches the main thread, so no suspend or redirect is in flight after. */
+static volatile LONG clock_stop;
+static HANDLE clock_thread;
+
 static DWORD WINAPI run_clock(void *unused)
 {
     HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -131,6 +136,10 @@ static DWORD WINAPI run_clock(void *unused)
         static ULONGLONG quiet_since;
         static int stall_reported;
         WaitForSingleObject(timer, INFINITE);
+        if (clock_stop) {
+            CloseHandle(timer);
+            return 0;
+        }
         /* Elapsed time, as Linux measures it: a wakeup is 1 ms only with the
          * high-resolution timer; the fallback timer coalesces to ~15 ms. */
         if (heartbeat != seen_beat) {
@@ -268,8 +277,23 @@ int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context))
     thread = CreateThread(NULL, 0, run_clock, NULL, 0, NULL);
     if (!thread) return -1;
     SetThreadPriority(thread, THREAD_PRIORITY_TIME_CRITICAL);
-    CloseHandle(thread);
+    clock_thread = thread;
+    atexit(Win32_StopInterrupt);
     return 0;
+}
+
+/* Exiting with the clock running lets it suspend the main thread, or send it
+ * into the tick, in the middle of the C runtime's exit. The exit paths stop
+ * it first, and atexit does for any other. (Under Wine a headless run
+ * sometimes never finished exiting after its frame dump, 4 of about 30 runs,
+ * then not in 20 more with or without this; not confirmed as the cause.) */
+void Win32_StopInterrupt(void)
+{
+    if (!clock_thread || GetCurrentThreadId() != main_id) return;
+    InterlockedExchange(&clock_stop, 1);
+    WaitForSingleObject(clock_thread, 1000);
+    CloseHandle(clock_thread);
+    clock_thread = NULL;
 }
 
 void Win32_ContextRegisters(const void *context, uintptr_t *eip, uintptr_t *esp, uintptr_t *ebp)
