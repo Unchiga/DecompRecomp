@@ -548,8 +548,11 @@ palettes (the campaign's 25 and Free Duel's 40, `0x980`-byte records).
 `--names cards.tsv` (card_number, name) puts the card's name in the file
 name. `--assets <assets.txt>` extracts whatever a texture-dump run drew
 (below), under `assets/`, named by archive, offset, size, depth and palette:
-the way to cover screens no family describes yet. Next: monster textures
-(`MODEL.MRG`) as a family, and aliases for the screens.
+the way to cover screens no family describes yet. A mod with `"textures"`
+in its manifest replaces the images at draw time from such a directory
+(`notes/modding.md`, "Texture packs"). Next: monster textures (`MODEL.MRG`)
+as a family, aliases for the screens, and drawing at a higher internal
+resolution so that bigger pack images show.
 
 ### Texture dump (what is on screen)
 
@@ -580,6 +583,25 @@ to the PNG the game drew (76 of 76 through the title and main menu), which
 is the proof of the provenance. A state load restores VRAM without
 deliveries, so it clears the tags: the textures traced after it are the
 ones loaded after it.
+
+### Internal resolution
+
+View > Console resolution / Internal 2x, 3x, 4x (the `internal_scale`
+setting, `MEMORIES_INTERNAL_SCALE=N`, up to 8) draws every primitive a second time,
+at N x N pixels per VRAM word, into a picture of the whole of VRAM in
+24-bit colour (`soft_gpu.c`, `picture_*`), which is what the window shows.
+VRAM itself stays exactly what the console's would be: the game reads it
+back and states hold it, and the 1x frame the smoke fixtures hash is
+byte-identical at any scale. The picture's pass runs before the word's,
+so it sees the mask bits VRAM had before the primitive, as the word's pass
+does; uploads, fills and moves keep it in step; a state load redraws it
+from VRAM. Texture coordinates carry a fraction, so a texture pack's image
+is sampled at its own resolution there (`TextureDump_Sample`); VRAM's own
+texels otherwise. No dithering in the picture. `MEMORIES_DUMP_FRAME` with
+`MEMORIES_DUMP_PICTURE=1` writes the picture instead of the frame. Cost: a
+duel with 3D Monsters draws in about 4.5 ms a frame at 1x and 12.5 ms at
+2x on the development machine; 4x needs a faster inner loop. The X11
+backend shows VRAM as before (`Platform_PresentPicture` returns 0).
 
 ### Deterministic PC checks
 

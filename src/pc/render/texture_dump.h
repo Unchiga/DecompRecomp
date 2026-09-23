@@ -1,6 +1,7 @@
 #ifndef MEMORIES_PC_TEXTURE_DUMP_H
 #define MEMORIES_PC_TEXTURE_DUMP_H
 #include <stdint.h>
+#include "soft_gpu.h"
 
 /* Every texture the software GPU draws, as a PNG named by its hash, for
  * texture packs: MEMORIES_DUMP_TEXTURES=<directory> turns it on. A texture
@@ -27,8 +28,36 @@ void TextureDump_Primitive(const uint16_t *source, int page_x, int page_y, int d
  * primitive whose texels and palette are all tagged adds a line to
  * assets.txt beside the PNGs, which tools/pc/extract_images.py replays. */
 extern uint32_t *TextureDump_Tags; /* per VRAM word, disc byte offset + 1; NULL when off */
-/* The disc layer, which names the archives (Memories_DiscFileInfo). */
+/* Provenance without the dump: a texture pack needs the tags too. */
+int TextureDump_EnableTags(void);
+
+/* The shadow a texture pack draws from: one cell per 4-bit texel of VRAM
+ * (four per word; an 8-bit texel is two cells, a 16-bit one four), holding
+ * the replacement colour as a 15-bit word with bit 15 set, 0 where nothing
+ * replaces the texel. The pack (texture_pack.c, which reads the PNGs) fills
+ * cells through `paint`, called after an upload has tagged its words; the
+ * cells follow the words through moves and clears. `prepare` runs once per
+ * textured primitive, before it samples, with one texel it will sample,
+ * and says whether this primitive may take from the shadow (its palette
+ * must be the one the image was painted for). Both NULL when no pack is
+ * loaded. */
+#define TEXTURE_SHADOW_WIDTH (SOFT_GPU_WIDTH * 4)
+extern uint16_t *TextureDump_Shadow;
+extern void (*TextureDump_Paint)(int x, int y, int w, int h);
+extern int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
+int TextureDump_EnableShadow(void);
+/* The pack's image at its own resolution, for the scaled picture: u and v
+ * are texel coordinates within the page in 16.16, page_x/page_y/depth the
+ * primitive's page. Returns 0 when the texel is not replaced, 1 with the
+ * colour as 0x00RRGGBB, 2 when it is painted transparent. NULL: no pack. */
+extern int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
+static inline uint16_t *TextureDump_Cell(int x, int y, int sub)
+{
+    return &TextureDump_Shadow[(y & (SOFT_GPU_HEIGHT - 1)) * TEXTURE_SHADOW_WIDTH + (x & (SOFT_GPU_WIDTH - 1)) * 4 + sub];
+}/* The disc layer, which names the archives (Memories_DiscFileInfo). */
 void TextureDump_SetDiscFiles(int (*file_info)(const char *path, int *lba, unsigned *size));
+/* That lookup, for the pack: 0 and the file's first sector when it is on the disc. */
+int TextureDump_DiscFile(const char *path, int *lba, unsigned *size);
 void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector);
 /* Bytes of game memory written by anything but a delivery (Memories_GuestWritten). */
 void TextureDump_Written(const void *destination, unsigned bytes);

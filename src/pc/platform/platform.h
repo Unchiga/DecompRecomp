@@ -19,6 +19,10 @@ void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int
 /* Nonzero when the window shows a 16:9 picture, which the game then draws
  * into wider buffers (SoftGpu_SetWidescreen). */
 int Platform_Widescreen(void);
+/* The scaled picture instead (soft_gpu.h): 0x00RRGGBB pixels, `scale` of
+ * them per game pixel each way, so the window is laid out for w/scale by
+ * h/scale. Returns 0 where the backend cannot show it. */
+int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, int w, int h, int scale);
 int Platform_ShouldQuit(void);
 int Platform_StateSlot(void);
 void Platform_SetStateSlot(int slot);

@@ -158,8 +158,8 @@ int Memories_StateChunk(MemoriesState *state, const char *tag, const MemoriesSta
     }
     from = find_chunk(state, tag, &size);
     if (!from || size != total) {
-        fprintf(stderr, "memories-pc: state: %s '%s'; that part keeps its current state\n",
-                from ? "layout changed for" : "no chunk", tag);
+        fprintf(stderr, "memories-pc: state: %s '%s' (%lu bytes in the state, %lu in this build); that part keeps its current state\n",
+                from ? "layout changed for" : "no chunk", tag, (unsigned long)size, (unsigned long)total);
         return 0;
     }
     for (i = 0; i < count; i++) {
@@ -180,6 +180,7 @@ static void subsystems(MemoriesState *state)
     if (Memories_StateChunk(state, "soft_gpu", gpu, 2)) {
         /* VRAM restored without the disc: what its words came from is unknown. */
         TextureDump_Cleared(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+        SoftGpu_PictureFromVram();
     }
     Memories_StateChunk(state, "gte", gte, 1);
     Spu_State(state);

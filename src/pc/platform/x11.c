@@ -683,6 +683,11 @@ static void pump(void)
 }
 
 int Platform_Widescreen(void) { return 0; } /* the window is a fixed 4:3 */
+int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, int w, int h, int scale)
+{
+    (void)pixels; (void)stride; (void)x; (void)y; (void)w; (void)h; (void)scale;
+    return 0; /* the X11 backend shows VRAM as it is */
+}
 
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
 {

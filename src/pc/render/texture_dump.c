@@ -13,6 +13,10 @@
 
 int TextureDump_Enabled;
 uint32_t *TextureDump_Tags;
+uint16_t *TextureDump_Shadow;
+void (*TextureDump_Paint)(int x, int y, int w, int h);
+int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
+int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
 static char directory[1024];
 static FILE *index_file, *assets_file;
 static int (*disc_file_info)(const char *path, int *lba, unsigned *size);
@@ -80,13 +84,8 @@ void TextureDump_Init(void)
     }
     snprintf(name, sizeof(name), "%s/assets.txt", directory);
     assets_file = fopen(name, "a");
-    delivery_copies = malloc((size_t)DELIVERIES * DELIVERY_BYTES);
-    TextureDump_Tags = delivery_copies ? calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags))
-                                       : NULL;
-    if (!TextureDump_Tags) {
+    if (!TextureDump_EnableTags()) {
         fprintf(stderr, "memories-pc: no memory for texture provenance\n");
-        free(delivery_copies);
-        delivery_copies = NULL;
         return;
     }
     TextureDump_Enabled = 1;
@@ -94,6 +93,31 @@ void TextureDump_Init(void)
 }
 
 /* --- provenance ---------------------------------------------------------- */
+
+/* The tags and the delivery copies go together: a delivery is copied as
+ * soon as the tags exist (TextureDump_Delivered), by the dump and by a
+ * texture pack alike. */
+int TextureDump_EnableTags(void)
+{
+    if (TextureDump_Tags) return 1;
+    if (!delivery_copies) delivery_copies = malloc((size_t)DELIVERIES * DELIVERY_BYTES);
+    if (delivery_copies) TextureDump_Tags = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Tags));
+    if (!TextureDump_Tags) {
+        free(delivery_copies);
+        delivery_copies = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+int TextureDump_EnableShadow(void)
+{
+    if (!TextureDump_EnableTags()) return 0;
+    if (!TextureDump_Shadow) {
+        TextureDump_Shadow = calloc((size_t)TEXTURE_SHADOW_WIDTH * SOFT_GPU_HEIGHT, sizeof(*TextureDump_Shadow));
+    }
+    return TextureDump_Shadow != NULL;
+}
 
 static uint64_t fnv(uint64_t hash, const void *data, size_t length);
 
@@ -133,6 +157,11 @@ void TextureDump_Written(const void *destination, unsigned bytes)
 {
     if (!TextureDump_Tags || !bytes) return;
     forget((uintptr_t)destination, (uintptr_t)destination + bytes);
+}
+
+int TextureDump_DiscFile(const char *path, int *lba, unsigned *size)
+{
+    return disc_file_info ? disc_file_info(path, lba, size) : -2; /* -2: no disc yet */
 }
 
 void TextureDump_Delivered(const void *destination, unsigned bytes, int lba, unsigned offset_in_sector)
@@ -213,6 +242,12 @@ void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) *tag_at(x + i, y + j) = provenance((uintptr_t)&pixels[j * w + i]);
     }
+    if (TextureDump_Shadow) {
+        for (j = 0; j < h; j++) {
+            for (i = 0; i < w; i++) memset(TextureDump_Cell(x + i, y + j, 0), 0, 4 * sizeof(uint16_t));
+        }
+        if (TextureDump_Paint) TextureDump_Paint(x, y, w, h);
+    }
 }
 
 void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h)
@@ -220,7 +255,12 @@ void TextureDump_Moved(int sx, int sy, int dx, int dy, int w, int h)
     int i, j;
     if (!TextureDump_Tags) return;
     for (j = 0; j < h; j++) {
-        for (i = 0; i < w; i++) *tag_at(dx + i, dy + j) = *tag_at(sx + i, sy + j);
+        for (i = 0; i < w; i++) {
+            *tag_at(dx + i, dy + j) = *tag_at(sx + i, sy + j);
+            if (TextureDump_Shadow) {
+                memcpy(TextureDump_Cell(dx + i, dy + j, 0), TextureDump_Cell(sx + i, sy + j, 0), 4 * sizeof(uint16_t));
+            }
+        }
     }
 }
 
@@ -229,7 +269,10 @@ void TextureDump_Cleared(int x, int y, int w, int h)
     int i, j;
     if (!TextureDump_Tags) return;
     for (j = 0; j < h; j++) {
-        for (i = 0; i < w; i++) *tag_at(x + i, y + j) = 0;
+        for (i = 0; i < w; i++) {
+            *tag_at(x + i, y + j) = 0;
+            if (TextureDump_Shadow) memset(TextureDump_Cell(x + i, y + j, 0), 0, 4 * sizeof(uint16_t));
+        }
     }
 }
 

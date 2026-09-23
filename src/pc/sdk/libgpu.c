@@ -16,6 +16,7 @@
 #include "pc/debug/log.h"
 #include "pc/debug/crash.h"
 #include "pc/mods/mods.h"
+#include "pc/render/texture_pack.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
 #define MAX_FRAME_WORDS 0x80000u
@@ -115,6 +116,24 @@ void Memories_DumpFrame(const char *path, int full_vram)
         LOG(LOG_FRAMES, "cannot dump %s", path);
         return;
     }
+    if (SoftGpu_Scale() > 1 && getenv("MEMORIES_DUMP_PICTURE") && !disp_env.isrgb24) {
+        /* The scaled picture of the display area, as the window shows it. */
+        int at_scale = SoftGpu_Scale(), stride = SOFT_GPU_WIDTH * at_scale;
+        const uint32_t *picture = SoftGpu_Picture();
+        fprintf(file, "P6\n%d %d\n255\n", w * at_scale, h * at_scale);
+        for (y = 0; y < h * at_scale; y++) {
+            for (x = 0; x < w * at_scale; x++) {
+                uint32_t c = picture[(size_t)((y0 * at_scale + y) % (SOFT_GPU_HEIGHT * at_scale)) * stride +
+                                     (size_t)((x0 * at_scale + x) % stride)];
+                fputc((c >> 16) & 0xff, file);
+                fputc((c >> 8) & 0xff, file);
+                fputc(c & 0xff, file);
+            }
+        }
+        fclose(file);
+        LOG(LOG_FRAMES, "dumped %s (picture at %dx)", path, at_scale);
+        return;
+    }
     fprintf(file, "P6\n%d %d\n255\n", w, h);
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
@@ -175,6 +194,7 @@ void Memories_PresentDisplay(void)
     int w = disp_env.disp.w > 0 ? disp_env.disp.w : 320, h = disp_env.disp.h > 0 ? disp_env.disp.h : 240;
     int wide = Platform_Widescreen();
     flush_drawing();
+    TexturePack_Service();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
     if (dump && frames_presented == atoi(dump)) {
@@ -184,12 +204,17 @@ void Memories_PresentDisplay(void)
         exit(0);
     }
     if (display_enabled && Platform_PresentDue()) {
+        int at_scale = SoftGpu_Scale();
         frames_shown++;
         if (wide) {
             present_wide(w, h);
         } else {
+        if (at_scale <= 1 || disp_env.isrgb24 ||
+            !Platform_PresentPicture(SoftGpu_Picture(), SOFT_GPU_WIDTH * at_scale, disp_env.disp.x * at_scale,
+                                     disp_env.disp.y * at_scale, w * at_scale, h * at_scale, at_scale)) {
             Platform_Present(SoftGpu_Vram(), SOFT_GPU_WIDTH, disp_env.disp.x, disp_env.disp.y, w, h,
                              disp_env.isrgb24);
+            }
         }
     } else {
         Platform_PumpEvents(); /* input and the menu keep up on frames that are not shown */
