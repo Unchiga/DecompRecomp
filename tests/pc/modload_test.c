@@ -99,7 +99,7 @@ int main(int argc, char **argv)
     {
         char path[1100];
         FILE *file;
-        long size;
+        long size = 0;
         unsigned char *bytes;
         snprintf(path, sizeof(path), "%s/good.mod", directory);
         file = fopen(path, "rb");
