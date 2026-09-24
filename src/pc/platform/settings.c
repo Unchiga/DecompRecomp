@@ -53,6 +53,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_INTERNAL_SCALE] = {"internal_scale", NULL, "MEMORIES_INTERNAL_SCALE", NULL, 1, 1, 8},
     /* 1: the title three seconds after the credits end (credits.c); 0: a black screen, as the console. */
     [SET_RETURN_AFTER_CREDITS] = {"return_after_credits", NULL, "MEMORIES_RETURN_AFTER_CREDITS", NULL, 1, 0, 1},
+    /* 1: Game > Deck slots and F6 keep and switch decks (src/pc/saves/deck_menu.c). */
+    [SET_DECK_SLOTS] = {"deck_slots", NULL, "MEMORIES_DECK_SLOTS", NULL, 1, 0, 1},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

@@ -11,6 +11,7 @@
 #include "main_mode_state.h"
 #ifdef MEMORIES_PC
 #include "pc/platform/title_jump.h"
+#include "pc/saves/deck_menu.h"
 #endif
 
 void Main_Loop(void) {
@@ -20,6 +21,7 @@ void Main_Loop(void) {
         Main_AdvanceFrame();
 #ifdef MEMORIES_PC
         TitleJump_Poll();
+        DeckMenu_Poll(DECK_MENU_MAIN_LOOP);
 #endif
         v = D_8009B26C;
         if ((v & 0x80) == 0) {

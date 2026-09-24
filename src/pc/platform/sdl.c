@@ -11,6 +11,7 @@
 #include "platform.h"
 #include "paths.h"
 #include "menu.h"
+#include "pc/saves/deck_menu.h"
 #include "mods_window.h"
 #include "controls_window.h"
 #include "controls_linux.h"
@@ -1403,6 +1404,14 @@ static void pump(void)
                 Spu_SetMuted(!Spu_Muted());
                 break;
             }
+            if (down && key == SDLK_ESCAPE && DeckMenu_Active()) {
+                DeckMenu_Close(); /* the deck slot screen, not the game */
+                break;
+            }
+            if (down && key == SDLK_F6) {
+                DeckMenu_Request();
+                break;
+            }
             if (down && key == SDLK_ESCAPE) {
                 if (Settings_Get(SET_FULLSCREEN)) {
                     Settings_Set(SET_FULLSCREEN, 0);
@@ -1728,6 +1737,7 @@ static void run_event_script(unsigned frame)
             event.key.down = true;
             event.key.key = strncmp(name, "escape", n) == 0 ? SDLK_ESCAPE : strncmp(name, "f10", n) == 0 ? SDLK_F10
                           : strncmp(name, "f3", n) == 0 ? SDLK_F3
+                          : strncmp(name, "f6", n) == 0 ? SDLK_F6
                           : strncmp(name, "f11", n) == 0 ? SDLK_F11
                           : strncmp(name, "f12", n) == 0 ? SDLK_F12
                           : strncmp(name, "left", n) == 0 ? SDLK_LEFT : strncmp(name, "right", n) == 0 ? SDLK_RIGHT

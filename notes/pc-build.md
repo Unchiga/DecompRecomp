@@ -439,6 +439,63 @@ is disabled at the title. 2P Duel setup forced by `MEMORIES_MODE_AT` stops
 presenting frames right after the switch, with or without this change.
 Reached from the menu with no saves, it stays in the title's loop.
 
+### Deck slots
+
+Game > Deck slots (F6) keeps up to ten decks beside a save. Switching to one
+takes one step, for example between a farming deck and the campaign deck.
+The game has one deck: the forty ids at the start of the save state. Its
+trunk counts only the cards outside that deck, and Build Deck moves a card
+from one to the other. Using a kept deck therefore puts the current forty
+back in the trunk and takes the kept forty out (`src/pc/saves/deck_slots.c`).
+It is refused, with the reason, in three cases:
+
+- a kept card is in neither the trunk nor the deck ("Missing 3 x Mystical
+  Elf");
+- a returned card would take the trunk past the 250 a byte of it holds. The
+  game's own return to a full trunk drops the card;
+- the slot is not forty cards this game has, at most three of each.
+
+The screen (`deck_menu.c`) is drawn in the overlay like the save slot menu.
+It is read from the pad, or the keys mapped to it: Cross uses a deck, Square
+keeps the current one in a slot, Triangle clears a slot, Circle or Esc
+closes. While it is open, the game gets no buttons, and it gets them back
+once the button that closed the screen is released, so the game never takes
+that press as its own.
+
+The screen opens with a game loaded, on screens that keep no copy of the
+deck:
+
+- the main menu with Campaign. It runs in the title's own loop until the
+  player first leaves it, so `Main_RunFrontendLoop` polls there too. The
+  title's menu, or a save left in the workspace by a jump to the title, does
+  not count: the entry byte `gMain_bMenuID` is 5 or more only on the loaded
+  one;
+- the campaign map;
+- Free Duel's opponent select.
+
+Changes are made where `Main_Loop` or that loop is between two steps.
+Elsewhere (Build Deck works on its own copy), the screen says where it
+opens. The setting `deck_slots` (Game > Use deck slots) turns it off.
+
+The slots are kept in `decks/<duelist code>.txt` in the user folder, one
+file per game, as text. Each line is `slot: forty cards`, a retail id or, for
+a card a mod adds, its identity, because those ids change with the mods
+applied. A line that does not read as forty cards leaves its slot empty, and
+the log says so. Card names come from the game's own text lookup and glyph
+table.
+
+`MEMORIES_DECKS_AT=N[,N...]` opens it at frames, for checks. `tests/pc/deck_slots_test.c`
+covers the rules and the file. These were checked by driving the pad on a
+save loaded through the save slot menu:
+
+- a deck kept in slot 1 and another used from slot 2. The saved game then
+  holds slot 2's deck, and each of the 722 trunk counts is exactly what the
+  swap should leave;
+- the missing-card refusal with the card's name, and an invalid slot;
+- the screen on Free Duel's opponent select, and the refusal in Build Deck;
+- F6 and the menu item, which are off on the title's menu and with the
+  setting off, and Esc closing the screen without quitting.
+
 ### Speed, frame rate and vsync
 
 Three independent controls (`platform.h`, `platform_common.c`):
