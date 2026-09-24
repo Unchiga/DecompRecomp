@@ -22,6 +22,11 @@ void ModsWindow_Size(int *w, int *h)
     *w = 780;
     *h = 294;
 }
+void ModsWindow_Resize(int w, int h)
+{
+    (void)w;
+    (void)h;
+}
 void ModsWindow_Draw(MenuCanvas *c) { memset(c->pixels, 0x55, (size_t)c->stride * c->height * 4); }
 static void update(void)
 {

@@ -166,7 +166,10 @@ void Platform_OpenMods(void)
         Monitor_Modal(0);
         close_mods(); return;
     }
-    SDL_SetWindowMinimumSize(mods_window, 620, 480);
+    /* Never above the opened size: growing the window here would stretch the
+     * texture made for the canvas until the resize event arrives. */
+    SDL_SetWindowMinimumSize(mods_window, mods_canvas.width < 620 ? mods_canvas.width : 620,
+                             mods_canvas.height < 480 ? mods_canvas.height : 480);
     SDL_StartTextInput(mods_window);
     show_cursor();
     draw_mods();

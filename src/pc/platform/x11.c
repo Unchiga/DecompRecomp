@@ -531,8 +531,8 @@ void Platform_OpenMods(void)
     XStoreName(display, mods_window, "MODS");
     XSetTransientForHint(display, mods_window, window);
     hints.flags = PMinSize;
-    hints.min_width = 620;
-    hints.min_height = 480;
+    hints.min_width = mods_canvas.width < 620 ? mods_canvas.width : 620;
+    hints.min_height = mods_canvas.height < 480 ? mods_canvas.height : 480;
     XSetWMNormalHints(display, mods_window, &hints);
     XSetWMProtocols(display, mods_window, &close_atom, 1);
     XSelectInput(display, mods_window, ExposureMask | KeyPressMask | KeyReleaseMask |
