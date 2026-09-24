@@ -63,7 +63,8 @@ typedef enum {
     MENU_ITEM_ASPECT_SQUARE,
     MENU_ITEM_ASPECT_WIDESCREEN,
     MENU_ITEM_FILTER,
-    MENU_ITEM_VSYNC
+    MENU_ITEM_VSYNC,
+    MENU_ITEM_TITLE /* Debug > Back to title screen: enabled once Main_Loop runs */
 } MenuItemId;
 
 /* The stored settings (settings.txt in the user directory, see paths.h;
