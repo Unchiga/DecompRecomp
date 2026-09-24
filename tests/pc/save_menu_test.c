@@ -213,6 +213,30 @@ int main(void)
         snapshot.loading = 0;
     }
 
+    /* Restoring an Overwrite prompt cannot authorize replacing a save
+     * written after that prompt was captured, even for the same duelist. */
+    {
+        make_image(image, 1);
+        image[SAVE_SLOT_HEADER_SIZE + 0x404] = 7;
+        assert(!SaveSlots_WriteFile(0, image, sizeof(image)));
+        image[SAVE_SLOT_HEADER_SIZE + 0x404] = 8;
+        begin(SAVE_MENU_SAVE, image + SAVE_SLOT_HEADER_SIZE, NULL, 2 * SAVE_SLOT_STATE_SIZE, 0);
+        assert(!poll(SAVE_MENU_PAD_CONFIRM, 0));   /* Overwrite is selected */
+        SaveMenu_State(&snapshot);
+        make_image(before, 1);
+        before[SAVE_SLOT_HEADER_SIZE + 0x404] = 9;
+        assert(!SaveSlots_WriteFile(0, before, sizeof(before)));
+        read_image(0, before);
+        snapshot.loading = 1;
+        SaveMenu_State(&snapshot);
+        assert(!poll(SAVE_MENU_PAD_CONFIRM, 0));   /* ask again using disk */
+        assert(!poll(SAVE_MENU_PAD_CONFIRM, 0));   /* newer save: Cancel */
+        read_image(0, image);
+        assert(!memcmp(image, before, sizeof(image)));
+        assert(poll(SAVE_MENU_PAD_CANCEL, 0) == 3);
+        snapshot.loading = 0;
+    }
+
 #ifndef _WIN32
     /* A trade whose second write fails puts player 1's save back. */
     {

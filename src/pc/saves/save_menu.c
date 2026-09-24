@@ -460,5 +460,12 @@ void SaveMenu_Draw(MenuCanvas *canvas, int *x, int *y, int *w, int *h)
 void SaveMenu_State(MemoriesState *state)
 {
     MemoriesStateField fields[] = {{&menu, sizeof(menu)}};
-    Memories_StateChunk(state, "save-menu", fields, 1);
+    if (Memories_StateChunk(state, "save-menu", fields, 1) && menu.view == VIEW_CONFIRM) {
+        /* The slot may have changed since this prompt was saved. Return
+         * to the list so the next pick reads disk and asks afresh, using
+         * the validity callback supplied by the current caller. */
+        menu.view = VIEW_LIST;
+        menu.choice = CHOICE_KEEP;
+        changed();
+    }
 }
