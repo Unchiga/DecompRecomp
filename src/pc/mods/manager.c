@@ -413,8 +413,8 @@ int Mods_ConflictText(int mod, char *out, size_t size)
                 }
             if (*Mods_Metadata(mod, "textures") && *Mods_Metadata(i, "textures")) {
                 snprintf(out, size,
-                         "Multiple texture packs enabled. Overlapping images depend on "
-                         "load order; check the result in game.");
+                         "Multiple texture packs enabled. Where two replace the same "
+                         "image, the one later in load order is drawn.");
                 return 1;
             }
         }

@@ -55,7 +55,7 @@
 #define ID_MAX 64
 #define NAME_MAX_ 96
 #define PATH_MAX_ 1024
-#define STATUS_MAX 256
+#define STATUS_MAX 512
 #define SECTOR 2048
 #define REGIONS_MAX 64
 #define PATCHES_MAX 1024
@@ -969,13 +969,42 @@ static void scan(const char *root, const char *origin)
 }
 
 /* Turn a mod on or off for real: its library, its overrides, its hook. */
-static int (*texture_pack_load)(const char *directory);
+static int (*texture_pack_load)(const char *directory, unsigned rank, char *problems, size_t size);
 static void (*texture_pack_unload)(void);
+static unsigned texture_rank;   /* the highest rank a loaded pack has */
 
-void Mods_SetTexturePack(int (*load)(const char *directory), void (*unload)(void))
+void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
+                         void (*unload)(void))
 {
     texture_pack_load = load;
     texture_pack_unload = unload;
+}
+
+/* The texture packs of the active mods, with `with` about to be one and
+ * without `without`, in the mods' load order (Mods_Order): a pack's rank
+ * follows its place there, so where two packs read the same words the same
+ * way the later one wins, whichever the player applied first. A pack that
+ * comes last, as each does while the game starts, goes on top of those
+ * loaded; otherwise they are all loaded again. Returns what loading `with`
+ * returned, its problems in `problems`. */
+static int load_texture_packs(int with, int without, char *problems, size_t size)
+{
+    int wanted[MODS_MAX], order[MODS_MAX], i, n, loaded = with < 0;
+    char ignored[STATUS_MAX];
+    for (i = 0; i < mod_count; i++)
+        wanted[i] = i != without && mods[i].textures[0] && (mods[i].active || i == with);
+    n = Mods_Order(wanted, order, ignored, sizeof(ignored));
+    if (n < 0) for (n = 0; order[n] >= 0; n++) continue;   /* a cycle: the packs that could be placed */
+    if (with >= 0 && n > 0 && order[n - 1] == with) {
+        return texture_pack_load(mods[with].textures, ++texture_rank, problems, size);
+    }
+    texture_pack_unload();
+    texture_rank = 0;
+    for (i = 0; i < n; i++) {
+        int got = texture_pack_load(mods[order[i]].textures, ++texture_rank, order[i] == with ? problems : NULL, size);
+        if (order[i] == with) loaded = got;
+    }
+    return loaded;
 }
 
 static void activate(int index, int on)
@@ -997,19 +1026,15 @@ static void activate(int index, int on)
         copy_text(mod->status, sizeof(mod->status), mod->warnings);
         if (!apply_overrides(mod, index)) { mod->failed = 1; return; }
         if (mod->textures[0]) {
-            if (!texture_pack_load || !texture_pack_load(mod->textures)) {
+            char problems[STATUS_MAX] = "";
+            if (!texture_pack_load || !texture_pack_unload || !load_texture_packs(index, -1, problems, sizeof(problems))) {
                 mod->failed = 1;
-                note(mod, "texture pack could not load");
+                note(mod, "texture pack could not load%s%s", problems[0] ? ": " : "", problems);
                 drop_overrides(index);
-                if (texture_pack_unload) {
-                    int other;
-                    texture_pack_unload();
-                    for (other = 0; other < mod_count; other++)
-                        if (mods[other].active && mods[other].textures[0] && texture_pack_load)
-                            texture_pack_load(mods[other].textures);
-                }
+                if (texture_pack_load && texture_pack_unload) load_texture_packs(-1, index, NULL, 0);
                 return;
             }
+            if (problems[0]) warn(mod, 0, "texture pack: %s", problems);
         }
         for (int option = 0; option < option_count; option++) mod->runtime_options[option] = Mods_OptionValue(index, option);
         mod->sequence = ++activation_sequence;
@@ -1018,15 +1043,9 @@ static void activate(int index, int on)
         if (mod->hooks.applied) mod->hooks.applied(1);
     } else {
         drop_overrides(index);
-        if (mod->textures[0] && texture_pack_unload) {
+        if (mod->textures[0] && texture_pack_load && texture_pack_unload) {
             /* The packs add up: the others' come back without this one's. */
-            int other;
-            texture_pack_unload();
-            for (other = 0; other < mod_count; other++) {
-                if (other != index && mods[other].active && mods[other].textures[0] && texture_pack_load) {
-                    texture_pack_load(mods[other].textures);
-                }
-            }
+            load_texture_packs(-1, index, NULL, 0);
         }
         mod->active = 0;
         if (mod->hooks.applied) mod->hooks.applied(0);

@@ -16,7 +16,8 @@
 void Mods_Load(void);
 /* The texture pack loader a "textures" mod goes through (src/pc/render/texture_pack.h);
  * without one, such a mod notes that this build has no texture packs. */
-void Mods_SetTexturePack(int (*load)(const char *directory), void (*unload)(void));
+void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
+                         void (*unload)(void));
 void Mods_Shutdown(void);
 
 int Mods_Count(void);

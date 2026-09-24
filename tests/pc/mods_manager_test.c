@@ -21,6 +21,16 @@ static void replace(MemoriesModEvent *e)
     e->handled = 1;
     e->result = 17;
 }
+/* A texture pack loader that records what it is asked, in order. */
+static char pack_calls[512];
+static int fake_pack_load(const char *directory, unsigned rank, char *problems, size_t size)
+{
+    size_t length = strlen(pack_calls);
+    snprintf(pack_calls + length, sizeof(pack_calls) - length, "%s:%u ", strstr(directory, "/mods/") + 6, rank);
+    if (problems && size) snprintf(problems, size, "%s", strstr(directory, "pack-b") ? "1 image could not be read" : "");
+    return 1;
+}
+static void fake_pack_unload(void) { strcat(pack_calls, "unload "); }
 int main(void)
 {
     char path[1024], error[256];
@@ -65,6 +75,11 @@ int main(void)
     make_dir("mods/typo");
     write_text("mods/typo/mod.json", "{\"id\":\"typo\",\"libary\":\"x\",\"Name\":\"T\",\"zzzzzz\":1,"
                                      "\"enabled\":\"yes\",\"restart\":0,\"audio\":{}}");
+    /* Two texture packs; pack-a loads first (lower priority number). */
+    make_dir("mods/pack-a");
+    write_text("mods/pack-a/mod.json", "{\"id\":\"pack-a\",\"textures\":\"images\",\"priority\":-5}");
+    make_dir("mods/pack-b");
+    write_text("mods/pack-b/mod.json", "{\"id\":\"pack-b\",\"textures\":\"images\",\"priority\":5}");
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
@@ -74,6 +89,7 @@ int main(void)
     assert(!setenv("MEMORIES_SETTINGS", path, 1));
     assert(!setenv("MEMORIES_USER_DIR", root, 1));
     Settings_Load();
+    Mods_SetTexturePack(fake_pack_load, fake_pack_unload);
     Mods_Load();
     a = find("a");
     b = find("b");
@@ -82,6 +98,30 @@ int main(void)
     assert(Mods_Failed(partial) && !Mods_Active(partial));
     assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
     assert(Mods_Failed(find("invalid-schema")));
+    {
+        /* Texture packs load in the mods' order whichever is applied first:
+         * the later one ranks higher, and its problems show beside it. */
+        int pack_a = find("pack-a"), pack_b = find("pack-b");
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_b, 1);
+        assert(!strcmp(pack_calls, "pack-b/images:1 "));
+        assert(strstr(Mods_Status(pack_b), "texture pack: 1 image could not be read") && !Mods_Failed(pack_b));
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_a, 1);
+        assert(!strcmp(pack_calls, "unload pack-a/images:1 pack-b/images:2 "));
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_a, 0);
+        assert(!strcmp(pack_calls, "unload pack-b/images:1 "));
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_a, 1);   /* not last in the order: everything again */
+        assert(!strcmp(pack_calls, "unload pack-a/images:1 pack-b/images:2 "));
+        Mods_SetEnabled(pack_b, 0);
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_b, 1);   /* last: on top of what is loaded */
+        assert(!strcmp(pack_calls, "pack-b/images:2 "));
+        Mods_SetEnabled(pack_a, 0);
+        Mods_SetEnabled(pack_b, 0);
+    }
     {
         int typo = find("typo");
         const char *status = Mods_Status(typo);
