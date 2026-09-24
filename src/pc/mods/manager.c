@@ -387,7 +387,7 @@ unsigned Mods_Signature(void)
         Settings_VisitNamed(hash_setting, &settings_hash);
         hash ^= settings_hash;
     }
-    return hash ^ Mods_CardSignature();
+    return hash ^ Mods_CardSignature() ^ Mods_DiscSignature();
 }
 
 /* An "audio" id as replace.c reads it: 0x-prefixed hexadecimal, else decimal. */

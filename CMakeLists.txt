@@ -103,6 +103,20 @@ if(BUILD_TESTING)
     target_include_directories(memories_mods_manager_test PRIVATE src)
     target_link_libraries(memories_mods_manager_test PRIVATE m Threads::Threads)
     add_test(NAME pc_mods_manager COMMAND memories_mods_manager_test)
+    add_executable(memories_disc_test tests/pc/disc_test.c src/pc/sdk/libds.c ${MOD_TEST_SOURCES})
+    target_include_directories(memories_disc_test PRIVATE src)
+    target_compile_definitions(memories_disc_test PRIVATE MEMORIES_PC _POSIX_C_SOURCE=200809L)
+    target_link_libraries(memories_disc_test PRIVATE m Threads::Threads)
+    if(NOT MSVC)
+        target_compile_options(memories_disc_test PRIVATE -Wall -Wextra -Werror)
+    endif()
+    if(MEMORIES_SANITIZERS)
+        target_compile_options(memories_disc_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options(memories_disc_test PRIVATE -fsanitize=address,undefined)
+    endif()
+    add_test(NAME pc_disc COMMAND memories_disc_test)
+    add_test(NAME pc_disc_capacity COMMAND memories_disc_test capacity)
+    add_test(NAME pc_disc_failed_code COMMAND memories_disc_test failed-code)
     # The test includes cards.c and relies on --gc-sections to drop the parts
     # that need the game and renderer. ELF linkers resolve symbols after GC;
     # the PE linker reports them before it, so this test is ELF-only.
@@ -151,6 +165,7 @@ if(BUILD_TESTING)
     # The audio replacement blocks the game clock while it swaps clips and
     # naps while the mixer finishes one: the same two needs.
     target_sources(memories_audio_replace_test PRIVATE ${memories_platform_support})
+    target_sources(memories_disc_test PRIVATE ${memories_platform_support})
     target_link_libraries(memories_audio_replace_test PRIVATE Threads::Threads)
     # controls_evdev_test.c drives the /dev/input reader, which is Linux only.
     set(memories_controls_parts config runtime window)

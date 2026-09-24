@@ -94,16 +94,45 @@ path (`"\\DATA\\CARD.MRG;1"`, as the game asks for it) or a raw sector
 ]
 ```
 
-* `replace` names a file the mod ships. It stands in for the whole file: the
-  sectors past its end read as zeroes, and anything past the original file's
-  length is ignored, because the sectors after it belong to the next file
-  (the Mods window warns when that happens).
-  Replacing a raw `lba` region needs a `sectors` count as well.
+* `replace` names a file the mod ships. Named data files may be larger than
+  the original: the port assigns a virtual disc extent and file lookup
+  returns its position and exact byte size. The final sector is zero-padded;
+  shorter replacements retain zero-filled sectors through the original
+  allocation. Named replacements always require a restart, including when
+  a manifest says `"restart": false`, because game and mod code cache file
+  positions. The last replacement in startup load order wins, then patches
+  apply on top. Competing replacements are reported in the Mods window.
+  Replacing a raw `lba` region needs a `sectors` count and must fit that
+  allocation; an oversized raw replacement is rejected. XA/STR files retain
+  their original allocation and raw streaming headers.
 * `patch` writes `bytes` (hexadecimal, spaces optional) at `at`, an offset
   into the file, or into the sector when the entry names an `lba`. A run that
   crosses a sector boundary is fine. This is the shape the community's
   hex-editor tutorials are written in, so their offsets carry over directly
   (`modding-tutorial-gameplay-patches.md`).
+
+Named patches may address the expanded tail. They are checked against the
+final selected replacement; a shorter replacement still allows patches
+within the original file's byte length. Reads and raw patches at original
+LBAs continue to address the original file's replacement prefix. A raw
+patch crossing into the next file still affects that next file, rather than
+the expanded tail. Code mods should obtain the effective LBA through
+`host->disc_file_start` and use `host->disc_read` to read larger files.
+
+Virtual allocation is bounded by the SDK's CD position format (last LBA
+449849), the physical image's size, and other replacements. The port
+reserves space for the largest enabled candidate for each file plus a guard
+sector, so a failed mod can fall back without changing cached addresses.
+Insufficient space rejects the replacement with a diagnostic; it never
+silently truncates it. Save-state compatibility includes the replacement
+contents and layout. Restart after changing replacement files.
+
+Larger files do not automatically increase the game's model buffers or
+change an MRG member's compiled offsets and transfer phases. Existing
+record layouts continue to work; larger individual records require a loader
+that requests and safely consumes their new layout. Higher-resolution PNG
+textures already use texture packs, below. The implementation sequence and
+remaining resource-loader work are in [the larger-file plan](larger-disc-files-plan.md).
 
 Overrides stand in for the disc for every reader in the port: the drive
 model, the bulk reads a mod makes, and the file lookup itself. Nothing on the

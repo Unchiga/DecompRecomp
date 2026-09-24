@@ -29,17 +29,29 @@ int Log_Wanted(int channel) { (void)channel; return 0; }
 void Log_Printf(int channel, const char *format, ...) { (void)channel; (void)format; }
 unsigned short Platform_Pad(int port) { (void)port; return 0; }
 int Symbols_Add(const SymbolsEntry *entries, size_t count) { (void)entries; (void)count; return 0; }
+#ifndef MODS_REAL_DISC
 int Memories_DiscReadSectors(int lba, int sectors, void *out)
 {
     (void)lba;
     memset(out, 0, (size_t)sectors * 2048);
     return sectors;
 }
-int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size)
+int Memories_DiscSectorCount(void) { return 10000; }
+int Memories_DiscOriginalFileInfo(const char *path, int *lba, unsigned *size)
 {
     if (strcmp(path, "\\DATA\\CARD.MRG;1")) return -1;
     if (lba) *lba = CARD_LBA;
     if (size) *size = CARD_SIZE;
+    return 0;
+}
+int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size)
+{
+    int retail;
+    unsigned bytes;
+    if (Memories_DiscOriginalFileInfo(path, &retail, &bytes)) return -1;
+    if (lba) *lba = retail;
+    if (size) *size = bytes;
+    Mods_DiscFileInfo(retail, lba, size);
     return 0;
 }
 int Memories_DiscFileStart(const char *path)
@@ -47,6 +59,7 @@ int Memories_DiscFileStart(const char *path)
     int lba = -1;
     return Memories_DiscFileInfo(path, &lba, NULL) ? -1 : lba;
 }
+#endif
 
 /* The table build_game32.py generates for the game: sorted by name. */
 static char exported_function[16];

@@ -23,6 +23,7 @@
 #include "pc/compat/signal.h"
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "pc/compat/posix.h"
 
 #define RAW_SECTOR 2352
@@ -37,6 +38,7 @@ typedef struct Pending {
 } Pending;
 
 static int disc = -1;
+static int disc_sectors;
 static Pending queue[QUEUE];
 static volatile unsigned queue_head, queue_tail;
 static int next_id = 1;
@@ -75,14 +77,38 @@ DslLOC *CdIntToPos_8007E600(int lba, DslLOC *loc)
 int CdPosToInt_8007E710(const DslLOC *loc) { return loc_to_lba(loc); }
 int CdPosToInt(DslLOC *loc) { return loc_to_lba(loc); }
 
+static int read_physical(int lba, u8 *out)
+{
+    int ok = disc >= 0 && lba >= 0 && lba < disc_sectors &&
+        pread(disc, out, RAW_SECTOR, (off_t)lba * RAW_SECTOR) == RAW_SECTOR;
+    if (ok) disc_bytes_total += RAW_SECTOR;
+    return ok;
+}
+
 static int read_raw(int lba, u8 *out)
 {
-    int ok = disc >= 0 && pread(disc, out, RAW_SECTOR, (off_t)lba * RAW_SECTOR) == RAW_SECTOR;
-    if (ok) disc_bytes_total += RAW_SECTOR;
-    /* A mod's data overrides stand in for what the disc holds, for every
-     * reader: the drive model, the bulk reads and the file lookup above. */
-    if (ok) Mods_DiscSector(lba, out + USER_DATA);
-    return ok;
+    int source;
+    if (Mods_DiscSource(lba, &source)) {
+        DslLOC loc;
+        if (source >= 0) {
+            if (!read_physical(source, out)) return 0;
+        } else memset(out, 0, RAW_SECTOR);
+        if (!Mods_DiscSector(lba, out + USER_DATA) && source < 0) return 0;
+        /* MODE2/Form1 data framing used by the port's callbacks and raw
+         * read modes. EDC/ECC are not consumed by the software drive. */
+        memset(out, 0, USER_DATA);
+        memset(out + 1, 0xff, 10);
+        lba_to_loc(lba, &loc);
+        out[12] = loc.minute; out[13] = loc.second; out[14] = loc.sector;
+        out[15] = 2;
+        out[18] = out[22] = 0x08;
+        memset(out + USER_DATA + 2048, 0, RAW_SECTOR - USER_DATA - 2048);
+        if (source < 0) disc_bytes_total += RAW_SECTOR;
+        return 1;
+    }
+    if (!read_physical(lba, out)) return 0;
+    Mods_DiscSector(lba, out + USER_DATA);
+    return 1;
 }
 
 void Memories_DiscStats(int *lba, unsigned *bytes_per_second)
@@ -117,12 +143,25 @@ int DsInit(void)
     if (disc < 0) {
         char why[512];
         const char *path = GameFiles_Disc(why, sizeof(why));
-        disc = path ? open(path, O_RDONLY) : -1;
+        disc = path ? open(path, O_RDONLY
+#ifdef _WIN32
+                           | O_BINARY
+#endif
+                           ) : -1;
         if (disc < 0) {
             char text[640];
             snprintf(text, sizeof(text), "cannot open the disc image %s", path ? path : why);
             Crash_ReportFatal("disc", text);
             _exit(1);
+        }
+        {
+            struct stat info;
+            if (fstat(disc, &info) || info.st_size < 0 ||
+                (uint64_t)info.st_size / RAW_SECTOR > INT32_MAX) {
+                Crash_ReportFatal("disc", "cannot determine disc image size");
+                _exit(1);
+            }
+            disc_sectors = (int)(info.st_size / RAW_SECTOR);
         }
     }
     TextureDump_SetDiscFiles(Memories_DiscFileInfo);
@@ -157,7 +196,7 @@ static const u8 *find_entry(const u8 *directory, size_t size, const char *name, 
 
 static u32 le32(const u8 *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((u32)p[3] << 24); }
 
-DslFILE *DsSearchFile(DslFILE *file, char *name)
+static DslFILE *search_file(DslFILE *file, const char *name, int effective)
 {
     static u8 directory[16 * 2048];
     u8 raw[RAW_SECTOR];
@@ -166,7 +205,7 @@ DslFILE *DsSearchFile(DslFILE *file, char *name)
     if (disc < 0) {
         DsInit();
     }
-    if (!read_raw(16, raw)) {
+    if (!(effective ? read_raw(16, raw) : read_physical(16, raw))) {
         return NULL;
     }
     extent = le32(raw + USER_DATA + 156 + 2);
@@ -184,7 +223,7 @@ DslFILE *DsSearchFile(DslFILE *file, char *name)
             size = sizeof(directory);
         }
         for (i = 0; i * 2048 < size; i++) {
-            if (!read_raw((int)(extent + i), raw)) {
+            if (!(effective ? read_raw((int)(extent + i), raw) : read_physical((int)(extent + i), raw))) {
                 return NULL;
             }
             memcpy(directory + i * 2048, raw + USER_DATA, 2048);
@@ -196,14 +235,33 @@ DslFILE *DsSearchFile(DslFILE *file, char *name)
         extent = le32(record + 2);
         size = le32(record + 10);
         if (!end) {
+            int position = (int)extent;
+            if (effective) Mods_DiscFileInfo(position, &position, &size);
             memset(file, 0, sizeof(*file));
-            lba_to_loc((int)extent, &file->pos);
+            lba_to_loc(position, &file->pos);
             file->size = size;
             strncpy(file->name, part, sizeof(file->name) - 1);
             return file;
         }
         part = end;
     }
+}
+
+DslFILE *DsSearchFile(DslFILE *file, char *name) { return search_file(file, name, 1); }
+
+int Memories_DiscSectorCount(void)
+{
+    if (disc < 0) DsInit();
+    return disc_sectors;
+}
+
+int Memories_DiscOriginalFileInfo(const char *path, int *lba, unsigned *size)
+{
+    DslFILE file;
+    if (!path || !search_file(&file, path, 0)) return -1;
+    if (lba) *lba = loc_to_lba(&file.pos);
+    if (size) *size = file.size;
+    return 0;
 }
 
 static int enqueue(u8 command, DslCB callback, const u8 *result)
@@ -299,7 +357,7 @@ int CdGetSector(void *destination, int words)
     memcpy(destination, sector + sector_cursor, bytes);
     sector_cursor += bytes;
     Memories_GuestWritten(destination, bytes);
-    TextureDump_Delivered(destination, bytes, head_lba - 1, sector_cursor - bytes - USER_DATA); /* after the write notice, which forgets deliveries */
+    TextureDump_Delivered(destination, bytes, Mods_DiscOrigin(head_lba - 1), sector_cursor - bytes - USER_DATA); /* after the write notice, which forgets deliveries */
     Log_Signal(LOG_DISC, "lba %ld -> 0x%lx, %ld bytes", head_lba - 1,
                (long)(uintptr_t)destination, bytes, 0, 0, 0);
     return 1;
@@ -553,6 +611,8 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out)
 {
     u8 raw[RAW_SECTOR];
     int i;
+    if (!out || lba < 0 || sectors <= 0 || lba > INT32_MAX - sectors ||
+        (size_t)sectors > SIZE_MAX / 2048) return 0;
     if (disc < 0) {
         DsInit();
     }
@@ -561,7 +621,7 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out)
             break;
         }
         memcpy((u8 *)out + (size_t)i * 2048, raw + USER_DATA, 2048);
-        TextureDump_Delivered((u8 *)out + (size_t)i * 2048, 2048, lba + i, 0);
+        TextureDump_Delivered((u8 *)out + (size_t)i * 2048, 2048, Mods_DiscOrigin(lba + i), 0);
     }
     return i;
 }
@@ -570,6 +630,7 @@ int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size)
 {
     DslFILE file;
     char name[64];
+    if (!path || strlen(path) >= sizeof(name)) return -1;
     strncpy(name, path, sizeof(name) - 1);
     name[sizeof(name) - 1] = 0;
     if (!DsSearchFile(&file, name)) {
