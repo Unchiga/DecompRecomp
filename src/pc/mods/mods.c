@@ -737,15 +737,51 @@ static int read_bytes(const char *text, unsigned char **out)
     return (int)digits;
 }
 
-/* One patch, split at the sector boundaries it crosses. */
+/* The disc's streamed files: XA audio and the STR movie. Their sectors are
+ * MODE2 Form 2, 2304 bytes each (an XA sector's sound, a movie's
+ * interleaved sound), where an override writes the 2048 of a data sector:
+ * a replacement or patch would leave the rest of each sector's old sound
+ * after the new bytes. Their sounds are replaced from files instead, with
+ * the "audio" key (src/pc/audio/replace.h). The name of the streamed file
+ * the sectors [lba, lba + sectors) reach into, or NULL. */
+static const char *streamed_file(const char *file, int lba, int sectors)
+{
+    static const char *const streamed[] = {"\\DATA\\MASTER.XA;1", "\\DATA\\MOVIE.STR;1"};
+    size_t i;
+    if (file) {
+        const char *dot = strrchr(file, '.');
+        size_t length = dot ? strcspn(dot, ";") : 0;
+        if (dot && ((length == 3 && !strncmp(dot, ".XA", 3)) || (length == 4 && !strncmp(dot, ".STR", 4)))) return file;
+        return NULL;
+    }
+    for (i = 0; i < sizeof(streamed) / sizeof(streamed[0]); i++) {
+        int start;
+        unsigned size;
+        if (Memories_DiscOriginalFileInfo(streamed[i], &start, &size) || start < 0) continue;
+        if (lba < start + (int)((size + SECTOR - 1) / SECTOR) && start < lba + sectors) return streamed[i];
+    }
+    return NULL;
+}
+
+/* One patch, split at the sector boundaries it crosses. Bytes another mod
+ * patches too are the later mod's: the Mods window says so. */
 static int add_patch(Mod *mod, int index, int file, int lba, int offset, const unsigned char *bytes, int length)
 {
+    int warned = 0;
     while (length > 0) {
-        int here = SECTOR - offset;
+        int here = SECTOR - offset, i;
         if (here > length) here = length;
         if (patch_count >= PATCHES_MAX) {
             note(mod, "more than %d patched byte runs", PATCHES_MAX);
             return 0;
+        }
+        for (i = 0; i < patch_count && !warned; i++) {
+            const Patch *other = &patches[i];
+            if (other->mod != index && other->file == file && other->lba == lba &&
+                other->offset < offset + here && offset < other->offset + other->length) {
+                warn(mod, 0, "patches the same bytes as %s; later patch wins", mods[other->mod].id);
+                warned = 1;
+            }
         }
         patches[patch_count].bytes = malloc((size_t)here);
         if (!patches[patch_count].bytes) return 0;
@@ -810,9 +846,15 @@ static int add_region(Mod *mod, int index, int named, int lba, int sectors, cons
     regions[region_count].image_size = (size_t)info.st_size;
     regions[region_count].mapped = (size_t)info.st_size;
     regions[region_count].hash = hash_bytes(2166136261u, image, (size_t)info.st_size);
-    for (int i = 0; named >= 0 && i < region_count; i++) if (regions[i].file == named) {
-        warn(mod, 0, "%s replaces the same disc file as %s; later replacement wins", replacement, mods[regions[i].mod].id);
-        break;
+    for (int i = 0; i < region_count; i++) {
+        const Region *other = &regions[i];
+        if (named >= 0 ? other->file == named
+                       : other->file < 0 && other->mod != index && other->lba < lba + sectors &&
+                             lba < other->lba + other->sectors) {
+            warn(mod, 0, "%s replaces the same %s as %s; later replacement wins", replacement,
+                 named >= 0 ? "disc file" : "sectors", mods[other->mod].id);
+            break;
+        }
     }
     region_count++;
     if (!layout_disc_files()) {
@@ -826,6 +868,7 @@ static int add_region(Mod *mod, int index, int named, int lba, int sectors, cons
 static int apply_overrides(Mod *mod, int index)
 {
     int i, count = Json_Count(mod->data);
+    const char *stream = NULL;
     for (i = 0; i < count; i++) {
         const JsonValue *entry = Json_At(mod->data, i);
         const char *file = Json_String(Json_Member(entry, "file"), NULL);
@@ -845,6 +888,7 @@ static int apply_overrides(Mod *mod, int index)
                 note(mod, "%s is not on the disc", file);
                 goto failed;
             }
+            if ((stream = streamed_file(file, lba, 0)) != NULL) goto streamed;
             named = disc_file(lba, size);
             if (named < 0) { note(mod, "cannot register disc file %s", file); goto failed; }
         } else if (lba < 0) {
@@ -858,11 +902,10 @@ static int apply_overrides(Mod *mod, int index)
             if (sectors <= 0 || lba > INT_MAX - sectors) {
                 note(mod, "\"replace\" at sector %d needs a \"sectors\" count", lba);
                 goto failed;
-            } else {
-                /* Existing in-place streaming overrides keep their raw
-                 * headers. Growth cannot synthesize XA/STR metadata. */
-                int backing_file = file && (strstr(file, ".XA") || strstr(file, ".STR")) ? -1 : named;
-                if (!add_region(mod, index, backing_file, lba, sectors, Json_String(replace, NULL))) goto failed;
+            } else if (!file && (stream = streamed_file(NULL, lba, sectors)) != NULL) {
+                goto streamed;
+            } else if (!add_region(mod, index, named, lba, sectors, Json_String(replace, NULL))) {
+                goto failed;
             }
         }
         if (patch) {
@@ -891,6 +934,12 @@ static int apply_overrides(Mod *mod, int index)
                     free(bytes);
                     goto failed;
                 }
+                if (!file && at <= INT_MAX - length &&
+                    (stream = streamed_file(NULL, lba + (int)(at / SECTOR),
+                                            (int)((at % SECTOR + length + SECTOR - 1) / SECTOR))) != NULL) {
+                    free(bytes);
+                    goto streamed;
+                }
                 if (at > INT_MAX - length || at / SECTOR > INT_MAX - lba - (length + SECTOR - 1) / SECTOR ||
                     !add_patch(mod, index, named, (named < 0 ? lba : 0) + (int)(at / SECTOR), (int)(at % SECTOR), bytes, length)) {
                     free(bytes);
@@ -906,6 +955,9 @@ static int apply_overrides(Mod *mod, int index)
             mod->id, region_count, patch_count, override_low, override_high);
     }
     return 1;
+streamed:
+    note(mod, "%s is streamed XA/STR audio or video, which \"data\" cannot replace or patch; "
+         "use \"audio\" for its sounds", stream);
 failed:
     drop_overrides(index);
     if (!mod->status[0]) note(mod, "could not prepare data overrides");

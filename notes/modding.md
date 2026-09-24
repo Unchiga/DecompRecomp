@@ -104,10 +104,18 @@ path (`"\\DATA\\CARD.MRG;1"`, as the game asks for it) or a raw sector
   allocation. Named replacements always require a restart, including when
   a manifest says `"restart": false`, because game and mod code cache file
   positions. The last replacement in startup load order wins, then patches
-  apply on top. Competing replacements are reported in the Mods window.
+  apply on top. Competing replacements are reported in the Mods window,
+  for named files and for raw sectors alike, and so are two mods patching
+  the same bytes (the later one's bytes are the ones read).
   Replacing a raw `lba` region needs a `sectors` count and must fit that
-  allocation; an oversized raw replacement is rejected. XA/STR files retain
-  their original allocation and raw streaming headers.
+  allocation; an oversized raw replacement is rejected.
+* The streamed files, `MASTER.XA` and `MOVIE.STR`, cannot be replaced or
+  patched, by name or by `lba`: their sectors hold 2304 bytes of sound
+  (MODE2 Form 2) where an override writes the 2048 of a data sector, so
+  each sector would keep the tail of its old sound after the new bytes. A
+  mod that tries says so in the Mods window and is not applied. Replace
+  the sounds with [`audio`](#audio-songs-voices-and-sounds-from-files)
+  instead; the movie's pictures cannot be replaced.
 * `patch` writes `bytes` (hexadecimal, spaces optional) at `at`, an offset
   into the file, or into the sector when the entry names an `lba`. A run that
   crosses a sector boundary is fine. This is the shape the community's
@@ -345,13 +353,20 @@ A sound effect the game starts every frame is logged every 60th time.
 ### Formats and limits
 
 * WAV: PCM 8, 16, 24 or 32-bit, or 32/64-bit float, including
-  `WAVE_FORMAT_EXTENSIBLE`; any sample rate and channel count. More than two
-  channels fold to stereo: even channels left, odd ones right.
+  `WAVE_FORMAT_EXTENSIBLE`; any sample rate and up to 32 channels.
+* More than two channels fold to stereo as a downmix does: the front pair
+  as they are, a centre on both sides and surround, back and height
+  channels on their own side, each at -3 dB, the LFE left out, and the sum
+  scaled so that nothing clips. The speakers are a WAV's channel mask when
+  it has one, else the usual order for the count (`L R C LFE Ls Rs`, then
+  the sides for 7.1), and Vorbis's own order for Ogg files (`L C R Ls Rs
+  LFE`). Channels past a known layout count as centres.
 * Ogg Vorbis, decoded by [stb_vorbis](../src/pc/third_party/README.md)
   (public domain). Opus, MP3 and FLAC are not read.
 * Files are decoded when the mod is applied, resampled to 44.1 kHz stereo
   (linearly) and kept in memory: about 10 MB a minute. A clip is at most 12
-  minutes and a file at most 256 MB. The 32-bit game has little room to
+  minutes (an Ogg file's length is read from its last page, so a longer one
+  is refused before it is decoded) and a file at most 256 MB. The 32-bit game has little room to
   spare, so prefer Ogg files for the mod and keep long songs few.
 * A file that will not decode is skipped, with the reason beside the mod in
   the Mods window (and on stderr); the rest of the mod still applies.
