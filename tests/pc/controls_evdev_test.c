@@ -28,12 +28,25 @@ static int fake_ioctl(int fd, unsigned long request, ...)
             keys[BTN_A / (8 * sizeof(long))] |= 1ul << (BTN_A % (8 * sizeof(long)));
         return 0;
     }
+    if (_IOC_NR(request) == _IOC_NR(EVIOCGBIT(EV_ABS, 0))) {
+        static const unsigned common[] = {ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_HAT0X, ABS_HAT0Y};
+        unsigned long *bits = out;
+        memset(out, 0, _IOC_SIZE(request));
+        for (unsigned i = 0; i < sizeof(common) / sizeof(common[0]); i++)
+            bits[common[i] / (8 * sizeof(long))] |= 1ul << (common[i] % (8 * sizeof(long)));
+        unsigned lt = standard_triggers ? ABS_HAT2Y : ABS_Z, rt = standard_triggers ? ABS_HAT2X : ABS_RZ;
+        bits[lt / (8 * sizeof(long))] |= 1ul << (lt % (8 * sizeof(long)));
+        bits[rt / (8 * sizeof(long))] |= 1ul << (rt % (8 * sizeof(long)));
+        return 0;
+    }
     int axis = (int)_IOC_NR(request) - (int)_IOC_NR(EVIOCGABS(0));
     if (axis >= 0 && axis <= ABS_MAX) {
-        if (standard_triggers && (axis == ABS_Z || axis == ABS_RZ))
-            return -1;
         struct input_absinfo *a = out;
         memset(a, 0, sizeof(*a));
+        /* Like the kernel: axes the device lacks read back as zeros. */
+        if (standard_triggers ? (axis == ABS_Z || axis == ABS_RZ)
+                              : (axis == ABS_HAT2Y || axis == ABS_HAT2X))
+            return 0;
         a->minimum = -32768;
         a->maximum = 32767;
         if (axis == ABS_Z || axis == ABS_RZ || axis == ABS_HAT2Y || axis == ABS_HAT2X) {
