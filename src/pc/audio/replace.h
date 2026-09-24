@@ -44,10 +44,16 @@ typedef struct AudioClip {
  * Ogg Vorbis, told apart by their contents. Returns 0 and fills `clip`
  * (free clip->frames), or -1 with the reason in `error`. */
 int AudioReplace_Decode(const unsigned char *data, size_t size, AudioClip *clip, char *error, size_t error_size);
-/* Interleaved s16 at any rate and channel count to 44.1 kHz stereo
- * (linear resampling; more than two channels fold to stereo, even ones
- * left and odd ones right). Returns 0, or -1 when out of memory or too long. */
-int AudioReplace_Convert(const int16_t *samples, size_t frames, int channels, unsigned rate, AudioClip *clip);
+/* Interleaved s16 at any rate and 1 to 32 channels to 44.1 kHz stereo
+ * (linear resampling). `speakers` names each channel's speaker by its bit
+ * in WAVE_FORMAT_EXTENSIBLE's channel mask (0 front left, 1 front right,
+ * 2 centre, 3 LFE, 4 and 5 back, 9 and 10 side; replace.c), so that more
+ * than two channels fold to stereo as a downmix does: centres on both
+ * sides at -3 dB, the rest on their own side, the LFE dropped. NULL: the
+ * first two are the front pair. Returns 0, or -1 when out of memory or too
+ * long. */
+int AudioReplace_Convert(const int16_t *samples, size_t frames, int channels, const unsigned char *speakers,
+                         unsigned rate, AudioClip *clip);
 
 /* A mod's "audio" object, when it is applied (mods.c). Every entry that
  * decodes is added; each one that does not is skipped, and the first reason
