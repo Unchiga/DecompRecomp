@@ -135,6 +135,17 @@ static void resize_mods(int w, int h)
     ModsWindow_Resize(w, h);
     restore_game_context();
 }
+int Platform_OpenFolder(const char *path)
+{
+    /* xdg-open on Linux, ShellExecute on Windows: both take a plain path. */
+#ifdef _WIN32
+    char native[1024];
+    if ((size_t)snprintf(native, sizeof(native), "%s", path) >= sizeof(native)) return -1;
+    for (char *c = native; *c; c++) if (*c == '/') *c = '\\'; /* Explorer wants backslashes */
+    path = native;
+#endif
+    return SDL_OpenURL(path) ? 0 : -1;
+}
 void Platform_OpenMods(void)
 {
     sigset_t previous;

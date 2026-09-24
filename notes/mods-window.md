@@ -20,6 +20,8 @@ mod's order keeps following its manifest `priority`. A failed restart keeps the 
 next launch. Active, inactive, pending, warning and error states are distinct.
 Changing a load-order value requires a restart. New directories are discovered
 on the next launch; native objects stay resident until exit.
+**Open mods folder** shows the folder new mods go in (`MEMORIES_MODS_DIR`, else
+the user `mods` folder, created if missing) in the system file manager.
 
 The profile field accepts a name (letters, digits, spaces, `_`, `-`). Save writes
 the currently applied preferences to `mod-profiles/<name>.txt` in the user

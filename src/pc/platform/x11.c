@@ -25,6 +25,8 @@
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <time.h>
 
 /* The window shows one ARGB32 frame: the game picture scaled by an integer
@@ -505,6 +507,24 @@ static void resize_mods(int w, int h)
     mods_canvas.pixels = (uint32_t *)next->data;
     mods_canvas.width = w; mods_canvas.height = h; mods_canvas.stride = next->bytes_per_line / 4;
     ModsWindow_Resize(w, h);
+}
+int Platform_OpenFolder(const char *path)
+{
+    /* Twice forked, so xdg-open is never left a zombie of the game. */
+    int status;
+    pid_t child = fork();
+    if (child < 0) return -1;
+    if (child == 0) {
+        sigset_t none;
+        sigemptyset(&none);
+        sigprocmask(SIG_SETMASK, &none, NULL);
+        if (fork() == 0) {
+            execlp("xdg-open", "xdg-open", path, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    return waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status) ? 0 : -1;
 }
 void Platform_OpenMods(void)
 {

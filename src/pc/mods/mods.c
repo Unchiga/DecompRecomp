@@ -941,6 +941,17 @@ static void activate(int index, int on)
     }
 }
 
+int Mods_InstallDirectory(char *out, size_t size)
+{
+    const char *named = getenv("MEMORIES_MODS_DIR");
+    if (named && *named) {
+        if ((size_t)snprintf(out, size, "%s", named) >= size) return -1;
+    } else if (Paths_User(out, size, "mods")) {
+        return -1;
+    }
+    return Paths_MakeDirs(out);
+}
+
 void Mods_Load(void)
 {
     const char *all = getenv("MEMORIES_MODS");

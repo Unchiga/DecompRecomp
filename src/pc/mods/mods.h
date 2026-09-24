@@ -65,6 +65,9 @@ int Mods_DiscSector(int lba, void *user_data);
 const struct JsonValue *Mods_Manifest(int mod);
 const char *Mods_Metadata(int mod, const char *key);
 const char *Mods_Directory(int mod);
+/* Where players put new mods (MEMORIES_MODS_DIR, else the user mods
+ * folder), created if missing; 0 on success. */
+int Mods_InstallDirectory(char *out, size_t size);
 const char *Mods_Origin(int mod);
 int Mods_Active(int mod);
 int Mods_Failed(int mod);
