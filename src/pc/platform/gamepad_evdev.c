@@ -57,6 +57,7 @@ static void synchronize(int i)
     Pad *p = &pads[i];
     ControllerSnapshot *s = &ControlsRuntime_Device(i)->snapshot;
     unsigned long keys[(KEY_MAX + 8 * sizeof(long)) / (8 * sizeof(long))] = {0};
+    unsigned long abs[(ABS_MAX + 8 * sizeof(long)) / (8 * sizeof(long))] = {0};
     struct input_absinfo hat = {0};
     memset(s, 0, sizeof(*s));
     if (ioctl(p->fd, EVIOCGKEY(sizeof(keys)), keys) < 0)
@@ -76,13 +77,25 @@ static void synchronize(int i)
         s->hat_down |= hat.value < 0 ? 8 : hat.value > 0 ? 2 : 0;
     if (ioctl(p->fd, EVIOCGABS(ABS_HAT0Y), &hat) == 0)
         s->hat_down |= hat.value < 0 ? 1 : hat.value > 0 ? 4 : 0;
-    for (int a = 0; a < 6; a++)
-        if (ioctl(p->fd, EVIOCGABS(axis_codes[a]), &p->axes[a]) == 0) {
+    if (ioctl(p->fd, EVIOCGBIT(EV_ABS, sizeof(abs)), abs) < 0)
+        memset(abs, 0, sizeof(abs));
+    for (int a = 0; a < 6; a++) {
+        unsigned code = axis_codes[a];
+        /* The kernel gamepad convention uses HAT2Y/HAT2X for lower triggers;
+         * xpad and hid-playstation use Z/RZ. Prefer the existing mapping.
+         * EVIOCGABS succeeds with zeros for axes a device lacks, so pick the
+         * axis from the capability bits rather than from ioctl failure. */
+        if (a >= 4 && !has(abs, code))
+            code = a == 4 ? ABS_HAT2Y : ABS_HAT2X;
+        if (!has(abs, code))
+            continue;
+        if (ioctl(p->fd, EVIOCGABS(code), &p->axes[a]) == 0) {
             if (a < 4)
                 s->axis[a + 1] = normalize(&p->axes[a], 0);
             else
                 s->trigger[a - 3] = normalize(&p->axes[a], 1);
         }
+    }
     if (has(keys, BTN_TL2))
         s->trigger[1] = 1;
     if (has(keys, BTN_TR2))

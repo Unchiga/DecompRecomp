@@ -31,6 +31,12 @@ int main(void)
     assert(ControlsConfig_Save(&a, error, sizeof(error)));
     assert(ControlsConfig_Load(&b, error, sizeof(error)) == 1);
     assert(Controls_Equal(&a, &b));
+    for (int code = CTRL_BTN_TOUCHPAD; code < CTRL_BTN_COUNT; code++) {
+        a.ctrl[1].src[14][0] = (ControlSource){CTRL_SRC_BUTTON, (uint16_t)code, 0};
+        assert(ControlsConfig_Save(&a, error, sizeof(error)));
+        assert(ControlsConfig_Load(&b, error, sizeof(error)) == 1);
+        assert(Controls_Equal(&a, &b));
+    }
     FILE *f = fopen(path, "a");
     assert(f);
     fputs("bind 0 0 key.x\n", f);

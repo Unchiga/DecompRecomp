@@ -54,7 +54,9 @@ static const char *KEY_NAMES[CTRL_SRC_KEY_COUNT + 1] = {
 static const char *BTN_NAMES[CTRL_SRC_BUTTON_COUNT + 1] = {
     [0] = "",  "South",     "East",       "West",       "North",      "Back",
     "Guide",   "Start",     "L-Shoulder", "R-Shoulder", "Left Stick", "Right Stick",
-    "Dpad Up", "Dpad Down", "Dpad Left",  "Dpad Right", "Misc 1",     "Misc 2"};
+    "Dpad Up", "Dpad Down", "Dpad Left",  "Dpad Right", "Misc 1",     "Misc 2",
+    "Touchpad", "R-Paddle 1", "L-Paddle 1", "R-Paddle 2", "L-Paddle 2",
+    "Misc 3", "Misc 4", "Misc 5", "Misc 6"};
 
 static const char *AXIS_NAMES[CTRL_SRC_AXIS_COUNT + 1] = {
     [0] = "", "L-Stick X", "L-Stick Y", "R-Stick X", "R-Stick Y"};
@@ -121,6 +123,21 @@ const char *Controls_SourceName(const ControlSource *src)
     }
     }
     return "";
+}
+
+const char *Controls_SourceLabel(const ControlSource *src, CtrlIconStyle style)
+{
+    static const char *face[][4] = {
+        {"South", "East", "West", "North"},
+        {"A", "B", "X", "Y"},
+        {"Cross", "Circle", "Square", "Triangle"},
+        {"B", "A", "Y", "X"}
+    };
+    if (src->kind == CTRL_SRC_BUTTON && src->code >= CTRL_BTN_SOUTH && src->code <= CTRL_BTN_NORTH) {
+        int family = style >= CTRL_ICON_XBOX && style <= CTRL_ICON_NINTENDO ? style : 0;
+        return face[family][src->code - CTRL_BTN_SOUTH];
+    }
+    return Controls_SourceName(src);
 }
 
 int Controls_SourceEquals(const ControlSource *a, const ControlSource *b)

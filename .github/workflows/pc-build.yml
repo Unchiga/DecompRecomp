@@ -59,6 +59,7 @@ jobs:
           -DPNG_LIBRARY=$PWD/tmp/pc/win32-deps/lib/libpng16.a -DPNG_PNG_INCLUDE_DIR=$PWD/tmp/pc/win32-deps/include
           -DZLIB_LIBRARY=$PWD/tmp/pc/win32-deps/lib/libzs.a -DZLIB_INCLUDE_DIR=$PWD/tmp/pc/win32-deps/include
       - run: cmake --build tmp/pc/tests
+      - run: python tools/pc/test_controls_backend.py --target windows --software
       - run: ctest --test-dir tmp/pc/tests --output-on-failure
       - run: cmake --build tmp/pc/tests --target pc_audit
   sanitizers:

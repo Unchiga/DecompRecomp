@@ -79,6 +79,13 @@ int main(void)
     key(CTRL_KEY_ARROW_DOWN);
     save(&c, "tmp/pc/controls-controller.ppm");
 
+    ControlsRuntime_Device(0)->style = CTRL_ICON_PLAYSTATION;
+    snprintf(ControlsRuntime_Device(0)->name, sizeof(ControlsRuntime_Device(0)->name), "DualSense (preview)");
+    save(&c, "tmp/pc/controls-playstation.ppm");
+    ControlsRuntime_Device(0)->style = CTRL_ICON_NINTENDO;
+    snprintf(ControlsRuntime_Device(0)->name, sizeof(ControlsRuntime_Device(0)->name), "Switch Pro (preview)");
+    save(&c, "tmp/pc/controls-nintendo.ppm");
+
     /* The device list, opened from a fresh window. */
     reset();
     tab_to(1);

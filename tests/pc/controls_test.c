@@ -472,6 +472,12 @@ static int test_source_names(void)
 
 int main(void)
 {
+    ControlSource face = {CTRL_SRC_BUTTON, CTRL_BTN_SOUTH, 0};
+    CHECK(!strcmp(Controls_SourceLabel(&face, CTRL_ICON_PLAYSTATION), "Cross"));
+    CHECK(!strcmp(Controls_SourceLabel(&face, CTRL_ICON_NINTENDO), "B"));
+    CHECK(!strcmp(Controls_SourceLabel(&face, CTRL_ICON_XBOX), "A"));
+    CHECK(!strcmp(Controls_SourceName(&face), "South"));
+    CHECK(CTRL_BTN_COUNT <= 33); /* snapshot button bitmask */
     int r = 0;
     r = test_source_identity();
     if (r)

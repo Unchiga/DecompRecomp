@@ -1,0 +1,56 @@
+/* The COFF linker resolves references even in discarded SDL platform entry
+ * points. These game-only functions are outside the integration test. Keep
+ * them in a separate TU (no shared prototypes); any accidental call aborts.
+ * The actual controller, configuration and Controls window code is linked.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#define UNUSED_GAME_FUNCTION(name) \
+    void name(void) { fputs("Unexpected game call: " #name "\n", stderr); abort(); }
+
+UNUSED_GAME_FUNCTION(Platform_StartSilentAudio)
+UNUSED_GAME_FUNCTION(Monitor_Shared)
+UNUSED_GAME_FUNCTION(Menu_LoadSettings)
+UNUSED_GAME_FUNCTION(Settings_Get)
+UNUSED_GAME_FUNCTION(Monitor_Fact)
+UNUSED_GAME_FUNCTION(Log_Wanted)
+UNUSED_GAME_FUNCTION(Log_Printf)
+UNUSED_GAME_FUNCTION(GlPicture_Init)
+UNUSED_GAME_FUNCTION(Menu_Init)
+UNUSED_GAME_FUNCTION(Menu_SetVisible)
+UNUSED_GAME_FUNCTION(Menu_AutoScale)
+UNUSED_GAME_FUNCTION(Menu_SetScale)
+UNUSED_GAME_FUNCTION(Menu_Height)
+UNUSED_GAME_FUNCTION(Platform_SetPresentRefresh)
+UNUSED_GAME_FUNCTION(Settings_Set)
+UNUSED_GAME_FUNCTION(Settings_Save)
+UNUSED_GAME_FUNCTION(Platform_ClockRate)
+UNUSED_GAME_FUNCTION(GlPicture_Replay)
+UNUSED_GAME_FUNCTION(GlPicture_Scale)
+UNUSED_GAME_FUNCTION(Hud_Signature)
+UNUSED_GAME_FUNCTION(GlPicture_Texture)
+UNUSED_GAME_FUNCTION(Platform_NotifyPresent)
+UNUSED_GAME_FUNCTION(GlPicture_Read)
+UNUSED_GAME_FUNCTION(GlPicture_Behind)
+UNUSED_GAME_FUNCTION(ModsWindow_Event)
+UNUSED_GAME_FUNCTION(Menu_Event)
+UNUSED_GAME_FUNCTION(Spu_SetOutputVolume)
+UNUSED_GAME_FUNCTION(Platform_SetClockRate)
+UNUSED_GAME_FUNCTION(Spu_Muted)
+UNUSED_GAME_FUNCTION(Spu_SetMuted)
+UNUSED_GAME_FUNCTION(Platform_StepFrame)
+UNUSED_GAME_FUNCTION(Memories_StateRequest)
+UNUSED_GAME_FUNCTION(Platform_ScriptedPad2)
+UNUSED_GAME_FUNCTION(Log_Drain)
+UNUSED_GAME_FUNCTION(Cheats_Frame)
+UNUSED_GAME_FUNCTION(Cards_Frame)
+UNUSED_GAME_FUNCTION(Platform_ScriptedBits)
+UNUSED_GAME_FUNCTION(Platform_ScriptedBits2)
+UNUSED_GAME_FUNCTION(Menu_IsOpen)
+UNUSED_GAME_FUNCTION(Platform_VSyncPacesGame)
+UNUSED_GAME_FUNCTION(Platform_GameHz)
+UNUSED_GAME_FUNCTION(Platform_PresentRefresh)
+UNUSED_GAME_FUNCTION(Menu_Draw)
+UNUSED_GAME_FUNCTION(Hud_Draw)
+UNUSED_GAME_FUNCTION(Menu_Bounds)
+UNUSED_GAME_FUNCTION(Hud_Bounds)

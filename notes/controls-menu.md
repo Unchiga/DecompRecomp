@@ -79,6 +79,47 @@ reselection. Previous profiles remain in the file. Discovery supports 32 devices
 and storage supports 16 device profiles. Physical hardware/driver-specific naming
 and reconnect behavior should still be checked with the user's controllers.
 
+## Controller compatibility
+
+The default SDL3 backend is shared by Linux and Windows. It uses SDL's mappings
+for Xbox, PlayStation, Switch Pro/Joy-Con and generic gamepads. Face bindings are
+positional: the bottom button defaults to PS1 Cross. The window labels this A on
+Xbox, Cross on PlayStation and B on Switch; unknown families keep South/East/West/North.
+These display labels do not change saved binding tokens or the PS1 diagram.
+
+Touchpad clicks, four rear paddles and SDL's six miscellaneous buttons can be
+rebound when the device/driver exposes them independently. Touch gestures, motion
+sensors, rumble and adaptive-trigger effects are not implemented. Digital triggers
+and hat D-pads are handled by SDL's mapping layer as well as analog triggers.
+
+For a pad SDL does not recognize, provide a mapping for that device and platform
+using `SDL_GAMECONTROLLERCONFIG_FILE` before starting the game
+([SDL documentation](https://wiki.libsdl.org/SDL3/SDL_HINT_GAMECONTROLLERCONFIG_FILE)).
+The Controls window edits recognized gamepad inputs; it does not create raw
+joystick mappings. USB and Bluetooth may require different mapping entries.
+
+The optional Linux X11/evdev backend uses kernel button/axis conventions rather
+than SDL's device database. It accepts analog Z/RZ triggers, with HAT2Y/HAT2X as
+fallbacks per the [kernel gamepad specification](https://kernel.org/doc/html/latest/input/gamepad.html),
+and digital TL2/TR2. Use the default SDL backend for controllers needing device
+mapping quirks or the extra buttons above.
+
+Compatibility regression checks (after building the platform dependencies):
+
+```sh
+python3 tools/pc/test_controls_backend.py --target linux
+python3 tools/pc/test_controls_backend.py --target windows --software
+```
+
+The Windows command runs natively on Windows or through Wine on Linux. Omit
+`--software` where OpenGL is available to include context-ownership checks.
+The fixtures exercise PS5, Switch Pro, Xbox One and generic mappings with
+nonstandard raw button order, digital/analog triggers, hats, extra buttons,
+rebinding/applying, removal, input gating and window resizing. They are virtual
+devices, not certification of physical USB/Bluetooth or native Windows drivers.
+Linux OpenGL and Windows/Wine software rendering were checked for this change;
+Wine OpenGL was unavailable on the test host (no matching GL pixel format).
+
 ## Storage
 
 Controls live outside guest saves and save states. The default file is

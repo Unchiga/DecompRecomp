@@ -116,6 +116,7 @@ int main(void)
     selected->style = CTRL_ICON_XBOX;
     selected->snapshot.buttons_down = 1u << (CTRL_BTN_SOUTH - 1);
     ControlSource south = {CTRL_SRC_BUTTON, CTRL_BTN_SOUTH, 0};
+    assert(!strcmp(source_label(&south), "A"));
     assert(Controls_MoveSource(profile(1), 13, 0, &south));
     ControlsWindow_Draw(&c);
     /* The drawn buttons, which are smaller than their mouse targets. */
@@ -128,6 +129,7 @@ int main(void)
     assert(picture);
     memcpy(picture, c.pixels, (size_t)c.stride * c.height * 4);
     selected->style = CTRL_ICON_NINTENDO;
+    assert(!strcmp(source_label(&south), "B"));
     ControlsWindow_Draw(&c);
     assert(!memcmp(picture, c.pixels, (size_t)c.stride * c.height * 4));
     free(picture);
