@@ -993,7 +993,7 @@ is unchanged. What it covers:
 |---|---|---|
 | `0` load | title LOAD | pick a slot with a save; empty and damaged slots cannot be picked |
 | `1` load, unprompted | 2P DUEL and TRADE, once per player | "Player 1/2: choose a save"; player 2 cannot pick player 1's slot |
-| `2` save | SAVE in the main menu, the campaign's save prompt, the completion save after the credits | pick any slot; an occupied one asks "Overwrite it?", defaulting to Overwrite when it holds the same duelist and to Cancel otherwise |
+| `2` save | SAVE in the main menu, the campaign's save prompt, the completion save after the credits | pick any slot; an occupied one asks "Overwrite it?", defaulting to Overwrite only when it holds the game being saved as it was last loaded or saved (same duelist, the previous sequence number) and to Cancel otherwise, with a line saying it is another duelist's, an earlier save of this game or further along |
 | `4` trade write-back | TRADE | no menu: writes both traded saves back to the slots they were loaded from, after checking the duelist code as the card dialog did |
 
 The side effects the card dialog kept on success are kept too:
@@ -1003,9 +1003,17 @@ save or a prompted load.
 A slot file (`src/pc/saves/save_slots.c`) is exactly the 8 KiB block the
 game writes to a card: the 0x200-byte "SC" header with icon and title, the
 0x680-byte state and its duplicate, zeros after. A slot can therefore be put
-back onto a card image with any memory card manager. A slot is written to
-`slotNN.sav.partial` and renamed over the old file, so a failed write keeps
-the previous save. When the first copy fails `SaveData_ValidateIntegrity`
+back onto a card image with any memory card manager. In the padding after
+the duplicate (0xF00) the port keeps a token, `YFMSLOT\1` and a number drawn
+afresh at each save; what the save holds of the cards mods add
+(`cards/<duelist>.txt`, notes/more-cards.md) is filed under that token, so
+two slots of one duelist never share it. A slot is written to
+`slotNN.sav.partial`, flushed to the disk and renamed over the old file, so
+a failed write or a power cut keeps the previous save (on Windows the
+rename writes through, and is retried for a second while another program,
+a cloud sync say, holds the file). The list is read from the files again
+before a pick, so a list brought back by a save state cannot save over a
+slot without asking. When the first copy fails `SaveData_ValidateIntegrity`
 the duplicate is used; when both fail the slot shows as damaged. The menu
 lists the player name, starchips, cards owned (chest plus deck), wins and
 losses, and the file's modification time.
@@ -1013,7 +1021,13 @@ losses, and the file's modification time.
 Trade write-back checks both destination duelists before writing either
 slot. It updates both copies in each slot together, preserving the valid
 copy's progress outside the traded card data. Each slot replacement is
-atomic; the two files are still separate writes.
+atomic, and when the second write fails the first slot is put back as it
+was, so the trade happens to both saves or to neither.
+
+The first time the saves are used, the save on each old memory card image
+(`memcard1.mcd`, `memcard2.mcd`) is copied into slot 1 and 2, never over a
+slot that is already there. `saves/.cards-imported` marks that done; a card
+that could not be read is tried again at the next load or save.
 
 The first time the `saves` folder is created, the game's save
 (`BASLUS-01411-YUGIOH`) on `memcard1.mcd` and `memcard2.mcd` is copied into
