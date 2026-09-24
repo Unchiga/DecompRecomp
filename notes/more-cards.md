@@ -174,7 +174,14 @@ project measured against window captures (its `psx_card_packs.c`,
 regular at 13 pixels, the baseline under row 11, whole-pixel advances,
 coverage in hard steps (150 and up ink 1, 96 an edge at 3, 40 a halo at 6),
 and a name wider than 90 pixels squeezed into columns 3 to 93 and brought
-back up to full ink. Card text goes in beside the name, at the text
+back up to full ink. The name is read as UTF-8, as its glyphs are, so an
+accented letter is one character on the plate too; one the font lacks is
+left out. An entry's cards share one plate unless the name has `{n}` or
+`{id}` in it. A patched picture and thumbnail are reported written
+(`TextureDump_Written`), so a texture pack's picture of the base card does
+not show through on the copy in words that happen to match it; the plate
+is not, since that write would drop the delivery of the sector that also
+ends the base's palette. Card text goes in beside the name, at the text
 engine's insert command (`duel_effect_command.c`, op 0x40).
 
 **What spells out 722.** The Library's heading string (`"<seen/722>"`,

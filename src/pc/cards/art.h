@@ -23,8 +23,11 @@
 /* 1 on success; `why` says what went wrong otherwise. */
 int CardArt_FromImage(const char *path, unsigned char *record, char *why, size_t why_size);
 int CardArt_ThumbnailFromImage(const char *path, unsigned char *record, char *why, size_t why_size);
-int CardArt_TitleFromImage(const char *path, unsigned char *record, char *why, size_t why_size);
-/* 0 when no serif font could be found; the plate is left as it was. */
-int CardArt_TitleFromName(const char *name, unsigned char *record);
+/* The title plate alone, CARD_TITLE_BYTES, what a record holds at
+ * CARD_TITLE_PIXELS. */
+int CardArt_TitleFromImage(const char *path, unsigned char *plate, char *why, size_t why_size);
+/* `name` in UTF-8. 0 when no serif font could be found; the plate is left
+ * as it was. */
+int CardArt_TitleFromName(const char *name, unsigned char *plate);
 
 #endif

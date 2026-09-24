@@ -15,6 +15,7 @@
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
 #include "pc/debug/log.h"
+#include "pc/render/texture_dump.h"
 #include "pc/rng.h"
 #include "pc/compat/posix.h"
 #include "game/card_constants.h"
@@ -406,7 +407,7 @@ static void add_entry(const char *mod, const char *directory, int index, const J
     const char *name = Json_String(Json_Member(entry, "name"), NULL);
     const char *setting = Json_String(Json_Member(entry, "count_setting"), NULL);
     const char *description = Json_String(Json_Member(entry, "description"), NULL);
-    unsigned char *record = NULL, *title = NULL;
+    unsigned char *record = NULL, *title = NULL, *named_plate = NULL;
     int parts = 0;
     int base = 0, count, n, value;
     unsigned stats;
@@ -478,7 +479,7 @@ static void add_entry(const char *mod, const char *directory, int index, const J
                 continue;
             }
             if (k == 2) {
-                if (!title) title = calloc(1, CARD_ART_RECORD);
+                if (!title) title = calloc(1, CARD_TITLE_BYTES);
                 ok = title && CardArt_TitleFromImage(path, title, why, sizeof(why));
             } else {
                 if (!record) record = calloc(1, CARD_ART_RECORD);
@@ -517,13 +518,14 @@ static void add_entry(const char *mod, const char *directory, int index, const J
         art_records[id] = parts ? record : NULL;
         art_parts[id] = (unsigned char)parts;
         if (title) {
-            plates[id] = title + CARD_TITLE_PIXELS;
-        } else if (name && *name) {
-            /* The name as it will read, "{n}" and all, on the card's plate. */
-            unsigned char *plate = calloc(1, CARD_ART_RECORD);
+            plates[id] = title;
+        } else if (name && *name && (!named_plate || strstr(name, "{n}") || strstr(name, "{id}"))) {
+            /* The name as it will read, "{n}" and all, on the card's plate:
+             * one plate for the entry's cards unless the name numbers them. */
             char text[128];
             size_t length = 0;
             const char *p;
+            named_plate = calloc(1, CARD_TITLE_BYTES);
             for (p = name; *p && length + 8 < sizeof(text); p++) {
                 if (!strncmp(p, "{n}", 3)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", n); p += 2; }
                 else if (!strncmp(p, "{id}", 4)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", id); p += 3; }
@@ -532,10 +534,10 @@ static void add_entry(const char *mod, const char *directory, int index, const J
             text[length] = '\0';
             /* Without a serif font the plate is left blank: better no name
              * on the card than its base's. */
-            if (plate) {
-                CardArt_TitleFromName(text, plate);
-                plates[id] = plate + CARD_TITLE_PIXELS;
-            }
+            if (named_plate) CardArt_TitleFromName(text, named_plate);
+            plates[id] = named_plate;
+        } else if (name && *name) {
+            plates[id] = named_plate;
         }
         context->use[id] = (unsigned char)((Json_Bool(Json_Member(entry, "drops"), 1) ? 1 : 0) |
                                            (Json_Bool(Json_Member(entry, "opponents"), 0) ? 2 : 0));
@@ -663,20 +665,34 @@ const unsigned char *Cards_DescriptionText(int id)
     return Cards_Valid(id) ? descriptions[id] : NULL;
 }
 
+/* The bytes written over the base's are no longer the disc's: a texture
+ * pack must not find the base card's picture in them (texture_dump.h),
+ * even in the words that happen to match it. */
+static void patch(unsigned char *to, const unsigned char *from, size_t bytes)
+{
+    memcpy(to, from, bytes);
+    TextureDump_Written(to, (unsigned)bytes);
+}
+
 void Cards_PatchArtRecord(int id, unsigned char *record)
 {
     if (!Cards_Valid(id)) return;
-    if (art_parts[id] & ART_PICTURE) memcpy(record, art_records[id], CARD_TITLE_PIXELS);
+    if (art_parts[id] & ART_PICTURE) patch(record, art_records[id], CARD_TITLE_PIXELS);
+    /* The plate is not reported: it sits in the middle of the sector that
+     * also ends the base's palette, and a write inside a delivery drops all
+     * of it (texture_dump.c, forget), so a copy with only a name of its own
+     * would lose the base's pack picture. The words of a plate that match
+     * the base's are the same inks, so its pack picture there is no harm. */
     if (plates[id]) memcpy(record + CARD_TITLE_PIXELS, plates[id], CARD_TITLE_BYTES);
     if (art_parts[id] & ART_THUMBNAIL) {
-        memcpy(record + CARD_THUMB_PIXELS, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
+        patch(record + CARD_THUMB_PIXELS, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
     }
 }
 
 void Cards_PatchThumbnail(int id, unsigned char *block)
 {
     if (Cards_Valid(id) && (art_parts[id] & ART_THUMBNAIL)) {
-        memcpy(block, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
+        patch(block, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
     }
 }
 
