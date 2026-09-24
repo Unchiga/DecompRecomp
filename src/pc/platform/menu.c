@@ -75,7 +75,7 @@ enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, ACT_GIVE_CARDS,
     ACT_MODS, ACT_CONTROLS, ACT_RELOAD_SETTINGS, ACT_PAUSE, ACT_FRAME_STEP, ACT_DUMP_FRAME, ACT_DUMP_VRAM,
     SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, CHECK_MUTE,
-    CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT,
+    CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT, ACT_UNLOCK_FREE_DUELISTS,
     CHECK_TRACE = 300  /* value is a LogChannel */
 };
 
@@ -160,7 +160,8 @@ static Menu submenus[SUB_COUNT] = {
                     {"144", 0, ITEM_RADIO, 0, SET_FPS, 144},
                     {"240", 0, ITEM_RADIO, 0, SET_FPS, 240},
                     {"Every game frame", 0, ITEM_RADIO, 0, SET_FPS, -1}}, 7},
-    {"Cheats", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1}}, 1},
+    {"Cheats", {{"Give 3 of every card", 0, ITEM_ACTION, ACT_GIVE_CARDS, -1},
+                {"Unlock all Free Duel CPU duelists", 0, ITEM_ACTION, ACT_UNLOCK_FREE_DUELISTS, -1}}, 2},
     {"Trace", {{"Frames", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_FRAMES},
                {"Disc", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_DISC},
                {"SPU", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_SPU},
@@ -910,6 +911,7 @@ static void activate(const Item *item, int *quit)
     case ACT_SCREENSHOT: Platform_Screenshot(0); break;
     case ACT_EXIT: *quit = 1; break;
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
+    case ACT_UNLOCK_FREE_DUELISTS: Cheats_UnlockAllFreeDuelists(); break;
     case ACT_RELOAD_SETTINGS:
         Menu_LoadSettings();
         Platform_ApplyDisplaySettings();

@@ -347,10 +347,15 @@ move, Enter activates, Esc closes (Esc quits only when no menu is open).
 | File | Save/load state, slots 1-4, screenshot, reload settings, exit |
 | Audio | Master/music/SFX sliders, mute and focus-loss mute, Gaussian (console) or cubic (sharper) voice interpolation (`audio_interpolation`) |
 | View | Window scale and Menu size submenus, window mode, scaling/aspect/filter/VSync choices |
-| Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card) |
+| Game | Game speed, Frame rate and Cheats submenus (Give 3 of every card; Unlock all Free Duel CPU duelists) |
 | Mods | opens the mods window, which lists every mod found in `mods/` beside the executable and in the user directory (`notes/modding.md`) |
 | Debug | HUD levels, pause/step, frame and VRAM dumps |
 | Trace | Live frames, disc, SPU, input and state log-channel switches |
+
+After starting or loading a game, **Game > Cheats > Unlock all Free Duel CPU
+duelists** unlocks the full CPU roster without changing story progress or
+win/loss records. If Free Duel is already open, leave and reopen it to refresh
+the portraits and selection grid. Save normally to keep the unlocks.
 
 `MEMORIES_TRACE_MENU=1` logs menu clicks and keys. The menu never reaches the pad:
 a click on the bar or in an open menu, and the wheel there, are the menu's.
