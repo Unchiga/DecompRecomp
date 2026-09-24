@@ -208,6 +208,16 @@ typedef enum {
     CTRL_BTN_DPAD_RIGHT,
     CTRL_BTN_MISC1,
     CTRL_BTN_MISC2,
+    /* Append tokens: existing numeric IDs and config names stay stable. */
+    CTRL_BTN_TOUCHPAD,
+    CTRL_BTN_RIGHT_PADDLE1,
+    CTRL_BTN_LEFT_PADDLE1,
+    CTRL_BTN_RIGHT_PADDLE2,
+    CTRL_BTN_LEFT_PADDLE2,
+    CTRL_BTN_MISC3,
+    CTRL_BTN_MISC4,
+    CTRL_BTN_MISC5,
+    CTRL_BTN_MISC6,
     CTRL_BTN_COUNT
 } CtrlButtonCode;
 #define CTRL_SRC_BUTTON_COUNT (CTRL_BTN_COUNT - 1)
@@ -341,6 +351,8 @@ const char *Controls_KeyName(CtrlKeyCode code);  /* canonical storage name */
 const char *Controls_KeyLabel(CtrlKeyCode code); /* current keyboard layout */
 void Controls_SetKeyLabel(int code, const char *label);
 const char *Controls_SourceName(const ControlSource *src);
+/* Display only; serialized bindings always use SourceName. */
+const char *Controls_SourceLabel(const ControlSource *src, CtrlIconStyle style);
 int Controls_SourceEquals(const ControlSource *a, const ControlSource *b);
 /* Profile-local identity used for conflict detection across the two slots. */
 uint32_t Controls_SourceIdentity(const ControlSource *src);

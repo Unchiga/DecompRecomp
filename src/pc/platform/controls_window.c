@@ -169,6 +169,15 @@ static ControlsProfile *profile(int create)
     return ui.tab ? ControlsRuntime_Profile(&ui.draft, ui.player, create) : &ui.draft.kb;
 }
 static int current_device(void) { return ControlsRuntime_Assigned(&ui.draft, ui.player); }
+static const char *source_label(const ControlSource *src)
+{
+    CtrlIconStyle style = *ControlsRuntime_Style(&ui.draft, ui.player, 0);
+    ControllerDevice *d = ControlsRuntime_Device(current_device());
+    if (style == CTRL_ICON_AUTOMATIC)
+        style = d ? d->style : CTRL_ICON_GENERIC;
+    return Controls_SourceLabel(src, style);
+}
+
 static void say(int kind, const char *s)
 {
     ui.say = kind;
@@ -1043,7 +1052,7 @@ static void draw_table(Rect r, uint16_t bits)
                   target ? accent : ui.hover == ROW + action * 2 + slot ? dim : edge);
             if (target && ui.capture.state)
                 box(cell.x + 1, cell.y + 1, cell.w - 2, cell.h - 2, accent);
-            text_clip(cell.x + 7, mid, bound ? Controls_SourceName(src) : "Unbound", cell.w - 14,
+            text_clip(cell.x + 7, mid, bound ? source_label(src) : "Unbound", cell.w - 14,
                       !bound ? faint : down ? on_held : text);
             hit(ROW + action * 2 + slot, cell);
         }
@@ -1145,7 +1154,7 @@ static void draw_modal(void)
     } else {
         int other = ui.capture.conflict_dest;
         snprintf(body, sizeof(body), "%s is already bound to %s. Move it to %s instead?",
-                 Controls_SourceName(&ui.capture.pending),
+                 source_label(&ui.capture.pending),
                  other >= 0 && other < CTRL_DEST_COUNT ? Controls_Actions[other].name : "another button",
                  Controls_Actions[ui.row].name);
         title = "Input already in use";
@@ -1332,7 +1341,7 @@ void ControlsWindow_Draw(MenuCanvas *c)
     const ControlSource *src = &profile(0)->src[ui.row][ui.slot];
     snprintf(line, sizeof(line), "%s / %s%s: %s", action_group(ui.row), Controls_Actions[ui.row].name,
              ui.tab ? (ui.slot ? " (alternate)" : " (main)") : "",
-             src->kind != CTRL_SRC_UNBOUND ? Controls_SourceName(src) : "Unbound");
+             src->kind != CTRL_SRC_UNBOUND ? source_label(src) : "Unbound");
     int rebind_w = button_w("Rebind"), clear_w = button_w("Clear");
     text_clip(PAD, action_y + BTN_H / 2, line, w - 2 * PAD - rebind_w - clear_w - 24, text);
     button(CLEAR, rect(w - PAD - rebind_w - 8 - clear_w, action_y, clear_w, BTN_H), "Clear",

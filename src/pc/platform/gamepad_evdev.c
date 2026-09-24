@@ -76,13 +76,19 @@ static void synchronize(int i)
         s->hat_down |= hat.value < 0 ? 8 : hat.value > 0 ? 2 : 0;
     if (ioctl(p->fd, EVIOCGABS(ABS_HAT0Y), &hat) == 0)
         s->hat_down |= hat.value < 0 ? 1 : hat.value > 0 ? 4 : 0;
-    for (int a = 0; a < 6; a++)
-        if (ioctl(p->fd, EVIOCGABS(axis_codes[a]), &p->axes[a]) == 0) {
+    for (int a = 0; a < 6; a++) {
+        int ok = ioctl(p->fd, EVIOCGABS(axis_codes[a]), &p->axes[a]) == 0;
+        /* The kernel gamepad convention uses HAT2Y/HAT2X for lower triggers;
+         * xpad and hid-playstation use Z/RZ. Prefer the existing mapping. */
+        if (!ok && a >= 4)
+            ok = ioctl(p->fd, EVIOCGABS(a == 4 ? ABS_HAT2Y : ABS_HAT2X), &p->axes[a]) == 0;
+        if (ok) {
             if (a < 4)
                 s->axis[a + 1] = normalize(&p->axes[a], 0);
             else
                 s->trigger[a - 3] = normalize(&p->axes[a], 1);
         }
+    }
     if (has(keys, BTN_TL2))
         s->trigger[1] = 1;
     if (has(keys, BTN_TR2))

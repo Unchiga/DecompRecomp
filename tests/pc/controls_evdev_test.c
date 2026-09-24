@@ -11,7 +11,8 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
-static int event_code = -1, removed, south, right_trigger, stick, reads;
+static int standard_triggers;
+static int event_code = -1, removed, south, left_trigger, right_trigger, stick, reads;
 static int fake_ioctl(int fd, unsigned long request, ...)
 {
     va_list ap;
@@ -29,14 +30,16 @@ static int fake_ioctl(int fd, unsigned long request, ...)
     }
     int axis = (int)_IOC_NR(request) - (int)_IOC_NR(EVIOCGABS(0));
     if (axis >= 0 && axis <= ABS_MAX) {
+        if (standard_triggers && (axis == ABS_Z || axis == ABS_RZ))
+            return -1;
         struct input_absinfo *a = out;
         memset(a, 0, sizeof(*a));
         a->minimum = -32768;
         a->maximum = 32767;
-        if (axis == ABS_Z || axis == ABS_RZ) {
+        if (axis == ABS_Z || axis == ABS_RZ || axis == ABS_HAT2Y || axis == ABS_HAT2X) {
             a->minimum = 0;
             a->maximum = 255;
-            a->value = axis == ABS_RZ ? right_trigger : 0;
+            a->value = (axis == ABS_RZ || axis == ABS_HAT2X) ? right_trigger : left_trigger;
         } else if (axis == ABS_HAT0X || axis == ABS_HAT0Y) {
             a->minimum = -1;
             a->maximum = 1;
@@ -128,6 +131,17 @@ int main(void)
     event_code = SYN_REPORT;
     Gamepad_Poll(1);
     assert(Gamepad_Bits(0) == CTRL_DEST_CROSS);
+    standard_triggers = 1;
+    south = 0;
+    right_trigger = 255;
+    event_code = SYN_REPORT;
+    Gamepad_Poll(1);
+    assert(Gamepad_Bits(0) == CTRL_DEST_R2);
+    left_trigger = 255;
+    right_trigger = 0;
+    event_code = SYN_REPORT;
+    Gamepad_Poll(1);
+    assert(Gamepad_Bits(0) == CTRL_DEST_L2);
     removed = 1;
     Gamepad_Poll(1);
     assert(!Gamepad_Bits(0));

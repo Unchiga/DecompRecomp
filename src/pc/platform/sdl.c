@@ -664,7 +664,8 @@ static void open_gamepad(SDL_JoystickID id)
             memset(d, 0, sizeof(*d));
             d->connected = 1;
             d->threshold = 1.0f / 3;
-            snprintf(d->name, sizeof(d->name), "%s", SDL_GetGamepadName(pads[i]));
+            const char *name = SDL_GetGamepadName(pads[i]);
+            snprintf(d->name, sizeof(d->name), "%s", name ? name : "Controller");
             const char *serial = SDL_GetGamepadSerial(pads[i]);
             if (!ControlsLinux_Identity(SDL_GetGamepadPath(pads[i]), d->identity, sizeof(d->identity))) {
                 snprintf(d->identity, sizeof(d->identity), "pad:%04x:%04x:%s", SDL_GetGamepadVendor(pads[i]),
@@ -712,7 +713,10 @@ void Gamepad_Poll(unsigned frame)
         SDL_GAMEPAD_BUTTON_GUIDE,SDL_GAMEPAD_BUTTON_START,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,
         SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,SDL_GAMEPAD_BUTTON_LEFT_STICK,SDL_GAMEPAD_BUTTON_RIGHT_STICK,
         SDL_GAMEPAD_BUTTON_DPAD_UP,SDL_GAMEPAD_BUTTON_DPAD_DOWN,SDL_GAMEPAD_BUTTON_DPAD_LEFT,
-        SDL_GAMEPAD_BUTTON_DPAD_RIGHT,SDL_GAMEPAD_BUTTON_MISC1,SDL_GAMEPAD_BUTTON_MISC2};
+        SDL_GAMEPAD_BUTTON_DPAD_RIGHT,SDL_GAMEPAD_BUTTON_MISC1,SDL_GAMEPAD_BUTTON_MISC2,
+        SDL_GAMEPAD_BUTTON_TOUCHPAD, SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1, SDL_GAMEPAD_BUTTON_LEFT_PADDLE1,
+        SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2, SDL_GAMEPAD_BUTTON_LEFT_PADDLE2,
+        SDL_GAMEPAD_BUTTON_MISC3, SDL_GAMEPAD_BUTTON_MISC4, SDL_GAMEPAD_BUTTON_MISC5, SDL_GAMEPAD_BUTTON_MISC6};
     uint64_t now=ControlsRuntime_Now();(void)frame;
     if(now-last_scan>=1000000){scan_gamepads();last_scan=now;}
     for(int i=0;i<CONTROLS_DEVICES;i++) if(pads[i]) {
