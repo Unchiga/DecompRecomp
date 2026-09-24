@@ -55,7 +55,7 @@
 #define ID_MAX 64
 #define NAME_MAX_ 96
 #define PATH_MAX_ 1024
-#define STATUS_MAX 160
+#define STATUS_MAX 512
 #define SECTOR 2048
 #define REGIONS_MAX 64
 #define PATCHES_MAX 1024
@@ -68,6 +68,7 @@ typedef struct {
     char directory[PATH_MAX_];
     char library[NAME_MAX_];     /* empty when the mod is data only */
     char status[STATUS_MAX];
+    char warnings[STATUS_MAX];   /* what the manifest got wrong: shown again whenever status is reset */
     const char *origin;          /* "shipped" or "installed", for the window */
     int restart;                 /* the manifest asks for a fresh process */
     int default_enabled;
@@ -86,6 +87,7 @@ typedef struct {
     const JsonValue *data;       /* the "data" array, applied when enabled */
     const JsonValue *cards;      /* the "cards" array: cards the mod adds (src/pc/cards) */
     char textures[PATH_MAX_];    /* a texture pack directory inside the mod, or empty */
+    const JsonValue *audio;      /* the "audio" object: replacement sounds (src/pc/audio/replace.h) */
 } Mod;
 
 /* One stretch of the disc a mod replaces, and one run of patched bytes
@@ -107,6 +109,7 @@ static Mod mods[MODS_MAX];
 static int mod_count;
 static unsigned activation_sequence;
 static int scanned;
+static int shut_down;   /* Mods_Shutdown has run: no mod code is called again */
 
 static Region regions[REGIONS_MAX];
 static int region_count;
@@ -143,6 +146,27 @@ static void note(Mod *mod, const char *format, ...)
     vsnprintf(mod->status, sizeof(mod->status), format, arguments);
     va_end(arguments);
     fprintf(stderr, "memories-pc: mod %s: %s\n", mod->id, mod->status);
+}
+
+/* Something the player should see that does not stop the mod: added to its
+ * status after whatever is there, so several warnings show together. With
+ * `lasting` it is also kept in `warnings`, which status goes back to when
+ * the mod is applied again (a manifest's problems do not go away). */
+static void warn(Mod *mod, int lasting, const char *format, ...)
+{
+    char message[STATUS_MAX];
+    va_list arguments;
+    size_t length;
+    va_start(arguments, format);
+    vsnprintf(message, sizeof(message), format, arguments);
+    va_end(arguments);
+    fprintf(stderr, "memories-pc: mod %s: warning: %s\n", mod->id, message);
+    length = strlen(mod->status);
+    snprintf(mod->status + length, sizeof(mod->status) - length, "%s%s", length ? "; " : "", message);
+    if (lasting) {
+        length = strlen(mod->warnings);
+        snprintf(mod->warnings + length, sizeof(mod->warnings) - length, "%s%s", length ? "; " : "", message);
+    }
 }
 
 /* --- settings -------------------------------------------------------- */
@@ -247,7 +271,9 @@ static void host_set_setting(const MemoriesModHost *host, const char *key, int v
 {
     Mod *mod = owner(host);
     char name[256];
-    if (!mod || !key || !*key || !setting_key(name, sizeof(name), mod->id, key)) return;
+    /* The same keys a declared setting may have: a mod cannot write its own
+     * load order, or a key the manager would refuse to show. */
+    if (!mod || !Mods_SettingKeyValid(key) || !setting_key(name, sizeof(name), mod->id, key)) return;
     Settings_SetNamed(name, value);
 }
 
@@ -392,6 +418,7 @@ static void drop_overrides(int mod)
 {
     int i, kept = 0;
     overrides_live = 0;   /* the drive model stops looking before anything goes */
+    __asm__ volatile("" ::: "memory");
     for (i = 0; i < region_count; i++) {
         if (regions[i].mod != mod) { regions[kept++] = regions[i]; continue; }
         if (regions[i].image) unmap_file(regions[i].image, regions[i].mapped);
@@ -486,7 +513,8 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
      * disc's own tables, so a replacement may fill the original's sectors
      * and no more: the sectors past them belong to the next file. */
     if ((size_t)info.st_size > (size_t)sectors * SECTOR) {
-        say("%s: %s is larger than the file it replaces; the tail is ignored", mod->id, replacement);
+        warn(mod, 0, "%s is larger than the file it replaces; only its first %lu bytes are used", replacement,
+             (unsigned long)sectors * SECTOR);
     }
     image = map_file(file, (size_t)info.st_size);
     close(file);
@@ -721,8 +749,10 @@ static int load_library(Mod *mod)
         note(mod, "refused to start");
         return 0;
     }
-    if (mod->hooks.api > MEMORIES_MOD_API) {
-        note(mod, "was built for mod API %u; this game has %u", mod->hooks.api, MEMORIES_MOD_API);
+    if (!mod->hooks.api || mod->hooks.api > MEMORIES_MOD_API) {
+        /* 0 is a mod that never said which table it filled in. */
+        if (!mod->hooks.api) note(mod, "MemoriesModInit did not set mod->api");
+        else note(mod, "was built for mod API %u; this game has %u", mod->hooks.api, MEMORIES_MOD_API);
         memset(&mod->hooks, 0, sizeof(mod->hooks));
         Mods_ClearHooks((int)(mod - mods));
         return 0;
@@ -733,6 +763,60 @@ static int load_library(Mod *mod)
     mod->initialized = 1;
     say("%s: loaded %s", mod->id, mod->library);
     return 1;
+}
+
+/* Every key a manifest's top level may have (here, in manager.c and in
+ * notes/modding.md and mod-api-3.md). Anything else is most likely a typo
+ * that would leave the mod doing nothing, so it is a warning, not an error. */
+static const char *const manifest_keys[] = {
+    "id", "name", "version", "author", "description", "library", "enabled", "restart", "legacy_setting",
+    "data", "textures", "cards", "audio", "min_api", "game", "requires", "after", "conflicts", "priority",
+    "settings",
+};
+
+/* How many letters to add, remove or change to turn one word into the
+ * other, for "did you mean": 99 for words too long to bother with. */
+static int distance(const char *a, const char *b)
+{
+    int row[33], i, j, length_a = (int)strlen(a), length_b = (int)strlen(b);
+    if (length_a > 32 || length_b > 32) return 99;
+    for (j = 0; j <= length_b; j++) row[j] = j;
+    for (i = 1; i <= length_a; i++) {
+        int diagonal = row[0];
+        row[0] = i;
+        for (j = 1; j <= length_b; j++) {
+            int above = row[j], best = diagonal + (tolower((unsigned char)a[i - 1]) != tolower((unsigned char)b[j - 1]));
+            if (above + 1 < best) best = above + 1;
+            if (row[j - 1] + 1 < best) best = row[j - 1] + 1;
+            diagonal = above;
+            row[j] = best;
+        }
+    }
+    return row[length_b];
+}
+
+static void check_keys(Mod *mod, const JsonValue *root)
+{
+    static const char *const booleans[] = {"enabled", "restart"};
+    const JsonValue *member;
+    unsigned i;
+    for (member = Json_At(root, 0); member; member = Json_Next(member)) {
+        const char *name = Json_Name(member), *closest = NULL;
+        int best = 3;   /* at most two letters off, to be a likely typo */
+        for (i = 0; i < sizeof(manifest_keys) / sizeof(manifest_keys[0]); i++) {
+            int apart;
+            if (!strcmp(name, manifest_keys[i])) break;
+            apart = distance(name, manifest_keys[i]);   /* letter case counts as no distance: "Name" */
+            if (apart < best) { best = apart; closest = manifest_keys[i]; }
+        }
+        if (i < sizeof(manifest_keys) / sizeof(manifest_keys[0])) continue;
+        if (closest) warn(mod, 1, "unknown key '%s' (did you mean '%s'?)", name, closest);
+        else warn(mod, 1, "unknown key '%s'", name);
+    }
+    for (i = 0; i < sizeof(booleans) / sizeof(booleans[0]); i++) {
+        const JsonValue *value = Json_Member(root, booleans[i]);
+        if (value && Json_TypeOf(value) != JSON_BOOL) warn(mod, 1, "\"%s\" should be true or false", booleans[i]);
+    }
 }
 
 /* mod.json, read into the record. Returns 0 when it is not a mod at all. */
@@ -795,6 +879,11 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         mod->broken = 1;
         note(mod, "\"data\" is not an array");
     }
+    mod->audio = Json_Member(root, "audio");
+    if (mod->audio && Json_TypeOf(mod->audio) != JSON_OBJECT) {
+        mod->broken = 1;
+        note(mod, "\"audio\" is not an object");
+    }
     mod->cards = Json_Member(root, "cards");
     if (mod->cards && Json_TypeOf(mod->cards) != JSON_ARRAY) {
         mod->broken = 1;
@@ -813,6 +902,7 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         if (setting_key(key, sizeof(key), mod->id, NULL)) fallback = Settings_GetNamed(key, fallback);
         mod->enabled = environment_choice(mod->id, fallback) != 0;
     }
+    check_keys(mod, root);
     return 1;
 }
 
@@ -830,6 +920,7 @@ static void scan(const char *root, const char *origin)
     char path[PATH_MAX_];
     char **names = NULL;
     int count = 0, room = 0, i;
+    unsigned char here[MODS_MAX] = {0};   /* the mods this directory has given so far */
     DIR *directory = opendir(root);
     struct dirent *entry;
     if (!directory) return;
@@ -859,13 +950,20 @@ static void scan(const char *root, const char *origin)
         if (snprintf(path, sizeof(path), "%s/%s", root, names[i]) >= (int)sizeof(path)) continue;
         if (!read_manifest(&candidate, path, origin)) continue;
         existing = by_id(candidate.id);
-        if (existing >= 0) {
+        if (existing >= 0 && here[existing]) {
+            /* Two folders of one directory with one id: the first, in the
+             * sorted order, is kept, whatever order the disk lists them. */
+            warn(&mods[existing], 1, "%s was left out: same id as %s", path, mods[existing].directory);
+            Json_Free(candidate.manifest);
+        } else if (existing >= 0) {
             /* The player's copy wins over the one the release ships. */
             say("%s in %s replaces the one in %s", candidate.id, path, mods[existing].directory);
             Json_Free(mods[existing].manifest);
             candidate.enabled = mods[existing].enabled;
             mods[existing] = candidate;
+            here[existing] = 1;
         } else if (mod_count < MODS_MAX) {
+            here[mod_count] = 1;
             mods[mod_count++] = candidate;
         } else {
             Json_Free(candidate.manifest);
@@ -877,13 +975,52 @@ static void scan(const char *root, const char *origin)
 }
 
 /* Turn a mod on or off for real: its library, its overrides, its hook. */
-static int (*texture_pack_load)(const char *directory);
+static int (*texture_pack_load)(const char *directory, unsigned rank, char *problems, size_t size);
 static void (*texture_pack_unload)(void);
+static unsigned texture_rank;   /* the highest rank a loaded pack has */
+static int (*audio_load)(int, const char *, const char *, const JsonValue *, char *, size_t);
+static void (*audio_unload)(int);
 
-void Mods_SetTexturePack(int (*load)(const char *directory), void (*unload)(void))
+void Mods_SetAudio(int (*load)(int mod, const char *id, const char *directory, const struct JsonValue *audio,
+                               char *error, size_t size),
+                   void (*unload)(int mod))
+{
+    audio_load = load;
+    audio_unload = unload;
+}
+
+void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
+                         void (*unload)(void))
 {
     texture_pack_load = load;
     texture_pack_unload = unload;
+}
+
+/* The texture packs of the active mods, with `with` about to be one and
+ * without `without`, in the mods' load order (Mods_Order): a pack's rank
+ * follows its place there, so where two packs read the same words the same
+ * way the later one wins, whichever the player applied first. A pack that
+ * comes last, as each does while the game starts, goes on top of those
+ * loaded; otherwise they are all loaded again. Returns what loading `with`
+ * returned, its problems in `problems`. */
+static int load_texture_packs(int with, int without, char *problems, size_t size)
+{
+    int wanted[MODS_MAX], order[MODS_MAX], i, n, loaded = with < 0;
+    char ignored[STATUS_MAX];
+    for (i = 0; i < mod_count; i++)
+        wanted[i] = i != without && mods[i].textures[0] && (mods[i].active || i == with);
+    n = Mods_Order(wanted, order, ignored, sizeof(ignored));
+    if (n < 0) for (n = 0; order[n] >= 0; n++) continue;   /* a cycle: the packs that could be placed */
+    if (with >= 0 && n > 0 && order[n - 1] == with) {
+        return texture_pack_load(mods[with].textures, ++texture_rank, problems, size);
+    }
+    texture_pack_unload();
+    texture_rank = 0;
+    for (i = 0; i < n; i++) {
+        int got = texture_pack_load(mods[order[i]].textures, ++texture_rank, order[i] == with ? problems : NULL, size);
+        if (order[i] == with) loaded = got;
+    }
+    return loaded;
 }
 
 static void activate(int index, int on)
@@ -902,22 +1039,27 @@ static void activate(int index, int on)
             mod->broken = 1;
             return;
         }
-        mod->status[0] = 0;
+        copy_text(mod->status, sizeof(mod->status), mod->warnings);
         if (!apply_overrides(mod, index)) { mod->failed = 1; return; }
         if (mod->textures[0]) {
-            if (!texture_pack_load || !texture_pack_load(mod->textures)) {
+            char problems[STATUS_MAX] = "";
+            if (!texture_pack_load || !texture_pack_unload || !load_texture_packs(index, -1, problems, sizeof(problems))) {
                 mod->failed = 1;
-                note(mod, "texture pack could not load");
+                note(mod, "texture pack could not load%s%s", problems[0] ? ": " : "", problems);
                 drop_overrides(index);
-                if (texture_pack_unload) {
-                    int other;
-                    texture_pack_unload();
-                    for (other = 0; other < mod_count; other++)
-                        if (mods[other].active && mods[other].textures[0] && texture_pack_load)
-                            texture_pack_load(mods[other].textures);
-                }
+                if (texture_pack_load && texture_pack_unload) load_texture_packs(-1, index, NULL, 0);
                 return;
             }
+            if (problems[0]) warn(mod, 0, "texture pack: %s", problems);
+        }
+        if (mod->audio) {
+            /* Replacement sounds are decoded now; one that will not decode
+             * is skipped with its reason beside the mod, and the rest play. */
+            char error[STATUS_MAX];
+            int added = audio_load ? audio_load(index, mod->id, mod->directory, mod->audio, error, sizeof(error)) : 0;
+            if (!audio_load) warn(mod, 0, "this build has no audio replacement");
+            else if (error[0]) warn(mod, 0, "%s", error);
+            if (added > 0) say("%s: %d sounds replaced", mod->id, added);
         }
         for (int option = 0; option < option_count; option++) mod->runtime_options[option] = Mods_OptionValue(index, option);
         mod->sequence = ++activation_sequence;
@@ -926,15 +1068,10 @@ static void activate(int index, int on)
         if (mod->hooks.applied) mod->hooks.applied(1);
     } else {
         drop_overrides(index);
-        if (mod->textures[0] && texture_pack_unload) {
+        if (mod->audio && audio_unload) audio_unload(index);
+        if (mod->textures[0] && texture_pack_load && texture_pack_unload) {
             /* The packs add up: the others' come back without this one's. */
-            int other;
-            texture_pack_unload();
-            for (other = 0; other < mod_count; other++) {
-                if (other != index && mods[other].active && mods[other].textures[0] && texture_pack_load) {
-                    texture_pack_load(mods[other].textures);
-                }
-            }
+            load_texture_packs(-1, index, NULL, 0);
         }
         mod->active = 0;
         if (mod->hooks.applied) mod->hooks.applied(0);
@@ -956,7 +1093,7 @@ void Mods_Load(void)
 {
     const char *all = getenv("MEMORIES_MODS");
     char path[PATH_MAX_];
-    int i, enabled[MODS_MAX], order[MODS_MAX], count;
+    int i, enabled[MODS_MAX], order[MODS_MAX], count, first = !scanned;
     char error[160];
     if (!scanned) {
         const char *named = getenv("MEMORIES_MODS_DIR");
@@ -995,9 +1132,17 @@ void Mods_Load(void)
         for (count = 0; order[count] >= 0; count++) placed[order[count]] = 1;
         for (i = 0; i < mod_count; i++) if (enabled[i] && !placed[i]) { note(&mods[i], "%s", error); enabled[i] = 0; }
     }
-    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i]) activate(i, 0);
+    /* After the first load (a settings reload) a mod that wants a restart is
+     * only recorded, as Mods_SetEnabled does, and a live one that requires
+     * it waits for the same restart. */
+    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
     for (i = 0; i < count; i++) {
         int current = order[i], j, active[MODS_MAX];
+        if (!first && mods[current].restart) continue;
+        if (!first && !mods[current].active && (j = Mods_WaitsForRestart(current, enabled)) >= 0) {
+            note(&mods[current], "waits for a restart: %s, which it requires, is applied at the next launch", mods[j].name);
+            continue;
+        }
         for (j = 0; j < mod_count; j++) active[j] = mods[j].active;
         active[current] = 1;
         if (!Mods_Compatible(current, active, error, sizeof(error))) { note(&mods[current], "%s", error); continue; }
@@ -1008,6 +1153,11 @@ void Mods_Load(void)
 void Mods_Shutdown(void)
 {
     int i;
+    /* Every mod's event callbacks go before any shutdown hook runs, and the
+     * frame and reset hooks stop: the process is on its way out, and a hook
+     * may free what the callbacks use. The caller stops the clock first. */
+    shut_down = 1;
+    for (i = 0; i < mod_count; i++) Mods_ClearHooks(i);
     for (i = 0; i < mod_count; i++) {
         if (mods[i].initialized && mods[i].hooks.shutdown) mods[i].hooks.shutdown();
     }
@@ -1034,9 +1184,26 @@ void Mods_SetEnabled(int mod, int enabled)
     if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
     if (mods[mod].enabled == enabled) return;
     mods[mod].enabled = enabled;
+    /* A mod that could not go in place (a replacement file missing, say) is
+     * tried again when the player next applies it; one that cannot load at
+     * all stays broken. */
+    if (!enabled) mods[mod].failed = 0;
     /* A mod that asks for a restart is only recorded here; the next launch
-     * is what puts it in place (the mods window offers the restart). */
-    if (!mods[mod].restart) activate(mod, enabled);
+     * is what puts it in place (the mods window offers the restart). So is
+     * a live one that requires a mod still waiting for that launch. */
+    if (mods[mod].restart) return;
+    if (enabled) {
+        int i, dep, wanted[MODS_MAX];
+        for (i = 0; i < mod_count; i++) wanted[i] = mods[i].enabled;
+        if ((dep = Mods_WaitsForRestart(mod, wanted)) >= 0) {
+            note(&mods[mod], "waits for a restart: %s, which it requires, is applied at the next launch", mods[dep].name);
+            return;
+        }
+    } else if (!mods[mod].active && !Mods_Failed(mod)) {
+        /* whatever it was waiting for, it no longer is */
+        copy_text(mods[mod].status, sizeof(mods[mod].status), mods[mod].warnings);
+    }
+    activate(mod, enabled);
 }
 
 void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const struct JsonValue *cards, void *context),
@@ -1073,6 +1240,7 @@ void Mods_Note(const char *id, const char *format, ...)
 void Mods_DrawFrame(void)
 {
     int i;
+    if (shut_down) return;
     for (i = 0; i < mod_count; i++) {
         if (mods[i].active && mods[i].initialized && mods[i].hooks.frame) mods[i].hooks.frame();
     }
@@ -1081,6 +1249,7 @@ void Mods_DrawFrame(void)
 void Mods_Reset(void)
 {
     int i;
+    if (shut_down) return;
     for (i = 0; i < mod_count; i++) {
         if (mods[i].active && mods[i].initialized && mods[i].hooks.reset) mods[i].hooks.reset();
     }

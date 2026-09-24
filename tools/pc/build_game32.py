@@ -322,7 +322,9 @@ def build_mods(build):
 
     The SDK goes beside the game too, so a release carries what a mod author
     builds against: modapi.h and the game's headers under sdk/include, the C
-    library a mod may use under sdk/include/libc, and build_mod.py."""
+    library a mod may use under sdk/include/libc, build_mod.py and the texture
+    pack tools under sdk/tools, the example mods under sdk/examples/mods and
+    the modding notes under sdk/notes."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import build_mod
     out_root = f"{build}/mods"
@@ -346,7 +348,8 @@ def build_mods(build):
             continue
         for stale in glob.glob(f"{out_dir}/*.so") + glob.glob(f"{out_dir}/*.dll"):
             os.remove(stale)   # native libraries from before mods were objects
-        copy_if_newer(obj, os.path.join(out_dir, os.path.basename(obj)))
+        # Where the manifest's "library" puts it, which may be a subdirectory.
+        copy_if_newer(obj, os.path.join(out_dir, os.path.relpath(obj, f"tmp/pc/mod-build/{name}")))
         built.append(name)
     if built:
         print(f"{out_root}: " + ", ".join(built))
@@ -367,6 +370,17 @@ def write_sdk(build):
             relative = os.path.join("libc", os.path.relpath(header, "src/pc/mods/sdk"))
         copy_if_newer(header, os.path.join(sdk, "include", relative))
     copy_if_newer("tools/pc/build_mod.py", f"{sdk}/tools/build_mod.py")
+    # What else a mod author needs beside the headers: the texture pack tools
+    # (the standard library only; upscale_pack.py also wants Pillow and
+    # Upscayl, which it asks for), the example mods, and the notes that
+    # describe all of it.
+    for name in ("extract_images.py", "upscale_pack.py"):
+        copy_if_newer(f"tools/pc/{name}", f"{sdk}/tools/{name}")
+    for path in glob.glob("examples/mods/**/*", recursive=True):
+        if os.path.isfile(path):
+            copy_if_newer(path, os.path.join(sdk, os.path.relpath(path)))
+    for name in ("modding.md", "mod-api-3.md", "more-cards.md"):
+        copy_if_newer(f"notes/{name}", f"{sdk}/notes/{name}")
     # What this game lends a mod, for build_mod.py's check beside the game.
     import build_mod
     with open(f"{sdk}/exports.txt", "w") as handle:

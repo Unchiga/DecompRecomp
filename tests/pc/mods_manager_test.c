@@ -21,6 +21,16 @@ static void replace(MemoriesModEvent *e)
     e->handled = 1;
     e->result = 17;
 }
+/* A texture pack loader that records what it is asked, in order. */
+static char pack_calls[512];
+static int fake_pack_load(const char *directory, unsigned rank, char *problems, size_t size)
+{
+    size_t length = strlen(pack_calls);
+    snprintf(pack_calls + length, sizeof(pack_calls) - length, "%s:%u ", strstr(directory, "/mods/") + 6, rank);
+    if (problems && size) snprintf(problems, size, "%s", strstr(directory, "pack-b") ? "1 image could not be read" : "");
+    return 1;
+}
+static void fake_pack_unload(void) { strcat(pack_calls, "unload "); }
 int main(void)
 {
     char path[1024], error[256];
@@ -47,6 +57,29 @@ int main(void)
     write_text("mods/cycle-a/mod.json", "{\"id\":\"cycle-a\",\"after\":[\"cycle-b\"]}");
     make_dir("mods/cycle-b");
     write_text("mods/cycle-b/mod.json", "{\"id\":\"cycle-b\",\"after\":[\"cycle-a\"]}");
+    /* A data mod, so applied at the next launch, and a live mod needing it. */
+    make_dir("mods/later");
+    write_text("mods/later/mod.json", "{\"id\":\"later\",\"data\":[{\"lba\":6000,\"patch\":[{\"at\":0,\"bytes\":\"11\"}]}]}");
+    make_dir("mods/needs-later");
+    write_text("mods/needs-later/mod.json", "{\"id\":\"needs-later\",\"requires\":[\"later\"]}");
+    /* Two folders of one directory with one id: the first, sorted, stays. */
+    make_dir("mods/dup-b");
+    write_text("mods/dup-b/mod.json", "{\"id\":\"dup\",\"name\":\"second\"}");
+    make_dir("mods/dup-a");
+    write_text("mods/dup-a/mod.json", "{\"id\":\"dup\",\"name\":\"first\"}");
+    /* A live data mod whose replacement file is missing until later. */
+    make_dir("mods/missing");
+    write_text("mods/missing/mod.json",
+               "{\"id\":\"missing\",\"restart\":false,\"data\":[{\"lba\":7000,\"sectors\":1,\"replace\":\"late.bin\"}]}");
+    /* Typos in a manifest: warned about, and the mod still loads. */
+    make_dir("mods/typo");
+    write_text("mods/typo/mod.json", "{\"id\":\"typo\",\"libary\":\"x\",\"Name\":\"T\",\"zzzzzz\":1,"
+                                     "\"enabled\":\"yes\",\"restart\":0,\"audio\":{}}");
+    /* Two texture packs; pack-a loads first (lower priority number). */
+    make_dir("mods/pack-a");
+    write_text("mods/pack-a/mod.json", "{\"id\":\"pack-a\",\"textures\":\"images\",\"priority\":-5}");
+    make_dir("mods/pack-b");
+    write_text("mods/pack-b/mod.json", "{\"id\":\"pack-b\",\"textures\":\"images\",\"priority\":5}");
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
@@ -56,6 +89,7 @@ int main(void)
     assert(!setenv("MEMORIES_SETTINGS", path, 1));
     assert(!setenv("MEMORIES_USER_DIR", root, 1));
     Settings_Load();
+    Mods_SetTexturePack(fake_pack_load, fake_pack_unload);
     Mods_Load();
     a = find("a");
     b = find("b");
@@ -64,6 +98,77 @@ int main(void)
     assert(Mods_Failed(partial) && !Mods_Active(partial));
     assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
     assert(Mods_Failed(find("invalid-schema")));
+    {
+        /* Texture packs load in the mods' order whichever is applied first:
+         * the later one ranks higher, and its problems show beside it. */
+        int pack_a = find("pack-a"), pack_b = find("pack-b");
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_b, 1);
+        assert(!strcmp(pack_calls, "pack-b/images:1 "));
+        assert(strstr(Mods_Status(pack_b), "texture pack: 1 image could not be read") && !Mods_Failed(pack_b));
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_a, 1);
+        assert(!strcmp(pack_calls, "unload pack-a/images:1 pack-b/images:2 "));
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_a, 0);
+        assert(!strcmp(pack_calls, "unload pack-b/images:1 "));
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_a, 1);   /* not last in the order: everything again */
+        assert(!strcmp(pack_calls, "unload pack-a/images:1 pack-b/images:2 "));
+        Mods_SetEnabled(pack_b, 0);
+        pack_calls[0] = 0;
+        Mods_SetEnabled(pack_b, 1);   /* last: on top of what is loaded */
+        assert(!strcmp(pack_calls, "pack-b/images:2 "));
+        Mods_SetEnabled(pack_a, 0);
+        Mods_SetEnabled(pack_b, 0);
+    }
+    {
+        int typo = find("typo");
+        const char *status = Mods_Status(typo);
+        assert(typo >= 0 && !Mods_Failed(typo));
+        assert(strstr(status, "unknown key 'libary' (did you mean 'library'?)"));
+        assert(strstr(status, "unknown key 'Name' (did you mean 'name'?)"));
+        assert(strstr(status, "unknown key 'zzzzzz'") && !strstr(status, "zzzzzz' (did"));
+        assert(strstr(status, "\"enabled\" should be true or false") && strstr(status, "\"restart\" should be"));
+        assert(!strstr(status, "audio"));
+    }
+    {
+        /* A failed mod is tried again once the player removes and reapplies
+         * it, and goes in place when what it lacked is there. */
+        int missing = find("missing"), wanted[MODS_MAX] = {0};
+        Mods_SetEnabled(missing, 1);
+        assert(Mods_Failed(missing) && !Mods_Active(missing) && strstr(Mods_Status(missing), "late.bin"));
+        wanted[missing] = 1;
+        assert(!Mods_Validate(wanted, error, sizeof(error)));
+        Mods_SetEnabled(missing, 0);
+        assert(!Mods_Failed(missing) && Mods_Validate(wanted, error, sizeof(error)));
+        write_text("mods/missing/late.bin", "late");
+        Mods_SetEnabled(missing, 1);
+        assert(!Mods_Failed(missing) && Mods_Active(missing));
+        memset(sector, 0xEE, sizeof(sector));
+        assert(Mods_DiscSector(7000, sector) && !memcmp(sector, "late", 4) && !sector[4]);
+        Mods_SetEnabled(missing, 0);
+        assert(!Mods_DiscSector(7000, sector));
+        /* A replacement bigger than what it replaces is cut, and says so. */
+        {
+            static char big[2050];
+            memset(big, 'x', sizeof(big) - 1);
+            write_text("mods/missing/late.bin", big);
+        }
+        Mods_SetEnabled(missing, 1);
+        assert(Mods_Active(missing) && !Mods_Failed(missing) && strstr(Mods_Status(missing), "larger than"));
+        Mods_SetEnabled(missing, 0);
+    }
+    {
+        int dup = find("dup"), copies = 0;
+        for (int i = 0; i < Mods_Count(); i++) copies += !strcmp(Mods_Id(i), "dup");
+        assert(dup >= 0 && copies == 1 && !strcmp(Mods_Name(dup), "first") && !Mods_Failed(dup));
+        assert(strstr(Mods_Status(dup), "dup-b was left out: same id as") && strstr(Mods_Status(dup), "dup-a"));
+        /* The warning outlasts applying the mod, which resets its status. */
+        Mods_SetEnabled(dup, 1);
+        assert(Mods_Active(dup) && strstr(Mods_Status(dup), "same id as"));
+        Mods_SetEnabled(dup, 0);
+    }
     assert(Mods_Failed(find("invalid-data")) && !Mods_Active(find("invalid-data")));
     enabled[find("cycle-a")] = enabled[find("cycle-b")] = enabled[a] = 1;
     assert(Mods_Order(enabled, order, error, sizeof(error)) < 0);
@@ -76,6 +181,10 @@ int main(void)
     assert(Mods_Validate(enabled, error, sizeof(error)));
     Settings_SetNamed("mod.b.order", -100);
     assert(Mods_Order(enabled, order, error, sizeof(error)) == 2 && order[0] == a && order[1] == b);
+    /* The keys a mod may write with host->set_setting, as a declared one. */
+    assert(Mods_SettingKeyValid("speed") && Mods_SettingKeyValid("turn_left-2"));
+    assert(!Mods_SettingKeyValid("order") && !Mods_SettingKeyValid("") && !Mods_SettingKeyValid(NULL));
+    assert(!Mods_SettingKeyValid("a.b") && !Mods_SettingKeyValid("a b") && !Mods_SettingKeyValid("x=1"));
     assert(!Mods_OptionSet(a, 0, 99));
     assert(Mods_OptionSet(a, 0, 7));
     assert(Mods_OptionValue(a, 0) == 7);
@@ -111,9 +220,47 @@ int main(void)
     call_count = 0;
     Mods_Dispatch(&event);
     assert(call_count == 0);
+
+    /* Reload settings records a restart-only mod without putting it in
+     * place, and a live mod requiring it waits for the same restart. */
+    {
+        int later = find("later"), needs = find("needs-later"), all[MODS_MAX] = {0};
+        assert(later >= 0 && needs >= 0 && Mods_RequiresRestart(later) && !Mods_RequiresRestart(needs));
+        Settings_SetNamed("mod.later", 1);
+        Mods_Load();
+        assert(Mods_Enabled(later) && !Mods_Active(later));
+        memset(sector, 0, sizeof(sector));
+        assert(!Mods_DiscSector(6000, sector) && sector[0] == 0);
+        all[later] = all[needs] = 1;
+        assert(Mods_Validate(all, error, sizeof(error)));
+        assert(Mods_WaitsForRestart(needs, all) == later);
+        Mods_SetEnabled(needs, 1);
+        assert(Mods_Enabled(needs) && !Mods_Active(needs) && strstr(Mods_Status(needs), "restart"));
+        Settings_SetNamed("mod.needs-later", 1);
+        Mods_Load();
+        assert(!Mods_Active(needs) && strstr(Mods_Status(needs), "restart"));
+        Mods_SetEnabled(needs, 0);
+        assert(!Mods_Status(needs)[0]);
+        Mods_SetEnabled(later, 0);
+        assert(!Mods_Active(later));
+        all[later] = 0;
+        assert(Mods_WaitsForRestart(needs, all) < 0);
+    }
     assert(!setenv("MEMORIES_SETTINGS", "/dev/null/settings", 1));
     enabled[b] = 1;
     assert(!Mods_Apply(enabled, error, sizeof(error)));
     assert(!Mods_Enabled(b));
+    /* Once the mods are shut down no event reaches them: VBlank input could
+     * otherwise call into a mod whose shutdown hook freed its memory. */
+    assert(Mods_Active(a) && Mods_Subscribe(a, MEMORIES_EVENT_DAMAGE, 0, low));
+    call_count = 0;
+    event.handled = 0;
+    event.phase = MEMORIES_BEFORE;
+    Mods_Dispatch(&event);
+    assert(call_count == 1);
+    Mods_Shutdown();
+    call_count = 0;
+    Mods_Dispatch(&event);
+    assert(call_count == 0);
     return 0;
 }

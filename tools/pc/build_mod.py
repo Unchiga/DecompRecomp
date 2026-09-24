@@ -114,13 +114,17 @@ def libc_names():
 
 
 def library_name(directory):
+    """The object's file name, relative to the mod's directory, by the game's
+    own rule (read_manifest in src/pc/mods/mods.c): "library" as written
+    when it has a '.' anywhere in it, else with ".o" added; the directory's
+    name when there is no "library"."""
     manifest = os.path.join(directory, "mod.json")
     name = None
     if os.path.exists(manifest):
         with open(manifest, encoding="utf-8") as handle:
             name = json.load(handle).get("library")
     name = name or os.path.basename(os.path.normpath(directory))
-    return name[:-2] if name.endswith(".o") else name
+    return name if "." in name else name + ".o"
 
 
 def compile_object(sources, output, objects_dir, extra_flags=()):
@@ -148,9 +152,9 @@ def build(directory, out_dir=None, objects_dir=None, extra_flags=(), games=GAME_
     name = library_name(directory)
     out_dir = out_dir or directory
     objects_dir = objects_dir or os.path.join(ROOT, "tmp/pc/mod-objects", name)
-    os.makedirs(out_dir, exist_ok=True)
+    output = os.path.join(out_dir, name)
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)   # "library": "sub/rules"
     os.makedirs(objects_dir, exist_ok=True)
-    output = os.path.join(out_dir, name + ".o")
     inputs = sources + glob.glob(os.path.join(directory, "*.h")) + [os.path.abspath(__file__)]
     inputs += glob.glob(os.path.join(SDK if SHIPPED else os.path.join(ROOT, "src"), "**/*.h"), recursive=True)
     if os.path.exists(output) and os.path.getmtime(output) >= max(os.path.getmtime(p) for p in inputs):

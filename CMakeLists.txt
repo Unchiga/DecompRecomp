@@ -101,6 +101,18 @@ if(BUILD_TESTING)
         target_compile_options(memories_mods_window_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_mods_window COMMAND memories_mods_window_test)
+    # Audio replacement: WAV/Ogg decoding, resampling, the "audio" manifest
+    # object and the mixer side. stb_vorbis is upstream's file, built as is.
+    add_executable(memories_audio_replace_test tests/pc/audio_replace_test.c src/pc/audio/replace.c
+        src/pc/audio/vorbis.c src/pc/mods/json.c src/pc/platform/paths.c)
+    target_include_directories(memories_audio_replace_test PRIVATE src)
+    target_compile_definitions(memories_audio_replace_test PRIVATE
+        AUDIO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/pc/audio_fixtures")
+    target_link_libraries(memories_audio_replace_test PRIVATE m)
+    if(NOT MSVC)
+        target_compile_options(memories_audio_replace_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME pc_audio_replace COMMAND memories_audio_replace_test)
     add_executable(memories_controls_test tests/pc/controls_test.c src/pc/platform/controls.c)
     target_include_directories(memories_controls_test PRIVATE src)
     if(NOT MSVC)
@@ -116,6 +128,10 @@ if(BUILD_TESTING)
     if(WIN32)
         set(memories_platform_support tests/pc/win32_support.c)
     endif()
+    # The audio replacement blocks the game clock while it swaps clips and
+    # naps while the mixer finishes one: the same two needs.
+    target_sources(memories_audio_replace_test PRIVATE ${memories_platform_support})
+    target_link_libraries(memories_audio_replace_test PRIVATE Threads::Threads)
     # controls_evdev_test.c drives the /dev/input reader, which is Linux only.
     set(memories_controls_parts config runtime window)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

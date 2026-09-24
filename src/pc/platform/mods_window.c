@@ -417,7 +417,10 @@ static int needs_restart(void)
         snprintf(key, sizeof(key), "mod.%s.order", Mods_Id(i));
         if (ranks[i] != Settings_GetNamed(key, num(Mods_Manifest(i), "priority", 0)))
             return 1;
-        if (wanted[i] != Mods_Enabled(i) && Mods_RequiresRestart(i))
+        /* A live mod whose requirement is applied at the next launch waits
+         * for that launch too (Mods_WaitsForRestart). */
+        if (wanted[i] != Mods_Enabled(i) &&
+            (Mods_RequiresRestart(i) || (wanted[i] && Mods_WaitsForRestart(i, wanted) >= 0)))
             return 1;
         for (int j = 0; j < counts[i]; j++)
             if (values[i][j] != Mods_OptionValue(i, j) &&

@@ -23,6 +23,8 @@ def main():
     os.environ["TMPDIR"] = str(OUT)
     fixture = OUT / "rejected.o"
     build_mod.compile_object(["tests/pc/mod_fixtures/rejected.c"], str(fixture), str(OUT / "obj"))
+    no_api = OUT / "no_api.o"
+    build_mod.compile_object(["tests/pc/mod_fixtures/no_api.c"], str(no_api), str(OUT / "obj-no-api"))
     for target in ("linux", "windows") if args.target == "both" else (args.target,):
         flags = ["-std=gnu11", "-Wall", "-Wextra", "-Isrc"]
         environment = dict(os.environ, TMPDIR=str(OUT))
@@ -39,7 +41,7 @@ def main():
                 launch = ["wine", str(program)]
                 environment.update(WINEPREFIX=str(ROOT / "tmp/pc/wine-prefix"), WINEDLLOVERRIDES="mscoree,mshtml=", WINEDEBUG="-all")
         subprocess.run(compile_cmd, check=True)
-        subprocess.run([*launch, str(fixture)], env=environment, check=True, timeout=60)
+        subprocess.run([*launch, str(fixture), str(no_api)], env=environment, check=True, timeout=60)
         print(f"mods lifecycle: {target} passed")
         if target == "linux":
             state_program = str(program) + "-state"

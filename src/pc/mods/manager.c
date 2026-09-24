@@ -70,6 +70,20 @@ int Mods_Compatible(int mod, const int *enabled, char *error, size_t size)
     }
     return 1;
 }
+static int waits_for_restart(int mod, const int *enabled, int depth)
+{
+    const JsonValue *list = member(mod, "requires"), *req;
+    if (depth > MODS_MAX)
+        return -1; /* a cycle, which Mods_Order reports */
+    for (req = Json_At(list, 0); req; req = Json_Next(req)) {
+        int dep = find(require_id(req));
+        if (dep >= 0 && enabled[dep] && !Mods_Active(dep) &&
+            (Mods_RequiresRestart(dep) || waits_for_restart(dep, enabled, depth + 1) >= 0))
+            return dep;
+    }
+    return -1;
+}
+int Mods_WaitsForRestart(int mod, const int *enabled) { return waits_for_restart(mod, enabled, 0); }
 int Mods_Order(const int *enabled, int *order, char *error, size_t size)
 {
     int done[MODS_MAX] = {0}, total = 0, wanted = 0, i;
@@ -179,6 +193,12 @@ int Mods_OptionValue(int mod, int option)
     return Mods_Setting(Mods_Id(mod), Json_String(Json_Member(spec, "key"), ""),
                         (int)Json_Number(Json_Member(spec, "default"), 0));
 }
+int Mods_SettingKeyValid(const char *key)
+{
+    /* "order" is the manager's own (mod.<id>.order, Mods_Order). */
+    return key && *key && strcmp(key, "order") &&
+           strspn(key, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") == strlen(key);
+}
 int Mods_OptionValid(int mod, int option, int value)
 {
     const JsonValue *spec = Mods_Option(mod, option);
@@ -197,9 +217,7 @@ int Mods_OptionValid(int mod, int option, int value)
         low = 0;
         high = 0xffff;
     }
-    if (!*key || !strcmp(key, "order") ||
-        strspn(key, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != strlen(key) || value < low ||
-        value > high || snprintf(setting, sizeof(setting), "mod.%s.%s", Mods_Id(mod), key) >= (int)sizeof(setting))
+    if (!Mods_SettingKeyValid(key) || value < low || value > high || snprintf(setting, sizeof(setting), "mod.%s.%s", Mods_Id(mod), key) >= (int)sizeof(setting))
         return 0;
     return 1;
 }
@@ -309,15 +327,15 @@ static unsigned hash_text(unsigned hash, const char *s)
 }
 static unsigned hash_json(unsigned hash, const JsonValue *value)
 {
-    int i;
+    const JsonValue *child;
     char number[40];
     hash = (hash ^ (unsigned)Json_TypeOf(value)) * 16777619u;
     hash = hash_text(hash, Json_Name(value) ? Json_Name(value) : "");
     hash = hash_text(hash, Json_String(value, ""));
     snprintf(number, sizeof(number), "%ld", Json_Number(value, Json_Bool(value, 0)));
     hash = hash_text(hash, number);
-    for (i = 0; i < Json_Count(value); i++)
-        hash = hash_json(hash, Json_At(value, i));
+    for (child = Json_At(value, 0); child; child = Json_Next(child))
+        hash = hash_json(hash, child);
     return hash;
 }
 static void hash_setting(const char *key, int value, void *context)
@@ -372,6 +390,31 @@ unsigned Mods_Signature(void)
     return hash ^ Mods_CardSignature();
 }
 
+/* An "audio" id as replace.c reads it: 0x-prefixed hexadecimal, else decimal. */
+static long audio_id(const char *text)
+{
+    char *end;
+    long value;
+    if (!text || !*text) return -1;
+    value = text[0] == '0' && (text[1] == 'x' || text[1] == 'X') ? strtol(text + 2, &end, 16) : strtol(text, &end, 10);
+    return *end ? -1 : value;
+}
+
+/* Whether two mods replace one sound: the one applied later is heard. */
+static int audio_overlap(int a, int b)
+{
+    static const char *const kinds[] = {"music", "xa", "sfx"};
+    for (int k = 0; k < 3; k++) {
+        const JsonValue *x = Json_Member(member(a, "audio"), kinds[k]), *y = Json_Member(member(b, "audio"), kinds[k]);
+        for (int i = 0; i < Json_Count(x); i++)
+            for (int j = 0; j < Json_Count(y); j++) {
+                long id = audio_id(Json_Name(Json_At(x, i)));
+                if (id >= 0 && id == audio_id(Json_Name(Json_At(y, j)))) return 1;
+            }
+    }
+    return 0;
+}
+
 int Mods_ConflictText(int mod, char *out, size_t size)
 {
     const JsonValue *data = member(mod, "data");
@@ -393,10 +436,15 @@ int Mods_ConflictText(int mod, char *out, size_t size)
                         return 1;
                     }
                 }
+            if (audio_overlap(mod, i)) {
+                snprintf(out, size, "Replaces some of the same sounds as %s; the mod applied later is heard.",
+                         Mods_Name(i));
+                return 1;
+            }
             if (*Mods_Metadata(mod, "textures") && *Mods_Metadata(i, "textures")) {
                 snprintf(out, size,
-                         "Multiple texture packs enabled. Overlapping images depend on "
-                         "load order; check the result in game.");
+                         "Multiple texture packs enabled. Where two replace the same "
+                         "image, the one later in load order is drawn.");
                 return 1;
             }
         }

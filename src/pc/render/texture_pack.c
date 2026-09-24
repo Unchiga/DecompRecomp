@@ -2,6 +2,7 @@
 #include "texture_dump.h"
 #include "soft_gpu.h"
 #include "pc/mods/json.h"
+#include "pc/platform/paths.h"
 #include "pc/compat/signal.h"
 #include <png.h>
 #include <stdio.h>
@@ -20,6 +21,8 @@ typedef struct Entry {
     int image_width, image_height;
     int failed;
     int absolute; /* offset and clut_offset are the disc's (resolve) */
+    unsigned rank; /* the pack's place in the mods' load order: a later pack's reading of the same words wins */
+    int position;  /* and the entry's in its manifest, so the order never rests on qsort's */
 } Entry;
 
 static Entry *entries;
@@ -78,7 +81,11 @@ static long archive_start(const char *name)
 }
 
 /* By offset, then geometry, depth and palette: readings of the same words
- * end up adjacent, whatever packs they came from and in whatever order. */
+ * end up adjacent, whatever packs they came from and in whatever order.
+ * The same reading from two packs goes the later pack first, since the first
+ * of a run is the one drawn (head_of, prepare); last, the manifest's own
+ * order. No two entries compare equal, so glibc's qsort and the Windows
+ * CRT's put them in the same order. */
 static int compare(const void *a, const void *b)
 {
     const Entry *x = a, *y = b;
@@ -87,7 +94,9 @@ static int compare(const void *a, const void *b)
     if (x->rows != y->rows) return x->rows < y->rows ? -1 : 1;
     if (x->stride != y->stride) return x->stride < y->stride ? -1 : 1;
     if (x->bpp != y->bpp) return x->bpp < y->bpp ? -1 : 1;
-    return x->clut_offset < y->clut_offset ? -1 : x->clut_offset > y->clut_offset;
+    if (x->clut_offset != y->clut_offset) return x->clut_offset < y->clut_offset ? -1 : 1;
+    if (x->rank != y->rank) return x->rank > y->rank ? -1 : 1;
+    return x->position < y->position ? -1 : x->position > y->position;
 }
 
 /* The PNG, as the texture's own grid of 15-bit colours: each texel takes
@@ -105,12 +114,14 @@ static int load_pixels(Entry *entry)
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
     if (!png_image_begin_read_from_file(&image, path)) {
+        fprintf(stderr, "memories-pc: texture pack: %s cannot be read: %s\n", path, image.message);
         entry->failed = 1;
         return 0;
     }
     image.format = PNG_FORMAT_RGBA;
     rgba = malloc(PNG_IMAGE_SIZE(image));
     if (!rgba || !png_image_finish_read(&image, NULL, rgba, 0, NULL)) {
+        fprintf(stderr, "memories-pc: texture pack: %s cannot be read: %s\n", path, rgba ? image.message : "out of memory");
         free(rgba);
         png_image_free(&image);
         entry->failed = 1;
@@ -118,6 +129,7 @@ static int load_pixels(Entry *entry)
     }
     entry->pixels = calloc((size_t)width * height, sizeof(uint16_t));
     if (!entry->pixels) {
+        fprintf(stderr, "memories-pc: texture pack: %s: out of memory\n", path);
         free(rgba);
         png_image_free(&image);
         entry->failed = 1;
@@ -394,18 +406,56 @@ static void free_entries(void)
     entry_count = 0;
 }
 
-int TexturePack_Load(const char *from)
+/* What was wrong with a pack's entries, kind by kind: how many, and the
+ * first one's file, for the one line the Mods window has room for. */
+typedef struct {
+    int count;
+    char first[64];
+} Problem;
+
+static void problem(Problem *kind, const char *file)
+{
+    if (!kind->count++) snprintf(kind->first, sizeof(kind->first), "%s", file ? file : "(no file)");
+}
+
+static void describe(char *out, size_t size, const Problem *kind, const char *one, const char *many)
+{
+    size_t length = strlen(out);
+    if (!kind->count || length >= size) return;
+    snprintf(out + length, size - length, "%s%d %s (first: %s)", length ? "; " : "", kind->count,
+             kind->count == 1 ? one : many, kind->first);
+}
+
+/* The images are read when the game first needs them, so at load a file is
+ * only checked to be there and to be a PNG: a problem shows as the pack is
+ * applied, not when a screen happens to want the picture. */
+static int is_png(const char *path)
+{
+    static const unsigned char signature[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    unsigned char start[8];
+    FILE *file = fopen(path, "rb");
+    int same;
+    if (!file) return 0;
+    same = fread(start, 1, sizeof(start), file) == sizeof(start) && !memcmp(start, signature, sizeof(start));
+    fclose(file);
+    return same;
+}
+
+int TexturePack_Load(const char *from, unsigned rank, char *problems, size_t problems_size)
 {
     char path[1200], error[256];
     JsonDocument *manifest;
-    const JsonValue *list;
-    int i, count, before = entry_count;
+    const JsonValue *list, *item;
+    int count, before = entry_count, position = 0, full = 0;
+    Problem unreadable = {0}, outside = {0}, measures = {0}, unaddressed = {0}, row_count = {0};
     Entry *more;
+    if (problems && problems_size) problems[0] = '\0';
     /* Packs add up: each enabled mod's joins the entries already loaded. */
     snprintf(path, sizeof(path), "%s/manifest.json", from);
     manifest = Json_ParseFile(path, error, sizeof(error));
     if (!manifest) {
         fprintf(stderr, "memories-pc: texture pack %s: %s\n", path, error);
+        if (problems && problems_size) snprintf(problems, problems_size, "manifest.json %s", error);
         return 0;
     }
     list = Json_Root(manifest);
@@ -415,14 +465,25 @@ int TexturePack_Load(const char *from)
         entries = more;
         memset(entries + entry_count, 0, (size_t)(count ? count : 1) * sizeof(*entries));
     }
-    for (i = 0; more && i < count; i++) {
-        const JsonValue *item = Json_At(list, i), *rows = Json_Member(item, "row_offsets");
+    /* Walked in one pass: a pack can list tens of thousands of images. */
+    for (item = more ? Json_At(list, 0) : NULL; item; item = Json_Next(item), position++) {
+        const JsonValue *rows = Json_Member(item, "row_offsets"), *row;
         const char *file = Json_String(Json_Member(item, "file"), NULL);
         const char *archive = Json_String(Json_Member(item, "archive"), NULL);
         Entry *entry = &entries[entry_count];
         double offset, clut_offset, words, rows_count, bpp, stride, crop_left, crop_width;
-        if (!file || !archive || strlen(archive) >= sizeof(entry->archive)) continue; /* not addressed on the disc */
-        if (entry_count >= 65535) break; /* entry_of holds index + 1 in 16 bits */
+        if (!file || !archive || strlen(archive) >= sizeof(entry->archive)) { /* not addressed on the disc */
+            problem(&unaddressed, file);
+            continue;
+        }
+        if (!Paths_Contained(file)) { /* "../../x.png" would reach past the mod */
+            problem(&outside, file);
+            continue;
+        }
+        if (entry_count >= 65535) { /* entry_of holds index + 1 in 16 bits */
+            full = 1;
+            break;
+        }
         offset = Json_Number(Json_Member(item, "offset"), -1);
         words = Json_Number(Json_Member(item, "words"), 0);
         rows_count = Json_Number(Json_Member(item, "rows"), 0);
@@ -436,12 +497,17 @@ int TexturePack_Load(const char *from)
             !(words >= 1 && words <= SOFT_GPU_WIDTH) || !(rows_count >= 1 && rows_count <= SOFT_GPU_HEIGHT) ||
             (bpp != 4 && bpp != 8 && bpp != 16) || !(stride >= 1 && stride <= 1e6) ||
             !(crop_left >= 0 && crop_left < words * per_word((int)bpp))) {
-            fprintf(stderr, "memories-pc: texture pack %s: %s has measures out of range; skipped\n", from, file);
+            problem(&measures, file);
             continue;
         }
         crop_width = Json_Number(Json_Member(item, "width"), words * per_word((int)bpp) - crop_left);
         if (!(crop_width >= 1 && crop_left + crop_width <= words * per_word((int)bpp))) {
-            fprintf(stderr, "memories-pc: texture pack %s: %s has measures out of range; skipped\n", from, file);
+            problem(&measures, file);
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s", from, file);
+        if (!is_png(path)) {
+            problem(&unreadable, file);
             continue;
         }
         strcpy(entry->archive, archive);
@@ -454,24 +520,52 @@ int TexturePack_Load(const char *from)
         entry->stride = (uint32_t)stride;
         entry->crop_left = (int)crop_left;
         entry->crop_width = (int)crop_width;
-        if (rows && Json_Count(rows) == entry->rows) {
+        entry->rank = rank;
+        entry->position = position;
+        if (rows && Json_TypeOf(rows) != JSON_NULL && Json_Count(rows) != entry->rows) {
+            problem(&row_count, file); /* read with the stride instead, which may well be wrong */
+        } else if (rows && Json_Count(rows) == entry->rows) {
             int r;
             entry->row_offsets = malloc(sizeof(int32_t) * (size_t)entry->rows);
-            for (r = 0; entry->row_offsets && r < entry->rows; r++) {
-                entry->row_offsets[r] = (int32_t)Json_Number(Json_At(rows, r), 0);
+            for (r = 0, row = Json_At(rows, 0); entry->row_offsets && row; r++, row = Json_Next(row)) {
+                entry->row_offsets[r] = (int32_t)Json_Number(row, 0);
             }
             entry->stride = 0;
         }
         if (entry->words <= 0 || entry->rows <= 0 || entry->rows > 512 || (!entry->stride && !entry->row_offsets)) {
             free(entry->row_offsets);
             entry->row_offsets = NULL;
+            problem(&measures, file);
             continue;
         }
         entry->file = malloc(strlen(from) + strlen(file) + 2); /* the whole path: packs from several directories add up */
-        if (entry->file) sprintf(entry->file, "%s/%s", from, file);
+        if (!entry->file) {
+            free(entry->row_offsets);
+            entry->row_offsets = NULL;
+            problem(&unreadable, file);
+            continue;
+        }
+        sprintf(entry->file, "%s/%s", from, file);
         entry_count++;
     }
     Json_Free(manifest);
+    if (problems && problems_size) {
+        describe(problems, problems_size, &unreadable, "image could not be read", "images could not be read");
+        describe(problems, problems_size, &outside, "image is outside the pack", "images are outside the pack");
+        describe(problems, problems_size, &measures, "image has measures out of range",
+                 "images have measures out of range");
+        describe(problems, problems_size, &row_count, "image's row_offsets do not match its rows",
+                 "images' row_offsets do not match their rows");
+        describe(problems, problems_size, &unaddressed, "image names no file or archive",
+                 "images name no file or archive");
+        if (full) {
+            size_t length = strlen(problems);
+            if (length < problems_size)
+                snprintf(problems + length, problems_size - length, "%sonly 65535 images fit; the rest were left out",
+                         length ? "; " : "");
+        }
+        if (*problems) fprintf(stderr, "memories-pc: texture pack %s: %s\n", from, problems);
+    }
     if (entry_count == before) {
         fprintf(stderr, "memories-pc: texture pack %s: no image is addressed on the disc\n", from);
         if (!entry_count) free_entries();

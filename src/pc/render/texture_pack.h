@@ -9,9 +9,15 @@
  * samples the shadow instead of VRAM. A pack image may be any size: it is
  * resampled to the texture's own size for the console's resolution, and
  * sampled at its own for an internal resolution above it. Packs add up; a
- * mod names its pack with "textures" in its manifest (src/pc/mods).
- * Returns the number of images indexed. */
-int TexturePack_Load(const char *directory);
+ * mod names its pack with "textures" in its manifest (src/pc/mods). `rank`
+ * is the pack's place in the mods' load order: where two packs read the
+ * same words the same way, the higher rank's image is the one drawn.
+ * Returns the number of images indexed, and writes into `problems` (may be
+ * NULL) a line on the entries that were left out and why, for the Mods
+ * window: a file missing or not a PNG, outside the pack, measures out of
+ * range. */
+#include <stddef.h>
+int TexturePack_Load(const char *directory, unsigned rank, char *problems, size_t problems_size);
 void TexturePack_Unload(void);
 /* Once a frame, on the main thread: reads what uploads asked for (an
  * upload can come from the interrupt tick, where reading is not safe). */

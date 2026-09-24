@@ -8,6 +8,9 @@
 #include "sound_effect_voices.h"
 #include "sound_voice_constants.h"
 #include "sound_voice_allocator.h"
+#ifdef MEMORIES_PC
+#include "pc/audio/replace.h"
+#endif
 
 void func_800482B0(s32 id, s16 pitch, u8 volume, s16 pan, u32 mode, u8 value)
 {
@@ -30,6 +33,11 @@ void func_800482B0(s32 id, s16 pitch, u8 volume, s16 pan, u32 mode, u8 value)
         func_800451E0(sound_id, 0);
         return;
     }
+#ifdef MEMORIES_PC
+    /* A mod's sound plays on the host instead; no voice is taken. */
+    if (AudioReplace_Sfx(sound_id, volume, pan))
+        return;
+#endif
 
     found = 0;
     if ((mode & 0xF) != 0) {

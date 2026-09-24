@@ -10,13 +10,22 @@
 #define MODS_MAX 256
 #include <stddef.h>
 #include "mod_types.h"
+struct JsonValue;
 
 /* Find every mod and apply the ones the settings say are applied. Safe to
  * call again (settings reload): the directories are only scanned once. */
 void Mods_Load(void);
 /* The texture pack loader a "textures" mod goes through (src/pc/render/texture_pack.h);
  * without one, such a mod notes that this build has no texture packs. */
-void Mods_SetTexturePack(int (*load)(const char *directory), void (*unload)(void));
+void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
+                         void (*unload)(void));
+/* The audio replacement an "audio" mod goes through (src/pc/audio/replace.h):
+ * `load` decodes a mod's files and returns how many it added, or -1 when the
+ * object is malformed, with the first failure in `error`; `unload` drops
+ * them. Without one, such a mod notes that this build has no audio. */
+void Mods_SetAudio(int (*load)(int mod, const char *id, const char *directory, const struct JsonValue *audio,
+                               char *error, size_t size),
+                   void (*unload)(int mod));
 void Mods_Shutdown(void);
 
 int Mods_Count(void);
@@ -76,6 +85,9 @@ int Mods_OptionCount(int mod);
 const struct JsonValue *Mods_Option(int mod, int option);
 int Mods_OptionValue(int mod, int option);
 int Mods_OptionValid(int mod, int option, int value);
+/* A key a mod's settings may use (mod.<id>.<key>): letters, digits, '_' and
+ * '-', and not one the manager keeps for itself ("order"). */
+int Mods_SettingKeyValid(const char *key);
 int Mods_OptionSet(int mod, int option, int value);
 /* Validate the whole proposed set, before saving/changing anything. */
 int Mods_CheckManifest(int mod, char *error, size_t size);
@@ -83,6 +95,10 @@ int Mods_Compatible(int mod, const int *enabled, char *error, size_t size);
 /* The load order of the enabled mods, or -1 on a cycle; order[] then holds
  * the mods that could still be placed, ended by -1. */
 int Mods_Order(const int *enabled, int *order, char *error, size_t size);
+/* A mod whose requirement is in `enabled` but only goes in place at the next
+ * launch (it asks for a restart, or waits on one that does) cannot go live
+ * before it either: the requirement it waits on, or -1 when there is none. */
+int Mods_WaitsForRestart(int mod, const int *enabled);
 int Mods_ProfileValue(const char *name, const char *key, int fallback);
 int Mods_Validate(const int *enabled, char *error, size_t size);
 int Mods_Apply(const int *enabled, char *error, size_t size);
