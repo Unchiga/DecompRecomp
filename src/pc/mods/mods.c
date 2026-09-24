@@ -1130,7 +1130,9 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
          * (src/pc/text): both are read once, at startup. */
         static const char *const tables[] = {"fusions", "equips", "rituals", "drops", "decks", "text", "font"};
         for (size_t t = 0; t < sizeof(tables) / sizeof(tables[0]); t++) {
-            if (Json_Count(Json_Member(root, tables[t]))) mod->restart = 1;
+            const JsonValue *value = Json_Member(root, tables[t]);
+            /* "text": "text.txt" is one file named as a string. */
+            if (Json_Count(value) || *Json_String(value, "")) mod->restart = 1;
         }
     }
     {   /* The key this mod's choice was stored under before it was a mod. */
