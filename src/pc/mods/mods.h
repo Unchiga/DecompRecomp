@@ -77,6 +77,8 @@ int Mods_OptionSet(int mod, int option, int value);
 /* Validate the whole proposed set, before saving/changing anything. */
 int Mods_CheckManifest(int mod, char *error, size_t size);
 int Mods_Compatible(int mod, const int *enabled, char *error, size_t size);
+/* The load order of the enabled mods, or -1 on a cycle; order[] then holds
+ * the mods that could still be placed, ended by -1. */
 int Mods_Order(const int *enabled, int *order, char *error, size_t size);
 int Mods_ProfileValue(const char *name, const char *key, int fallback);
 int Mods_Validate(const int *enabled, char *error, size_t size);

@@ -63,6 +63,12 @@ int main(void)
         char key[200]; snprintf(key, sizeof(key), "mod.a_very_long_mod_id_that_used_to_exceed_the_old_key_limit.option_%d", i);
         assert(Settings_GetNamed(key, -1) == i);
     }
+    /* Names that could not read back as themselves are refused. */
+    Settings_SetNamed("mod.bad=name", 1);
+    Settings_SetNamed("mod.x\nvolume", 99);
+    assert(Settings_GetNamed("mod.bad=name", -1) == -1 && Settings_GetNamed("mod.x\nvolume", -1) == -1);
+    assert(Settings_Save()); Settings_Load();
+    assert(Settings_Get(SET_MASTER_VOLUME) != 99 && !contains(path, "bad="));
     unlink(path);
     assert(!setenv("MEMORIES_SETTINGS", "/dev/null/settings", 1));
     assert(!Settings_Save());

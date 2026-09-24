@@ -100,6 +100,18 @@ int main(void)
     assert(input(MENU_EVENT_KEY_DOWN, 0, 0, MENU_KEY_ENTER, NULL)); /* explicit discard */
     assert(Mods_Enabled(0));
     ModsWindow_Init();
+    click(50, 80); /* a focused search field does not hold the window open */
+    assert(ModsWindow_RequestClose());
+    ModsWindow_Init();
+    click(32, 160);
+    assert(!ModsWindow_RequestClose()); /* unsaved changes: asks first */
+    assert(ModsWindow_RequestClose());  /* the second close discards */
+    {
+        MenuEvent motion = {0};
+        motion.type = MENU_EVENT_MOTION;
+        assert(!ModsWindow_Redraws(&motion)); /* plain pointer motion draws nothing */
+    }
+    ModsWindow_Init();
     ModsWindow_Resize(720, 480);
     ModsWindow_Size(&w, &h);
     assert(w == 720 && h == 480);

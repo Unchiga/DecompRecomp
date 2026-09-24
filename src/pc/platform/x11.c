@@ -464,6 +464,8 @@ static const MenuEvent *translate(const XEvent *event)
             KeySym translated;
             int length = XLookupString((XKeyEvent *)&event->xkey, out.text, sizeof(out.text) - 1, &translated, NULL);
             if (length > 0) out.text[length] = 0;
+            for (int i = 0; i < length; i++) /* Delete and Ctrl+letter are not text */
+                if ((unsigned char)out.text[i] < 0x20 || out.text[i] == 0x7f) { out.text[0] = 0; break; }
         }
         break;
     }
@@ -475,6 +477,7 @@ static const MenuEvent *translate(const XEvent *event)
 static Window mods_window;
 static XImage *mods_image;
 static MenuCanvas mods_canvas;
+static int mods_dirty; /* drawn once after the events, not per event */
 static void close_mods(void)
 {
     if (mods_image) XDestroyImage(mods_image);
@@ -631,9 +634,12 @@ static void pump(void)
         if (mods_window && event.xany.window == mods_window) {
             MenuEvent input = *translate(&event);
             if (event.type == ConfigureNotify) resize_mods(event.xconfigure.width, event.xconfigure.height);
-            if (event.type == ClientMessage && (Atom)event.xclient.data.l[0] == close_atom) { input.type = MENU_EVENT_KEY_DOWN; input.key = MENU_KEY_ESCAPE; }
+            if (event.type == ClientMessage && (Atom)event.xclient.data.l[0] == close_atom) {
+                if (ModsWindow_RequestClose()) close_mods(); else mods_dirty = 1;
+                continue;
+            }
             if (ModsWindow_Event(&input)) close_mods();
-            else draw_mods();
+            else if (event.type == Expose || ModsWindow_Redraws(&input)) mods_dirty = 1;
             continue;
         }
         if (Menu_Event(translate(&event), &quit)) {
@@ -705,6 +711,8 @@ static void pump(void)
 
         }
     }
+    if (mods_window && mods_dirty) draw_mods();
+    mods_dirty = 0;
     Gamepad_Poll(current_frame);
     if(controls_window) {
         static uint64_t last_draw;ControlsWindow_Tick();

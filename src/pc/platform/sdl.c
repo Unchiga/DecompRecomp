@@ -99,6 +99,7 @@ static SDL_Window *mods_window;
 static SDL_Renderer *mods_renderer;
 static SDL_Texture *mods_texture;
 static MenuCanvas mods_canvas;
+static int mods_dirty; /* drawn once after the events, not per event */
 static void close_mods(void)
 {
     if (mods_texture) SDL_DestroyTexture(mods_texture);
@@ -1262,9 +1263,12 @@ static void pump(void)
         if(dispatch_controls(&event, &menu_event))continue;
         if (mods_window && SDL_GetWindowFromEvent(&event) == mods_window) {
             if (event.type == SDL_EVENT_WINDOW_RESIZED) resize_mods(event.window.data1, event.window.data2);
-            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) { menu_event.type = MENU_EVENT_KEY_DOWN; menu_event.key = MENU_KEY_ESCAPE; }
+            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                if (ModsWindow_RequestClose()) close_mods(); else mods_dirty = 1;
+                continue;
+            }
             if (ModsWindow_Event(&menu_event)) close_mods();
-            else draw_mods();
+            else if (ModsWindow_Redraws(&menu_event)) mods_dirty = 1;
             continue;
         }
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
@@ -1406,6 +1410,8 @@ static void pump(void)
         default: break;
         }
     }
+    if (mods_window && mods_dirty) draw_mods();
+    mods_dirty = 0;
     Gamepad_Poll(current_frame);
     if(controls_window) {
         static uint64_t last_draw;

@@ -731,7 +731,7 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
 {
     char path[1024], temporary[1040], line[512];
     unsigned kept[KEPT_SAVES];
-    int kept_count = 0, i, id, keep = 0, any = 0;
+    int kept_count = 0, i, id, keep = 0, any = 0, migrate = 0;
     FILE *in, *out;
     for (id = CARD_ID_END; id <= gCard_nCount; id++) {
         if (chest[id] || (seen && (seen[id >> 3] >> (id & 7)) & 1)) { any = 1; break; }
@@ -740,18 +740,18 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
     if (sidecar_path(path, sizeof(path), code)) return;
     in = fopen(path, "r");
     if (!in && !any) return;   /* nothing to say about a save without new cards */
-    /* Never overwrite an ambiguous legacy sidecar without explicit migration.
-     * The original remains available even if the player saves the retail game. */
+    /* Ambiguous legacy (numeric) lines are only translated with explicit
+     * migration; otherwise they are carried over unchanged while new progress
+     * is still saved. Either way the original is kept once as .legacy. */
     if (in) {
         int legacy = 0;
         while (fgets(line, sizeof(line), in)) {
             if (!strncmp(line, "chest ", 6) || !strncmp(line, "seen ", 5) || !strncmp(line, "deck ", 5)) legacy = 1;
         }
         rewind(in);
-        if (legacy && (!getenv("MEMORIES_MIGRATE_CARD_IDS") || strcmp(getenv("MEMORIES_MIGRATE_CARD_IDS"), "1"))) {
-            fprintf(stderr, "memories-pc: preserved legacy card sidecar %s pending identity migration\n", path);
-            fclose(in); return;
-        }
+        migrate = getenv("MEMORIES_MIGRATE_CARD_IDS") && !strcmp(getenv("MEMORIES_MIGRATE_CARD_IDS"), "1");
+        if (legacy && !migrate)
+            fprintf(stderr, "memories-pc: keeping legacy card sidecar lines in %s pending identity migration\n", path);
         if (legacy) {
             char backup[1040]; FILE *copy;
             snprintf(backup, sizeof(backup), "%s.legacy", path);
@@ -805,7 +805,8 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
         }
         if (keep) {
             int old_id, old_count, old_slot, old_base;
-            if (sscanf(line, "chest %d %d", &old_id, &old_count) == 2 && *Cards_Identity(old_id))
+            if (!migrate) fputs(line, out);
+            else if (sscanf(line, "chest %d %d", &old_id, &old_count) == 2 && *Cards_Identity(old_id))
                 fprintf(out, "chest2 %s %d\n", Cards_Identity(old_id), old_count);
             else if (sscanf(line, "seen %d", &old_id) == 1 && *Cards_Identity(old_id))
                 fprintf(out, "seen2 %s\n", Cards_Identity(old_id));

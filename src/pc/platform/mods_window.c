@@ -466,7 +466,8 @@ static void apply(void)
     for (int i = 0; i < Mods_Count(); i++) {
         char key[160];
         snprintf(key, sizeof(key), "mod.%s.order", Mods_Id(i));
-        Settings_SetNamed(key, ranks[i]);
+        if (ranks[i] != old_ranks[i]) /* untouched mods keep following their manifest */
+            Settings_SetNamed(key, ranks[i]);
         for (int j = 0; j < counts[i]; j++)
             Mods_OptionSet(i, j, values[i][j]);
     }
@@ -474,7 +475,8 @@ static void apply(void)
         for (int i = 0; i < Mods_Count(); i++) {
             char key[160];
             snprintf(key, sizeof(key), "mod.%s.order", Mods_Id(i));
-            Settings_SetNamed(key, old_ranks[i]);
+            if (ranks[i] != old_ranks[i])
+                Settings_SetNamed(key, old_ranks[i]);
             for (int j = 0; j < counts[i]; j++)
                 Mods_OptionSet(i, j, old_values[i][j]);
         }
@@ -506,6 +508,7 @@ static void select_step(int step)
     at = (at + step + n) % n;
     selected = shown(at);
     detail_scroll = 0;
+    slider_drag = -1; /* a held slider belonged to the previous mod */
     if (at < scroll)
         scroll = at;
     if (at >= scroll + rows())
@@ -556,13 +559,25 @@ static void slider_value(int option, int x)
         value = high;
     values[selected][option] = (int)value;
 }
+int ModsWindow_Redraws(const MenuEvent *e) { return e->type != MENU_EVENT_MOTION || slider_drag >= 0; }
+int ModsWindow_RequestClose(void)
+{
+    focus = 0;
+    slider_drag = -1;
+    if (pending == 2 || !changed())
+        return 1;
+    pending = 2;
+    snprintf(status, sizeof(status), "Discard your unsaved mod changes?");
+    return 0;
+}
 int ModsWindow_Event(const MenuEvent *e)
 {
     Layout l;
     layout(&l);
     if (e->type == MENU_EVENT_BUTTON_UP || e->type == MENU_EVENT_LEAVE)
         slider_drag = -1;
-    if (e->type == MENU_EVENT_MOTION && slider_drag >= 0 && selected >= 0 && !pending) {
+    if (e->type == MENU_EVENT_MOTION && slider_drag >= 0 && selected >= 0 && !pending && tab == 1 &&
+        slider_drag < counts[selected]) {
         slider_value(slider_drag, e->x);
         return 0;
     }
@@ -649,7 +664,7 @@ int ModsWindow_Event(const MenuEvent *e)
                 filter = (filter + 1) % 4;
                 scroll = 0;
             }
-            if (inside(l.list, e->x, e->y)) {
+            if (inside(l.list, e->x, e->y) && (e->y - l.list.y) / (58 * unit) < rows()) {
                 int mod = shown(scroll + (e->y - l.list.y) / (58 * unit));
                 if (mod >= 0) {
                     selected = mod;
@@ -697,7 +712,7 @@ int ModsWindow_Event(const MenuEvent *e)
                             values[selected][j] = num(Mods_Option(selected, j), "default", 0);
                     else if (inside(body, e->x, e->y) && e->y >= body.y + 44 * unit) {
                         int row = (e->y - body.y - 44 * unit) / (66 * unit), option = detail_scroll + row;
-                        if (option < counts[selected]) {
+                        if (row < max(1, (body.h - 44 * unit) / (66 * unit)) && option < counts[selected]) {
                             int y = (e->y - body.y - 44 * unit) % (66 * unit);
                             if (y >= 46 * unit && !strcmp(str(Mods_Option(selected, option), "type", "int"), "int")) {
                                 slider_drag = option;

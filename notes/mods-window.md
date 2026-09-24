@@ -14,7 +14,9 @@ texture overlap. Lower Order values load first, subject to dependencies.
 
 Changes are staged until **Apply changes**. Restart-only changes share one
 confirmation; restarting discards unsaved game progress. Close/Escape asks before
-discarding staged edits. A failed restart keeps the saved preferences for the
+discarding staged edits; the title-bar close button asks once, and a second
+click discards. Only settings edited in the window are written; an untouched
+mod's order keeps following its manifest `priority`. A failed restart keeps the saved preferences for the
 next launch. Active, inactive, pending, warning and error states are distinct.
 Changing a load-order value requires a restart. New directories are discovered
 on the next launch; native objects stay resident until exit.

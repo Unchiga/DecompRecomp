@@ -5,6 +5,7 @@
 #include "mods.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
+#include "pc/compat/posix.h" /* rename() that replaces, on Windows too */
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -98,6 +99,8 @@ int Mods_Order(const int *enabled, int *order, char *error, size_t size)
                 }
             }
         if (best < 0) {
+            /* order[] keeps the mods that could be placed, ended by -1. */
+            order[total] = -1;
             snprintf(error, size, "Dependency/load-order cycle: check requires and after");
             return -1;
         }
@@ -153,8 +156,14 @@ int Mods_Apply(const int *enabled, char *error, size_t size)
     for (i = 0; i < Mods_Count(); i++)
         if (enabled[i] && Mods_Failed(i)) {
             snprintf(error, size, "%s: %s", Mods_Name(i), Mods_Status(i));
-            for (int j = 0; j < Mods_Count(); j++)
-                Mods_SetEnabled(j, old[j]);
+            /* Back to the old set the way a launch builds it: everything off
+             * in reverse, then the old mods in dependency order. */
+            char ignored[128];
+            for (int j = Mods_Count() - 1; j >= 0; j--)
+                Mods_SetEnabled(j, 0);
+            n = Mods_Order(old, order, ignored, sizeof(ignored));
+            for (int j = 0; n >= 0 ? j < n : order[j] >= 0; j++)
+                Mods_SetEnabled(order[j], 1);
             if (!Settings_Save())
                 snprintf(error, size,
                          "Mod failed and preferences could not be restored; check settings before restarting");

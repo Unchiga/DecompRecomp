@@ -68,13 +68,17 @@ int main(void)
     ((unsigned short *)state)[0] = 723;
     Cards_SaveLoaded(state);
     assert(!gCard_abExtraChest[723] && ((unsigned short *)state)[0] == 1);
+    /* New progress is still saved beside the unmigrated legacy lines. */
+    gCard_abExtraChest[724] = 4;
     Cards_SaveWritten(state, 3);
     file = fopen(path, "r");
-    char text[256] = {0};
+    char text[1024] = {0};
     assert(file);
     fread(text, 1, sizeof(text) - 1, file);
     fclose(file);
     assert(strstr(text, "chest 723 9"));
+    assert(strstr(text, "chest2 alpha:dragon:1 4"));
+    gCard_abExtraChest[724] = 0;
     setenv("MEMORIES_MIGRATE_CARD_IDS", "1", 1);
     Cards_SaveLoaded(state);
     assert(gCard_abExtraChest[723] == 9);

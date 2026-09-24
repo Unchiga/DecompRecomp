@@ -119,6 +119,9 @@ static Named *find_named(const char *key, int make)
     }
     if (!make) return NULL;
     if (strlen(key) >= MAX_KEY) { named_error = 1; return NULL; }
+    /* A name must read back as itself: one line, split at the first '='. */
+    if (!*key || strpbrk(key, "=\r\n") || isspace((unsigned char)key[0]) || isspace((unsigned char)key[strlen(key) - 1]))
+        return NULL;
     if (named_count == named_capacity) {
         int capacity = named_capacity ? named_capacity * 2 : 128;
         Named *grown = realloc(named, (size_t)capacity * sizeof(*named));

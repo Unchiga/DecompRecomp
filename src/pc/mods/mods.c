@@ -979,8 +979,10 @@ void Mods_Load(void)
     }
     count = Mods_Order(enabled, order, error, sizeof(error));
     if (count < 0) {
-        for (i = 0; i < mod_count; i++) if (enabled[i]) note(&mods[i], "%s", error);
-        return;
+        /* Only the mods in the cycle, or waiting on it, stay off. */
+        int placed[MODS_MAX] = {0};
+        for (count = 0; order[count] >= 0; count++) placed[order[count]] = 1;
+        for (i = 0; i < mod_count; i++) if (enabled[i] && !placed[i]) { note(&mods[i], "%s", error); enabled[i] = 0; }
     }
     for (i = mod_count - 1; i >= 0; i--) if (!enabled[i]) activate(i, 0);
     for (i = 0; i < count; i++) {

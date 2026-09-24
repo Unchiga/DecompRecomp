@@ -65,9 +65,10 @@ int main(void)
     assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
     assert(Mods_Failed(find("invalid-schema")));
     assert(Mods_Failed(find("invalid-data")) && !Mods_Active(find("invalid-data")));
-    enabled[find("cycle-a")] = enabled[find("cycle-b")] = 1;
+    enabled[find("cycle-a")] = enabled[find("cycle-b")] = enabled[a] = 1;
     assert(Mods_Order(enabled, order, error, sizeof(error)) < 0);
-    enabled[find("cycle-a")] = enabled[find("cycle-b")] = 0;
+    assert(order[0] == a && order[1] == -1); /* the mods outside the cycle still load */
+    enabled[find("cycle-a")] = enabled[find("cycle-b")] = enabled[a] = 0;
     enabled[b] = 1;
     assert(!Mods_Validate(enabled, error, sizeof(error)));
     assert(strstr(error, "requires a"));
