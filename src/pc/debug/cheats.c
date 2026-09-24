@@ -28,6 +28,24 @@ void Cheats_GiveAllCards(int count)
     fprintf(stderr, "memories-pc: chest now holds %d of every card\n", count);
 }
 
+void Cheats_UnlockAllFreeDuelists(void)
+{
+    const SaveDataWorkspace *save = (const SaveDataWorkspace *)D_801D0000;
+    int opponent;
+    /* Before a game is started or loaded, this workspace is scratch. */
+    if (save->state.player_deck[0] == 0) {
+        fprintf(stderr, "memories-pc: start or load a game before unlocking Free Duel opponents\n");
+        return;
+    }
+    /* Match FreeDuel_Init's locked range. The other grid entries (including
+     * Master K) are already available; these flags do not mark story wins. */
+    for (opponent = FREE_DUEL_STORY_OPPONENT_FIRST_INDEX;
+         opponent < FREE_DUEL_STORY_OPPONENT_INDEX_END; opponent++) {
+        Library_UpdateCardUsedFlag(FREE_DUEL_UNLOCK_FLAG_BASE + opponent);
+    }
+    fprintf(stderr, "memories-pc: all CPU duelists unlocked; reopen Free Duel to refresh the roster, then save to keep them\n");
+}
+
 /* MEMORIES_DEBUG_DECK: the forty cards of the deck, as ids and ranges
  * ("723-762", "1,2,723"), repeated until the deck is full. */
 static void set_deck(const char *list)
