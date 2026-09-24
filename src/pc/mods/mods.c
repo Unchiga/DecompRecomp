@@ -1083,6 +1083,10 @@ void Mods_SetEnabled(int mod, int enabled)
     if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
     if (mods[mod].enabled == enabled) return;
     mods[mod].enabled = enabled;
+    /* A mod that could not go in place (a replacement file missing, say) is
+     * tried again when the player next applies it; one that cannot load at
+     * all stays broken. */
+    if (!enabled) mods[mod].failed = 0;
     /* A mod that asks for a restart is only recorded here; the next launch
      * is what puts it in place (the mods window offers the restart). So is
      * a live one that requires a mod still waiting for that launch. */

@@ -67,7 +67,10 @@ starting sector, or when several texture packs may overlap. These are potential
 conflicts, not a claim that arbitrary native code can be analyzed for conflicts.
 Data override preparation is atomic per mod: one invalid entry rolls back every
 prepared override from that mod. Warning text on a successfully active mod does
-not make it permanently impossible to re-enable.
+not make it permanently impossible to re-enable. A mod whose data could not be
+put in place (a replacement file missing, say) is tried again when the player
+removes it and applies it again; one whose manifest or code failed to load
+stays failed until the next launch.
 
 ## Gameplay hooks
 

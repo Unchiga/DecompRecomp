@@ -57,6 +57,10 @@ int main(void)
     write_text("mods/dup-b/mod.json", "{\"id\":\"dup\",\"name\":\"second\"}");
     make_dir("mods/dup-a");
     write_text("mods/dup-a/mod.json", "{\"id\":\"dup\",\"name\":\"first\"}");
+    /* A live data mod whose replacement file is missing until later. */
+    make_dir("mods/missing");
+    write_text("mods/missing/mod.json",
+               "{\"id\":\"missing\",\"restart\":false,\"data\":[{\"lba\":7000,\"sectors\":1,\"replace\":\"late.bin\"}]}");
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
@@ -74,6 +78,24 @@ int main(void)
     assert(Mods_Failed(partial) && !Mods_Active(partial));
     assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
     assert(Mods_Failed(find("invalid-schema")));
+    {
+        /* A failed mod is tried again once the player removes and reapplies
+         * it, and goes in place when what it lacked is there. */
+        int missing = find("missing"), wanted[MODS_MAX] = {0};
+        Mods_SetEnabled(missing, 1);
+        assert(Mods_Failed(missing) && !Mods_Active(missing) && strstr(Mods_Status(missing), "late.bin"));
+        wanted[missing] = 1;
+        assert(!Mods_Validate(wanted, error, sizeof(error)));
+        Mods_SetEnabled(missing, 0);
+        assert(!Mods_Failed(missing) && Mods_Validate(wanted, error, sizeof(error)));
+        write_text("mods/missing/late.bin", "late");
+        Mods_SetEnabled(missing, 1);
+        assert(!Mods_Failed(missing) && Mods_Active(missing));
+        memset(sector, 0xEE, sizeof(sector));
+        assert(Mods_DiscSector(7000, sector) && !memcmp(sector, "late", 4) && !sector[4]);
+        Mods_SetEnabled(missing, 0);
+        assert(!Mods_DiscSector(7000, sector));
+    }
     {
         int dup = find("dup"), copies = 0;
         for (int i = 0; i < Mods_Count(); i++) copies += !strcmp(Mods_Id(i), "dup");
