@@ -400,15 +400,16 @@ static int layout_disc_files(void)
     int order[REGIONS_MAX], next = -1;
     for (int i = 0; i < disc_file_count; i++) {
         DiscFile *file = &disc_files[i];
-        int maximum = file->retail_sectors;
-        file->size = file->retail_size;
+        int maximum = file->retail_sectors, sectors;
+        unsigned size = file->retail_size; /* readers never see a partial value */
         for (int j = 0; j < region_count; j++) if (regions[j].file == i) {
-            int sectors = (int)((regions[j].image_size + SECTOR - 1) / SECTOR);
+            sectors = (int)((regions[j].image_size + SECTOR - 1) / SECTOR);
             if (sectors > maximum) maximum = sectors;
-            file->size = (unsigned)regions[j].image_size;
+            size = (unsigned)regions[j].image_size;
         }
-        file->sectors = (int)(((size_t)file->size + SECTOR - 1) / SECTOR);
-        if (file->sectors < file->retail_sectors) file->sectors = file->retail_sectors;
+        sectors = (int)(((size_t)size + SECTOR - 1) / SECTOR);
+        file->size = size;
+        file->sectors = sectors < file->retail_sectors ? file->retail_sectors : sectors;
         if (!disc_layout_frozen) {
             file->lba = file->retail_lba;
             file->reserved = maximum > file->retail_sectors ? maximum : 0;
@@ -564,8 +565,13 @@ static void unmap_file(void *image, size_t size)
 
 static void drop_overrides(int mod)
 {
-    int i, kept = 0;
+    int i, kept = 0, owned = 0;
     mods[mod].data_prepared = 0;
+    /* Many failure paths call this for mods with no data. Unpublishing for
+     * them would briefly hide every relocated file from the drive. */
+    for (i = 0; i < region_count; i++) owned |= regions[i].mod == mod;
+    for (i = 0; i < patch_count; i++) owned |= patches[i].mod == mod;
+    if (!owned) return;
     overrides_live = 0;   /* the drive model stops looking before anything goes */
     __asm__ volatile("" ::: "memory");
     for (i = 0; i < region_count; i++) {
