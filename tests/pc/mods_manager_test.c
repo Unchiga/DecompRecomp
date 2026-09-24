@@ -146,5 +146,17 @@ int main(void)
     enabled[b] = 1;
     assert(!Mods_Apply(enabled, error, sizeof(error)));
     assert(!Mods_Enabled(b));
+    /* Once the mods are shut down no event reaches them: VBlank input could
+     * otherwise call into a mod whose shutdown hook freed its memory. */
+    assert(Mods_Active(a) && Mods_Subscribe(a, MEMORIES_EVENT_DAMAGE, 0, low));
+    call_count = 0;
+    event.handled = 0;
+    event.phase = MEMORIES_BEFORE;
+    Mods_Dispatch(&event);
+    assert(call_count == 1);
+    Mods_Shutdown();
+    call_count = 0;
+    Mods_Dispatch(&event);
+    assert(call_count == 0);
     return 0;
 }

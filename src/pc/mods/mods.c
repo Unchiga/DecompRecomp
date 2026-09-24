@@ -107,6 +107,7 @@ static Mod mods[MODS_MAX];
 static int mod_count;
 static unsigned activation_sequence;
 static int scanned;
+static int shut_down;   /* Mods_Shutdown has run: no mod code is called again */
 
 static Region regions[REGIONS_MAX];
 static int region_count;
@@ -1016,6 +1017,11 @@ void Mods_Load(void)
 void Mods_Shutdown(void)
 {
     int i;
+    /* Every mod's event callbacks go before any shutdown hook runs, and the
+     * frame and reset hooks stop: the process is on its way out, and a hook
+     * may free what the callbacks use. The caller stops the clock first. */
+    shut_down = 1;
+    for (i = 0; i < mod_count; i++) Mods_ClearHooks(i);
     for (i = 0; i < mod_count; i++) {
         if (mods[i].initialized && mods[i].hooks.shutdown) mods[i].hooks.shutdown();
     }
@@ -1093,6 +1099,7 @@ void Mods_Note(const char *id, const char *format, ...)
 void Mods_DrawFrame(void)
 {
     int i;
+    if (shut_down) return;
     for (i = 0; i < mod_count; i++) {
         if (mods[i].active && mods[i].initialized && mods[i].hooks.frame) mods[i].hooks.frame();
     }
@@ -1101,6 +1108,7 @@ void Mods_DrawFrame(void)
 void Mods_Reset(void)
 {
     int i;
+    if (shut_down) return;
     for (i = 0; i < mod_count; i++) {
         if (mods[i].active && mods[i].initialized && mods[i].hooks.reset) mods[i].hooks.reset();
     }

@@ -295,8 +295,10 @@ int Memories_VSync(int mode)
     }
     if (Platform_ShouldQuit()) {
         Monitor_Shared()->exiting = 1; /* a slow shutdown is not a freeze */
-        Mods_Shutdown(); /* mods get a word in before the process goes */
+        /* The clock first: VBlank can hand a mod an INPUT event, and after
+         * its shutdown hook the memory that callback uses may be gone. */
         Platform_StopTimers();
+        Mods_Shutdown(); /* mods get a word in before the process goes */
         exit(0);
     }
     clock_gettime(CLOCK_MONOTONIC, &service_left);
