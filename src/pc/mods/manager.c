@@ -70,6 +70,20 @@ int Mods_Compatible(int mod, const int *enabled, char *error, size_t size)
     }
     return 1;
 }
+static int waits_for_restart(int mod, const int *enabled, int depth)
+{
+    const JsonValue *list = member(mod, "requires"), *req;
+    if (depth > MODS_MAX)
+        return -1; /* a cycle, which Mods_Order reports */
+    for (req = Json_At(list, 0); req; req = Json_Next(req)) {
+        int dep = find(require_id(req));
+        if (dep >= 0 && enabled[dep] && !Mods_Active(dep) &&
+            (Mods_RequiresRestart(dep) || waits_for_restart(dep, enabled, depth + 1) >= 0))
+            return dep;
+    }
+    return -1;
+}
+int Mods_WaitsForRestart(int mod, const int *enabled) { return waits_for_restart(mod, enabled, 0); }
 int Mods_Order(const int *enabled, int *order, char *error, size_t size)
 {
     int done[MODS_MAX] = {0}, total = 0, wanted = 0, i;

@@ -205,13 +205,16 @@ int main(void)
     assert(Settings_Save());
     Settings_Load();
     assert(Settings_GetNamed("mod.patcher", 0) == 1 && !Settings_GetNamed("mod.replacer", 1));
-    /* A mod can be settled from the environment, for a test run, and a
-     * launch with the replacement removed leaves the disc alone entirely. */
+    /* A mod can be settled from the environment, for a test run. Loading
+     * the settings again (Reload settings) takes the live mod out at once,
+     * but the replacement, which asked for a restart, is only recorded as
+     * removed: it stays in place until the next launch. */
     assert(!setenv("MEMORIES_MOD_PATCHER", "0", 1));
     Mods_Load();
-    assert(!Mods_Enabled(patcher));
+    assert(!Mods_Enabled(patcher) && !Mods_Active(patcher));
+    assert(!Mods_Enabled(replacer) && Mods_Active(replacer));
     memset(sector, 0xEE, sizeof(sector));
-    assert(!Mods_DiscSector(CARD_LBA, sector) && sector[0] == 0xEE);
+    assert(Mods_DiscSector(CARD_LBA, sector) && sector[2047] == replacement[2047]);
 
     Mods_Shutdown();
     return 0;

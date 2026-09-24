@@ -956,7 +956,7 @@ void Mods_Load(void)
 {
     const char *all = getenv("MEMORIES_MODS");
     char path[PATH_MAX_];
-    int i, enabled[MODS_MAX], order[MODS_MAX], count;
+    int i, enabled[MODS_MAX], order[MODS_MAX], count, first = !scanned;
     char error[160];
     if (!scanned) {
         const char *named = getenv("MEMORIES_MODS_DIR");
@@ -995,9 +995,17 @@ void Mods_Load(void)
         for (count = 0; order[count] >= 0; count++) placed[order[count]] = 1;
         for (i = 0; i < mod_count; i++) if (enabled[i] && !placed[i]) { note(&mods[i], "%s", error); enabled[i] = 0; }
     }
-    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i]) activate(i, 0);
+    /* After the first load (a settings reload) a mod that wants a restart is
+     * only recorded, as Mods_SetEnabled does, and a live one that requires
+     * it waits for the same restart. */
+    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
     for (i = 0; i < count; i++) {
         int current = order[i], j, active[MODS_MAX];
+        if (!first && mods[current].restart) continue;
+        if (!first && !mods[current].active && (j = Mods_WaitsForRestart(current, enabled)) >= 0) {
+            note(&mods[current], "waits for a restart: %s, which it requires, is applied at the next launch", mods[j].name);
+            continue;
+        }
         for (j = 0; j < mod_count; j++) active[j] = mods[j].active;
         active[current] = 1;
         if (!Mods_Compatible(current, active, error, sizeof(error))) { note(&mods[current], "%s", error); continue; }
@@ -1035,8 +1043,20 @@ void Mods_SetEnabled(int mod, int enabled)
     if (mods[mod].enabled == enabled) return;
     mods[mod].enabled = enabled;
     /* A mod that asks for a restart is only recorded here; the next launch
-     * is what puts it in place (the mods window offers the restart). */
-    if (!mods[mod].restart) activate(mod, enabled);
+     * is what puts it in place (the mods window offers the restart). So is
+     * a live one that requires a mod still waiting for that launch. */
+    if (mods[mod].restart) return;
+    if (enabled) {
+        int i, dep, wanted[MODS_MAX];
+        for (i = 0; i < mod_count; i++) wanted[i] = mods[i].enabled;
+        if ((dep = Mods_WaitsForRestart(mod, wanted)) >= 0) {
+            note(&mods[mod], "waits for a restart: %s, which it requires, is applied at the next launch", mods[dep].name);
+            return;
+        }
+    } else if (!mods[mod].active && !Mods_Failed(mod)) {
+        mods[mod].status[0] = 0;   /* whatever it was waiting for, it no longer is */
+    }
+    activate(mod, enabled);
 }
 
 void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const struct JsonValue *cards, void *context),

@@ -47,6 +47,11 @@ int main(void)
     write_text("mods/cycle-a/mod.json", "{\"id\":\"cycle-a\",\"after\":[\"cycle-b\"]}");
     make_dir("mods/cycle-b");
     write_text("mods/cycle-b/mod.json", "{\"id\":\"cycle-b\",\"after\":[\"cycle-a\"]}");
+    /* A data mod, so applied at the next launch, and a live mod needing it. */
+    make_dir("mods/later");
+    write_text("mods/later/mod.json", "{\"id\":\"later\",\"data\":[{\"lba\":6000,\"patch\":[{\"at\":0,\"bytes\":\"11\"}]}]}");
+    make_dir("mods/needs-later");
+    write_text("mods/needs-later/mod.json", "{\"id\":\"needs-later\",\"requires\":[\"later\"]}");
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
@@ -111,6 +116,32 @@ int main(void)
     call_count = 0;
     Mods_Dispatch(&event);
     assert(call_count == 0);
+
+    /* Reload settings records a restart-only mod without putting it in
+     * place, and a live mod requiring it waits for the same restart. */
+    {
+        int later = find("later"), needs = find("needs-later"), all[MODS_MAX] = {0};
+        assert(later >= 0 && needs >= 0 && Mods_RequiresRestart(later) && !Mods_RequiresRestart(needs));
+        Settings_SetNamed("mod.later", 1);
+        Mods_Load();
+        assert(Mods_Enabled(later) && !Mods_Active(later));
+        memset(sector, 0, sizeof(sector));
+        assert(!Mods_DiscSector(6000, sector) && sector[0] == 0);
+        all[later] = all[needs] = 1;
+        assert(Mods_Validate(all, error, sizeof(error)));
+        assert(Mods_WaitsForRestart(needs, all) == later);
+        Mods_SetEnabled(needs, 1);
+        assert(Mods_Enabled(needs) && !Mods_Active(needs) && strstr(Mods_Status(needs), "restart"));
+        Settings_SetNamed("mod.needs-later", 1);
+        Mods_Load();
+        assert(!Mods_Active(needs) && strstr(Mods_Status(needs), "restart"));
+        Mods_SetEnabled(needs, 0);
+        assert(!Mods_Status(needs)[0]);
+        Mods_SetEnabled(later, 0);
+        assert(!Mods_Active(later));
+        all[later] = 0;
+        assert(Mods_WaitsForRestart(needs, all) < 0);
+    }
     assert(!setenv("MEMORIES_SETTINGS", "/dev/null/settings", 1));
     enabled[b] = 1;
     assert(!Mods_Apply(enabled, error, sizeof(error)));
