@@ -128,6 +128,10 @@ if(BUILD_TESTING)
     if(WIN32)
         set(memories_platform_support tests/pc/win32_support.c)
     endif()
+    # The audio replacement blocks the game clock while it swaps clips and
+    # naps while the mixer finishes one: the same two needs.
+    target_sources(memories_audio_replace_test PRIVATE ${memories_platform_support})
+    target_link_libraries(memories_audio_replace_test PRIVATE Threads::Threads)
     # controls_evdev_test.c drives the /dev/input reader, which is Linux only.
     set(memories_controls_parts config runtime window)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

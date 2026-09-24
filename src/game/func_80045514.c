@@ -14,7 +14,7 @@
 
 #ifdef MEMORIES_PC
 #include "pc/audio/replace.h"
-extern u8 D_800E9EC0[];
+#include "../unmatched.h"
 #endif
 
 void func_80045514(void)
