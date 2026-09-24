@@ -10,7 +10,7 @@ import build_win32_deps
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tmp/pc/mods-lifecycle"
-SOURCES = ["tests/pc/mods_lifecycle_test.c", "src/pc/mods/mods.c", "src/pc/mods/events.c",
+SOURCES = ["src/pc/compat/fs.c", "tests/pc/mods_lifecycle_test.c", "src/pc/mods/mods.c", "src/pc/mods/events.c",
            "src/pc/mods/manager.c", "src/pc/mods/mod_libc.c", "src/pc/mods/object_loader.c",
            "src/pc/mods/json.c", "src/pc/platform/settings.c", "src/pc/platform/paths.c"]
 

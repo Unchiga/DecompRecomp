@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include "texture_dump.h"
 #include "soft_gpu.h"
 #include <stdio.h>

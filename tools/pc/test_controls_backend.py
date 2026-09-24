@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCES = ["tests/pc/controls_backend_test.c"] + [
+SOURCES = ["src/pc/compat/fs.c", "tests/pc/controls_backend_test.c"] + [
     f"src/pc/platform/{name}.c" for name in
     ("controls", "controls_config", "controls_runtime", "controls_art",
      "controls_window", "controls_linux", "paths")]

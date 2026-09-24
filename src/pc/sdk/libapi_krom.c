@@ -14,6 +14,7 @@
 #include "pc/debug/log.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include "pc/compat/font.h"
 #ifdef _WIN32
 #include "pc/platform/win32.h"
 #include <windows.h>

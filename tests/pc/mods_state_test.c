@@ -1,4 +1,5 @@
 /* Exercise the actual save-state chunk reader and mod compatibility preflight. */
+#include "pc/compat/fs.h"
 #include "../../src/pc/guest/state.c"
 #include <assert.h>
 static unsigned test_signature = 12345, test_version = 1;

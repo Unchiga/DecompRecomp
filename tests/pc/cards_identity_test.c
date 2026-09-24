@@ -1,4 +1,5 @@
 /* Test save remapping independently of the retail data/image renderer. */
+#include "pc/compat/fs.h"
 #include "../../src/pc/cards/cards.c"
 #include "scratch.h"
 #include <assert.h>

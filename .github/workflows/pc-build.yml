@@ -16,7 +16,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev gcc-multilib lld
       - run: cmake -S . -B tmp/pc -DBUILD_TESTING=ON
       - run: cmake --build tmp/pc --config Release
-      - run: ctest --test-dir tmp/pc -C Release --output-on-failure
+      - run: python tools/pc/test_path_layout.py --build tmp/pc
       - run: cmake --build tmp/pc --target pc_audit
   # The Windows game is built with llvm-mingw for i686 (play.bat,
   # tools/pc/fetch_tools.py), so the tests are too: the same pinned release,
@@ -60,7 +60,7 @@ jobs:
           -DZLIB_LIBRARY=$PWD/tmp/pc/win32-deps/lib/libzs.a -DZLIB_INCLUDE_DIR=$PWD/tmp/pc/win32-deps/include
       - run: cmake --build tmp/pc/tests
       - run: python tools/pc/test_controls_backend.py --target windows --software
-      - run: ctest --test-dir tmp/pc/tests --output-on-failure
+      - run: python tools/pc/test_path_layout.py --build tmp/pc/tests
       - run: cmake --build tmp/pc/tests --target pc_audit
   sanitizers:
     runs-on: ubuntu-latest
@@ -69,4 +69,4 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libpng-dev gcc-multilib lld
       - run: cmake -S . -B tmp/pc -DMEMORIES_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
       - run: cmake --build tmp/pc
-      - run: ctest --test-dir tmp/pc --output-on-failure
+      - run: python tools/pc/test_path_layout.py --build tmp/pc

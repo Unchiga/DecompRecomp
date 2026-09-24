@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "pc/platform/controls_linux.h"
 #include <assert.h>
 #include <dirent.h>

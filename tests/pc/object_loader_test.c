@@ -6,6 +6,7 @@
  * The good object must load and run, reaching the host both ways. Every
  * broken one must fail with its own message. And the good object, damaged a
  * byte at a time, must never crash the loader: the file is untrusted. */
+#include "pc/compat/fs.h"
 #include "pc/mods/exports.h"
 #include "pc/mods/object_loader.h"
 #include <stdio.h>

@@ -1,5 +1,6 @@
 #ifndef __linux__
 /* Off Linux SDL identifies controllers itself: no evdev identity. */
+#include "pc/compat/fs.h"
 #include "controls_linux.h"
 int ControlsLinux_Identity(const char *path, char *identity, unsigned capacity)
 {

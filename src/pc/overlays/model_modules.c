@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

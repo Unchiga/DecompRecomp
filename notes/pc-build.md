@@ -42,6 +42,23 @@ executable, SLUS_014.11, is read out of the disc image
 (`src/pc/platform/game_files.c`); a path on the command line still names a
 separate copy.
 
+### Folder names
+
+Native paths, environment values and command-line arguments use UTF-8.
+On Windows, `src/pc/compat/fs.h` converts file operations to the wide Windows
+APIs, independent of the user's system code page. Include it (or `posix.h`)
+in native units that use filenames or environment variables. Library calls
+need the same care: PNGs are read from an already-open file, and FreeType
+faces from memory through `compat/font.h`.
+
+The PC test workflow runs with Unicode temporary directories and relocates
+an executable into a folder containing accents, combining characters, CJK,
+emoji, spaces and shell metacharacters. Its Windows check also runs
+`play.bat` through the embedded-Python fallback with delayed expansion
+initially enabled. Run it with `python tools/pc/test_path_layout.py --build
+<cmake-build-directory>` after building the tests. Existing path-length
+limits and the operating system's filename restrictions still apply.
+
 ## 32-bit game executable (bring-up)
 
 The user chose a 32-bit (ILP32) host build as the bring-up memory model on

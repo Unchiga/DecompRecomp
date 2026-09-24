@@ -15,6 +15,7 @@
  * that order is presentation only. Destination indices, the stored file and
  * every id below still use the wire-bit order of Controls_Actions.
  * Main thread only. */
+#include "pc/compat/fs.h"
 #include "controls_window.h"
 #include "controls_art.h"
 #include <stdio.h>

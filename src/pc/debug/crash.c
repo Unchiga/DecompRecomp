@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "crash.h"
 #include "log.h"
 #include "monitor.h"

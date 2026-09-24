@@ -18,7 +18,8 @@ leading underscore; sections cannot be placed at chosen addresses, so the
 fixed game sections (save states across rebuilds) are not available; the
 section renames edit the COFF headers directly (rename_coff_sections) and
 __start_/__stop_ come from grouped marker sections; overrides win by link order instead of weakened symbols."""
-import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struct, subprocess, sys, tempfile
+import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struct, subprocess, sys
+import build_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ELF = "tmp/project-build/SLUS_014.11.elf"
@@ -85,7 +86,7 @@ BACKENDS = {"sdl": ["src/pc/platform/sdl.c", "src/pc/render/gl_picture.c"],
 BACKEND_SOURCES = sorted(sum(BACKENDS.values(), []))
 NATIVE = sorted(glob.glob("src/pc/guest/*.[cS]") + glob.glob("src/pc/sdk/*.c") +
                 [f for f in glob.glob("src/pc/platform/*.c") if f not in BACKEND_SOURCES] + glob.glob("src/pc/overlays/*.c") + glob.glob("src/pc/overrides/*.c") + glob.glob("src/pc/audio/*.c") + glob.glob("src/pc/mods/*.c") + glob.glob("src/pc/debug/*.c") + glob.glob("src/pc/cards/*.c") + glob.glob("src/pc/saves/*.c") + ["src/pc/render/soft_gpu.c", "src/pc/render/texture_dump.c", "src/pc/render/texture_pack.c"]) + [
-    "src/pc/rng.c", "src/pc/compat/gte.c", "src/pc/compat/libgs_ot.c", "src/pc/render/packets.c"]
+    "src/pc/rng.c", "src/pc/compat/fs.c", "src/pc/compat/gte.c", "src/pc/compat/libgs_ot.c", "src/pc/render/packets.c"]
 # Same contract as the host C library, so the host's version is used directly.
 # Runtime-loaded modules linked into the executable: name, sources, identifier
 # word at the start of the image, and load bank. main_menu has its load address
@@ -118,22 +119,9 @@ def c_name(symbol):
     return symbol[1:] if symbol.startswith("_") else None
 
 def run(command):
-    response = None
-    if sum(len(word) + 1 for word in command) > 30000:
-        # Windows' command line holds 32 K, which the object lists reach.
-        # The llvm tools, gcc, clang and binutils all read @file arguments.
-        os.makedirs("tmp/pc", exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", dir="tmp/pc", suffix=".rsp", delete=False) as handle:
-            handle.writelines('"%s"\n' % word.replace("\\", "\\\\").replace('"', '\\"') for word in command[1:])
-            response = handle.name
-        shown, command = command, [command[0], "@" + response]
-    else:
-        shown = command
-    result = subprocess.run(command, capture_output=True, text=True)
-    if response:
-        os.remove(response)
+    result = build_process.run(command)
     if result.returncode:
-        sys.exit(f"{' '.join(shown[:6])} ...\n{result.stderr}")
+        sys.exit(f"{' '.join(command[:6])} ...\n{result.stderr}")
     return result.stdout
 
 def compile_unit(job):
@@ -369,7 +357,8 @@ def write_sdk(build):
         if relative.startswith(os.path.join("pc", "mods", "sdk")):
             relative = os.path.join("libc", os.path.relpath(header, "src/pc/mods/sdk"))
         copy_if_newer(header, os.path.join(sdk, "include", relative))
-    copy_if_newer("tools/pc/build_mod.py", f"{sdk}/tools/build_mod.py")
+    for name in ("build_mod.py", "build_process.py"):
+        copy_if_newer(f"tools/pc/{name}", f"{sdk}/tools/{name}")
     # What else a mod author needs beside the headers: the texture pack tools
     # (the standard library only; upscale_pack.py also wants Pillow and
     # Upscayl, which it asks for), the example mods, and the notes that

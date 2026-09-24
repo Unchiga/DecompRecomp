@@ -33,6 +33,7 @@
 #include "pc/debug/crash.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include "pc/compat/font.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
