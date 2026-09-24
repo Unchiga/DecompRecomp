@@ -370,8 +370,10 @@ A row with a triangle opens a submenu beside it (one level: `ITEM_SUBMENU`,
 The menu draws at a size multiple (`menu_scale`, `MEMORIES_MENU_SCALE`, View >
 Menu size): bar, rows, marks, font and the HUD all scale together, and the
 window is sized for the bar it gets. Automatic (0) follows the window height
-(`Menu_AutoScale`): 1 up to about 720 rows, 2 for a 4x window, 3 on a 4K
-display. `MEMORIES_SDL_SCRIPT` accepts `frame:shot` to save the composed
+(`Menu_AutoScale`): 1 below 1200 rows (including a 4x window), 2 at 1200 rows
+and above (including a 4K display). This is one step smaller than the original
+automatic size, with a minimum of 1; explicit 1x–4x choices are unchanged.
+`MEMORIES_SDL_SCRIPT` accepts `frame:shot` to save the composed
 window, which is how the menus are checked.
 
 ### Speed, frame rate and vsync
