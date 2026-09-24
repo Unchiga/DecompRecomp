@@ -938,13 +938,50 @@ static void sync_pack(void)
     gl_ActiveTexture(GL_TEXTURE0);
 }
 
+/* An image side as the texture has it: the driver's largest at most. */
+static int fitted(int side)
+{
+    static GLint largest;
+    if (!largest) glGetIntegerv(GL_MAX_TEXTURE_SIZE, &largest);
+    return largest > 0 && side > largest ? largest : side;
+}
+
+/* A pack image larger than the driver's textures, box-filtered down to
+ * fit, as the pack itself averages an image onto the texels (texture_pack.c,
+ * load_pixels): a texture that big would not be made and would sample
+ * black. The shader finds its texels by proportion, so only the sizes it
+ * is told change. NULL when out of memory. */
+static unsigned char *shrunk(const unsigned char *rgba, int width, int height, int to_width, int to_height)
+{
+    unsigned char *out = malloc((size_t)to_width * to_height * 4);
+    int x, y;
+    if (!out) return NULL;
+    for (y = 0; y < to_height; y++) {
+        int y0 = (int)((long long)y * height / to_height), y1 = (int)((long long)(y + 1) * height / to_height);
+        for (x = 0; x < to_width; x++) {
+            int x0 = (int)((long long)x * width / to_width), x1 = (int)((long long)(x + 1) * width / to_width);
+            unsigned long sum[4] = {0, 0, 0, 0}, n = 0;
+            int sx, sy, k;
+            for (sy = y0; sy < y1; sy++) {
+                for (sx = x0; sx < x1; sx++, n++) {
+                    for (k = 0; k < 4; k++) sum[k] += rgba[((size_t)sy * width + sx) * 4 + k];
+                }
+            }
+            for (k = 0; k < 4; k++) out[((size_t)y * to_width + x) * 4 + k] = (unsigned char)(n ? sum[k] / n : 0);
+        }
+    }
+    return out;
+}
+
 /* The entry's image on texture unit 5 and its measures in the uniforms;
  * 0 when the image is not there (the run then samples VRAM). */
 static int bind_pack_entry(int entry)
 {
     const unsigned char *rgba;
-    int width, height, crop_left, crop_width, rows, per;
+    int width, height, crop_left, crop_width, rows, per, texture_width, texture_height;
     if (!TexturePack_EntryImage(entry, &rgba, &width, &height, &crop_left, &crop_width, &rows, &per)) return 0;
+    texture_width = fitted(width);
+    texture_height = fitted(height);
     if (entry > entry_texture_count) {
         GLuint *more = realloc(entry_textures, (size_t)entry * sizeof(*entry_textures));
         if (!more) return 0;
@@ -954,16 +991,28 @@ static int bind_pack_entry(int entry)
     }
     gl_ActiveTexture(GL_TEXTURE5);
     if (!entry_textures[entry - 1]) {
-        entry_textures[entry - 1] = make_texture(GL_RGBA8, width, height, GL_RGBA, GL_UNSIGNED_BYTE);
+        unsigned char *smaller = NULL;
+        if (texture_width != width || texture_height != height) {
+            fprintf(stderr, "memories-pc: OpenGL picture: a %dx%d pack image is beyond the largest texture; drawn at %dx%d\n",
+                    width, height, texture_width, texture_height);
+            smaller = shrunk(rgba, width, height, texture_width, texture_height);
+            if (!smaller) {
+                gl_ActiveTexture(GL_TEXTURE0);
+                return 0;
+            }
+        }
+        entry_textures[entry - 1] = make_texture(GL_RGBA8, texture_width, texture_height, GL_RGBA, GL_UNSIGNED_BYTE);
         glBindTexture(GL_TEXTURE_2D, entry_textures[entry - 1]);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, texture_width, texture_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                        smaller ? smaller : rgba);
+        free(smaller);
     } else {
         glBindTexture(GL_TEXTURE_2D, entry_textures[entry - 1]);
     }
     gl_ActiveTexture(GL_TEXTURE0);
     /* The maps name the head of the entry's readings; this entry's image. */
     gl_Uniform4i(u_pack_entry, TexturePack_EntryHead(entry), crop_left, crop_width, rows);
-    gl_Uniform3i(u_pack_size, width, height, per);
+    gl_Uniform3i(u_pack_size, texture_width, texture_height, per);
     return 1;
 }
 

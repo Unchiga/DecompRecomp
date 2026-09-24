@@ -190,7 +190,16 @@ never the originals.
 A pack image does not need the extracted image's shape either: it is
 stretched to the texture's width and rows (the crop's width, below), so a
 4x image of a 102x96 card art is 408x384, and a wider or taller one is
-squeezed to fit rather than cropped.
+squeezed to fit rather than cropped. With the OpenGL renderer an image
+wider or taller than the driver's largest texture (`GL_MAX_TEXTURE_SIZE`,
+16384 or 32768 on most) is averaged down to that size, with a line on the
+console, rather than drawn black.
+
+A pixel with alpha below half is transparent; every other pixel is drawn,
+black included. At the console's resolution a replaced texel keeps the
+game's semi-transparency bit, as on the PS1, so opaque black is the word
+0x8000 where the game's texel has that bit and the darkest red, 0x0001,
+where it has not (0x0000 is the PS1's transparent colour).
 
 When two enabled packs replace the same image read the same way (the same
 archive offset, size, depth and palette), the one later in the mods' load
