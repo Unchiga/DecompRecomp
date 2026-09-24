@@ -346,7 +346,8 @@ def build_mods(build):
             continue
         for stale in glob.glob(f"{out_dir}/*.so") + glob.glob(f"{out_dir}/*.dll"):
             os.remove(stale)   # native libraries from before mods were objects
-        copy_if_newer(obj, os.path.join(out_dir, os.path.basename(obj)))
+        # Where the manifest's "library" puts it, which may be a subdirectory.
+        copy_if_newer(obj, os.path.join(out_dir, os.path.relpath(obj, f"tmp/pc/mod-build/{name}")))
         built.append(name)
     if built:
         print(f"{out_root}: " + ", ".join(built))

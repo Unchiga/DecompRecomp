@@ -49,7 +49,7 @@ Every mod has a `mod.json`:
 |---|---|
 | `id` | the name the settings and the user directory use; the directory's name when it is left out |
 | `name` | what the Mods window shows |
-| `library` | the mod's code: an object file relative to its directory, `.o` added when there is no suffix. The same file serves every system. Leave it out for a mod that is only data |
+| `library` | the mod's code: an object file relative to its directory (a subdirectory is fine), `.o` added when the name has no `.` anywhere in it (`rules` is `rules.o`, `rules.v2` stays `rules.v2`); `build_mod.py` writes it under the same name. The same file serves every system. Leave it out for a mod that is only data |
 | `enabled` | whether the mod is applied the first time the game sees it |
 | `restart` | whether changing it needs a fresh process. Data overrides default to `true`, because the game reads most of what they change while it starts; code mods default to `false` |
 | `legacy_setting` | an older settings key to read the player's choice from, once |
