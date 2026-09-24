@@ -93,5 +93,35 @@ int main(void)
     memcpy(state + SAVE_SEQUENCE, &sequence, 4);
     Cards_SaveLoaded(state);
     assert(gCard_abExtraChest[723] == 9);
+
+    /* Two slots of one duelist at the same sequence (saved twice, then played
+     * on from the older): each reads back its own cards, and a section a
+     * slot still holds outlives any number of later saves. */
+    {
+        unsigned live[2] = {0xA1, 0xB2};
+        code = 456;
+        memcpy(state + SAVE_DUELIST_CODE, &code, 4);
+        sequence = 10;
+        memcpy(state + SAVE_SEQUENCE, &sequence, 4);
+        memset(gCard_abExtraChest, 0, sizeof(gCard_abExtraChest));
+        gCard_abExtraChest[724] = 1;
+        Cards_SetSlotTokens(0xA1, live, 2);
+        Cards_SaveWritten(state, 10);
+        gCard_abExtraChest[724] = 2;
+        Cards_SetSlotTokens(0xB2, live, 2);
+        Cards_SaveWritten(state, 10);
+        for (unsigned later = 11; later < 30; later++) {
+            unsigned token = 0x100 + later;
+            gCard_abExtraChest[724] = 7;
+            Cards_SetSlotTokens(token, live, 2);
+            Cards_SaveWritten(state, later);
+        }
+        Cards_SetSlotTokens(0xA1, live, 2);
+        Cards_SaveLoaded(state);
+        assert(gCard_abExtraChest[724] == 1);
+        Cards_SetSlotTokens(0xB2, live, 2);
+        Cards_SaveLoaded(state);
+        assert(gCard_abExtraChest[724] == 2);
+    }
     return 0;
 }

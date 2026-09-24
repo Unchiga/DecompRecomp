@@ -693,17 +693,76 @@ int Cards_PickVariant(int id, int use)
 
 /* --- beside the save -------------------------------------------------- */
 
-/* cards/<duelist code>.txt in the user directory: a section per save
- * sequence, the newest KEPT_SAVES of them,
+/* cards/<duelist code>.txt in the user directory: a section per save,
  *
- *     save <sequence>
+ *     save <sequence> <token>
  *     chest2 <identity> <count>
  *     seen2 <identity>
  *     deck2 <slot> <old-id> <base> <identity>
  *     end
  *
+ * The token is the save slot's (save_slots.h), drawn afresh at each save, so
+ * two slots holding the same duelist at the same sequence -- one game saved
+ * twice, then played on from the older -- each find their own. A section
+ * whose token a slot still holds is kept; of the rest, the newest
+ * KEPT_SAVES. Sections from before tokens have none and are found by
+ * sequence alone.
+ *
  * Stable identities remap to this run's ids. Legacy numeric sections require
  * explicit migration with the original mods and order; preserve them until then. */
+
+/* The tokens of the save being played, of the two saves a two-player
+ * screen loaded, and of every slot (save_cards.c sets them). */
+static unsigned play_token, pair_tokens[2], live_tokens[32];
+static int live_count;
+
+void Cards_SetSlotTokens(unsigned playing, const unsigned *live, int count)
+{
+    play_token = playing;
+    live_count = count < 0 ? 0 : count > 32 ? 32 : count;
+    if (live_count) memcpy(live_tokens, live, (size_t)live_count * sizeof(*live));
+}
+
+void Cards_SetPairTokens(unsigned first, unsigned second)
+{
+    pair_tokens[0] = first;
+    pair_tokens[1] = second;
+}
+
+static int live(unsigned token)
+{
+    for (int i = 0; token && i < live_count; i++) if (live_tokens[i] == token) return 1;
+    return 0;
+}
+
+/* A section's first line: its sequence and token (0 for none). */
+static int section_header(const char *line, unsigned *sequence, unsigned *token)
+{
+    int got = sscanf(line, "save %u %x", sequence, token);
+    if (got == 1) *token = 0;
+    return got >= 1;
+}
+
+/* Which section a save of `sequence` and `token` reads: its own, else the
+ * newest no later than it (what the player had when they last played with
+ * the mod). 0 when there is none. */
+static int choose_section(FILE *file, unsigned sequence, unsigned token, unsigned *chosen, unsigned *chosen_token)
+{
+    char line[512];
+    int have = 0, exact = 0;
+    rewind(file);
+    while (fgets(line, sizeof(line), file)) {
+        unsigned value, tag;
+        if (!section_header(line, &value, &tag) || value > sequence || exact) continue;
+        if (token && value == sequence && tag == token) {
+            *chosen = value; *chosen_token = tag; have = exact = 1;
+        } else if (!have || value > *chosen) {
+            *chosen = value; *chosen_token = tag; have = 1;
+        }
+    }
+    rewind(file);
+    return have;
+}
 
 static int state_word(const void *state, int offset)
 {
@@ -730,28 +789,25 @@ typedef struct {
  * given). A save made while no card mod was applied has no section of its
  * own; it has what the newest earlier one held, which is what the player
  * had when they last played with the mod. Returns the sequence read, or -1. */
-static long read_section(int code, unsigned sequence, unsigned char *chest, unsigned char *seen, DeckNotes *deck)
+static long read_section(int code, unsigned sequence, unsigned token, unsigned char *chest, unsigned char *seen,
+                         DeckNotes *deck)
 {
     char path[1024], line[512];
     FILE *file;
-    long chosen = -1;
-    int inside = 0, legacy_warning = 0;
+    unsigned chosen = 0, chosen_token = 0;
+    int inside = 0, legacy_warning = 0, have;
     int migrate = getenv("MEMORIES_MIGRATE_CARD_IDS") && !strcmp(getenv("MEMORIES_MIGRATE_CARD_IDS"), "1");
     if (deck) deck->count = 0;
     if (sidecar_path(path, sizeof(path), code)) return -1;
     file = fopen(path, "r");
     if (!file) return -1;
-    while (fgets(line, sizeof(line), file)) {
-        unsigned value;
-        if (sscanf(line, "save %u", &value) == 1 && value <= sequence && (long)value > chosen) chosen = value;
-    }
-    rewind(file);
-    while (chosen >= 0 && fgets(line, sizeof(line), file)) {
-        unsigned value;
+    have = choose_section(file, sequence, token, &chosen, &chosen_token);
+    while (have && fgets(line, sizeof(line), file)) {
+        unsigned value, tag;
         int id, count, slot, base;
         char identity[192];
-        if (sscanf(line, "save %u", &value) == 1) {
-            inside = (long)value == chosen;
+        if (section_header(line, &value, &tag)) {
+            inside = value == chosen && tag == chosen_token;
         } else if (!inside) {
             continue;
         } else if (sscanf(line, "chest2 %191s %d", identity, &count) == 2) {
@@ -785,7 +841,7 @@ static long read_section(int code, unsigned sequence, unsigned char *chest, unsi
         }
     }
     fclose(file);
-    return chosen;
+    return have ? (long)chosen : -1;
 }
 
 /* A deck holding a card this run does not have (the mod that added it is
@@ -813,11 +869,11 @@ static void repair_deck(unsigned short *cards, const DeckNotes *notes)
     }
 }
 
-static void write_section(int code, unsigned sequence, const unsigned char *chest, const unsigned char *seen,
-                          const unsigned short *deck)
+static void write_section(int code, unsigned sequence, unsigned token, const unsigned char *chest,
+                          const unsigned char *seen, const unsigned short *deck)
 {
     char path[1024], temporary[1040], line[512];
-    unsigned kept[KEPT_SAVES];
+    unsigned kept[KEPT_SAVES], kept_tokens[KEPT_SAVES];
     int kept_count = 0, i, id, keep = 0, any = 0, migrate = 0;
     FILE *in, *out;
     for (id = CARD_ID_END; id <= gCard_nCount; id++) {
@@ -854,17 +910,19 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
             }
         }
     }
-    /* The newest sections other than this one stay. */
+    /* Every section a slot still holds stays, and the newest of the others;
+     * this save's own is written again below. */
     if (in) {
         while (fgets(line, sizeof(line), in)) {
-            unsigned value;
-            if (sscanf(line, "save %u", &value) != 1 || value == sequence) continue;
+            unsigned value, tag;
+            if (!section_header(line, &value, &tag) || (value == sequence && tag == token) || live(tag)) continue;
             if (kept_count < KEPT_SAVES - 1) {
-                kept[kept_count++] = value;
+                kept[kept_count] = value;
+                kept_tokens[kept_count++] = tag;
             } else {
                 int oldest = 0;
                 for (i = 1; i < kept_count; i++) if (kept[i] < kept[oldest]) oldest = i;
-                if (value > kept[oldest]) kept[oldest] = value;
+                if (value > kept[oldest]) { kept[oldest] = value; kept_tokens[oldest] = tag; }
             }
         }
         rewind(in);
@@ -885,10 +943,10 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
     }
     fprintf(out, "# The cards mods added, as the saves of duelist %08X hold them.\n", (unsigned)code);
     while (in && fgets(line, sizeof(line), in)) {
-        unsigned value;
-        if (sscanf(line, "save %u", &value) == 1) {
-            keep = 0;
-            for (i = 0; i < kept_count; i++) keep |= kept[i] == value;
+        unsigned value, tag;
+        if (section_header(line, &value, &tag)) {
+            keep = !(value == sequence && tag == token) && live(tag);
+            for (i = 0; i < kept_count; i++) keep |= kept[i] == value && kept_tokens[i] == tag;
         }
         if (keep) {
             int old_id, old_count, old_slot, old_base;
@@ -902,20 +960,16 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
             else if (strncmp(line, "chest ", 6) && strncmp(line, "seen ", 5) && strncmp(line, "deck ", 5)) fputs(line, out);
         }
     }
-    fprintf(out, "save %u\n", sequence);
+    if (token) fprintf(out, "save %u %08x\n", sequence, token);
+    else fprintf(out, "save %u\n", sequence);
     /* Carry ownership of temporarily missing mods into the new section.
      * Identity-based records cannot collide with another mod's live IDs. */
     if (in) {
-        unsigned newest = 0; int have = 0, selected_section = 0;
-        rewind(in);
-        while (fgets(line, sizeof(line), in)) {
-            unsigned value;
-            if (sscanf(line, "save %u", &value) == 1 && value <= sequence && (!have || value > newest)) { newest = value; have = 1; }
-        }
-        rewind(in);
+        unsigned newest = 0, newest_token = 0; int have, selected_section = 0;
+        have = choose_section(in, sequence, token, &newest, &newest_token);
         while (have && fgets(line, sizeof(line), in)) {
-            unsigned value; char identity[192];
-            if (sscanf(line, "save %u", &value) == 1) selected_section = value == newest;
+            unsigned value, tag; char identity[192];
+            if (section_header(line, &value, &tag)) selected_section = value == newest && tag == newest_token;
             else if (!strncmp(line, "end", 3)) selected_section = 0;
             else if (selected_section && (sscanf(line, "chest2 %191s", identity) == 1 || sscanf(line, "seen2 %191s", identity) == 1) &&
                      !Cards_FindIdentity(identity)) fputs(line, out);
@@ -955,7 +1009,7 @@ void Cards_SaveLoaded(const void *state)
     clear_extra();
     gCard_nExtraOwner = code;
     /* Read even without a card mod: the deck may need its slots back. */
-    read = read_section(code, sequence, gCard_abExtraChest, gCard_abExtraSeen, &deck);
+    read = read_section(code, sequence, play_token, gCard_abExtraChest, gCard_abExtraSeen, &deck);
     repair_deck((unsigned short *)state, &deck);
     if (read >= 0) say("loaded duelist %08X save %u (from the section of save %ld)", (unsigned)code, sequence, read);
 }
@@ -964,7 +1018,7 @@ void Cards_SaveWritten(const void *state, unsigned sequence)
 {
     int code = state_word(state, SAVE_DUELIST_CODE);
     if (gCard_nCount <= CARD_COUNT) return;   /* no card mod: the file is left as it is */
-    write_section(code, sequence, gCard_abExtraChest, gCard_abExtraSeen, (const unsigned short *)state);
+    write_section(code, sequence, play_token, gCard_abExtraChest, gCard_abExtraSeen, (const unsigned short *)state);
 }
 
 void Cards_PairLoaded(void)
@@ -975,7 +1029,7 @@ void Cards_PairLoaded(void)
         DeckNotes deck;
         memset(gCard_abPairChest[slot], 0, CARD_TABLE_ID_END);
         read_section(state_word(state, SAVE_DUELIST_CODE), (unsigned)state_word(state, SAVE_SEQUENCE),
-                     gCard_abPairChest[slot], NULL, &deck);
+                     pair_tokens[slot], gCard_abPairChest[slot], NULL, &deck);
         repair_deck((unsigned short *)state, &deck);
     }
 }
@@ -998,8 +1052,8 @@ void Cards_PairCommit(void)
         /* A trade writes the trunk, not the sequence number or what the
          * Library has seen: the same section, with the new trunk. */
         memset(seen, 0, sizeof(seen));
-        read_section(code, sequence, chest, seen, NULL);
-        write_section(code, sequence, gCard_abPairChest[slot], seen, (const unsigned short *)state);
+        read_section(code, sequence, pair_tokens[slot], chest, seen, NULL);
+        write_section(code, sequence, pair_tokens[slot], gCard_abPairChest[slot], seen, (const unsigned short *)state);
     }
 }
 

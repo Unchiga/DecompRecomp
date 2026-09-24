@@ -8,6 +8,11 @@
  * duplicate, then zeros. So a slot can go back onto a card image with any
  * memory card manager, and a card's save can become a slot.
  *
+ * After both copies, at SAVE_SLOT_TAG_OFFSET, the port keeps a token of its
+ * own in what is otherwise zero padding: a number drawn afresh each time the
+ * slot is saved. What a save holds of the cards mods add is kept beside it
+ * under that token (cards.h), so two slots of one duelist never share it.
+ *
  * The first time the saves directory is created, the save on each memory
  * card image the older builds used (memcard1.mcd, memcard2.mcd) is copied
  * into slots 1 and 2. The card images are only read.
@@ -21,6 +26,7 @@
 #define SAVE_SLOT_HEADER_SIZE 0x200
 #define SAVE_SLOT_STATE_SIZE 0x680
 #define SAVE_SLOT_DUPLICATE_OFFSET (SAVE_SLOT_HEADER_SIZE + SAVE_SLOT_STATE_SIZE)
+#define SAVE_SLOT_TAG_OFFSET (SAVE_SLOT_DUPLICATE_OFFSET + SAVE_SLOT_STATE_SIZE)
 
 typedef enum { SAVE_SLOT_EMPTY, SAVE_SLOT_USED, SAVE_SLOT_DAMAGED } SaveSlotStatus;
 
@@ -48,14 +54,18 @@ void SaveSlots_Scan(SaveSlotInfo out[SAVE_SLOT_COUNT], SaveSlotCheck check);
  * into `state`. 0 on success, -1 when the slot is empty or both copies fail. */
 int SaveSlots_ReadState(int slot, unsigned char state[SAVE_SLOT_STATE_SIZE], SaveSlotCheck check);
 /* Replace a slot with `bytes` of file image (header first), padded with
- * zeros to a whole block. Written beside the slot and renamed over it, so a
- * failed write leaves the old save. 0 on success. */
+ * zeros to a whole block, under a new token. Written beside the slot and
+ * renamed over it, so a failed write leaves the old save. 0 on success. */
 int SaveSlots_WriteFile(int slot, const unsigned char *image, size_t bytes);
-/* Patch `bytes` at `offset` of an existing slot, the same way. */
+/* Patch `bytes` at `offset` of an existing slot, the same way; the token
+ * stays. */
 int SaveSlots_WriteAt(int slot, long offset, const unsigned char *data, size_t bytes);
 /* Replace both state copies together, preserving the existing header and
  * padding. Used after a trade so backup recovery retains the traded cards. */
 int SaveSlots_WriteState(int slot, const unsigned char state[SAVE_SLOT_STATE_SIZE]);
+/* The slot's token, or 0 when it has none (empty, or saved by an older
+ * build). */
+unsigned SaveSlots_Token(int slot);
 /* Copy the save named `name` off the memory card images into slots 1 and
  * 2, once: only when the saves directory does not exist yet. */
 void SaveSlots_ImportMemoryCards(const char *name);

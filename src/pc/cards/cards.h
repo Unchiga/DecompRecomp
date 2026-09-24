@@ -96,11 +96,16 @@ const unsigned char *Cards_Text(const unsigned char *text);
 #define CARDS_USE_OPPONENT 1
 int Cards_PickVariant(int id, int use);
 
-/* The running save was just loaded (`state` is its SaveDataState), or is
- * about to be written with this sequence number: read or write what it holds
- * of the new cards. */
+/* The running save was just loaded (`state` is its SaveDataState), or was
+ * just written with this sequence number: read or write what it holds of the
+ * new cards, under the token Cards_SetSlotTokens gave last. */
 void Cards_SaveLoaded(const void *state);
 void Cards_SaveWritten(const void *state, unsigned sequence);
+/* The save slot tokens (save_slots.h): the save being played, and every
+ * token a slot holds now, whose sections are kept; and the two saves of a
+ * two-player screen. */
+void Cards_SetSlotTokens(unsigned playing, const unsigned *live, int count);
+void Cards_SetPairTokens(unsigned first, unsigned second);
 /* A two-player screen loaded both saves (0x801D1200 and 0x1000 on). */
 void Cards_PairLoaded(void);
 /* A trade: its copies of the two saves (+0x680) start as the saves are, and

@@ -1,4 +1,5 @@
 /* Save slot files. See save_slots.h. */
+#define _POSIX_C_SOURCE 200809L
 #include "save_slots.h"
 #include "pc/platform/paths.h"
 #include <errno.h>
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "pc/compat/posix.h"
 
 /* Offsets in the save state (src/game/save_data.h). */
@@ -26,6 +28,9 @@
 #define CARD_FRAME 128
 #define CARD_BLOCKS 15
 #define CARD_STATE_FIRST 0x51u
+
+/* The token's tag: these eight bytes, then the token, little-endian. */
+static const unsigned char TAG[8] = {'Y', 'F', 'M', 'S', 'L', 'O', 'T', 1};
 
 static unsigned read_u16(const unsigned char *p) { return p[0] | p[1] << 8; }
 static unsigned read_u32(const unsigned char *p) { return p[0] | p[1] << 8 | p[2] << 16 | (unsigned)p[3] << 24; }
@@ -160,6 +165,9 @@ static int store(int slot, const unsigned char image[SAVE_SLOT_FILE_SIZE])
         return -1;
     }
     failed = fwrite(image, 1, SAVE_SLOT_FILE_SIZE, file) != SAVE_SLOT_FILE_SIZE;
+    /* On the disk before it replaces the old save, so a power cut leaves
+     * one or the other and never an empty slot. */
+    if (fflush(file) != 0 || fsync(fileno(file)) != 0) failed = 1;
     /* Always close, including after a short write (e.g. a full disk). */
     if (fclose(file) != 0) failed = 1;
     if (failed || rename(partial, path) != 0) {
@@ -170,13 +178,39 @@ static int store(int slot, const unsigned char image[SAVE_SLOT_FILE_SIZE])
     return 0;
 }
 
+/* A token no other save is likely to have: the time, the clock and a count,
+ * mixed. Never 0, which means none. */
+static unsigned fresh_token(void)
+{
+    static unsigned count;
+    unsigned value = (unsigned)time(NULL) * 2654435761u ^ (unsigned)clock() * 40503u ^ ++count * 97u;
+    value ^= value >> 15;
+    value *= 0x2c1b3c6du;
+    value ^= value >> 12;
+    return value ? value : 1;
+}
+
 int SaveSlots_WriteFile(int slot, const unsigned char *image, size_t bytes)
 {
     static unsigned char block[SAVE_SLOT_FILE_SIZE];
+    unsigned token = fresh_token();
+    int i;
     if (bytes > SAVE_SLOT_FILE_SIZE) return -1;
     memset(block, 0, sizeof(block));
     memcpy(block, image, bytes);
+    /* The game reads no further than the duplicate; the rest of a block is
+     * its padding, a card's included. */
+    memcpy(block + SAVE_SLOT_TAG_OFFSET, TAG, sizeof(TAG));
+    for (i = 0; i < 4; i++) block[SAVE_SLOT_TAG_OFFSET + sizeof(TAG) + i] = (unsigned char)(token >> 8 * i);
     return store(slot, block);
+}
+
+unsigned SaveSlots_Token(int slot)
+{
+    static unsigned char image[SAVE_SLOT_FILE_SIZE];
+    const unsigned char *tag = image + SAVE_SLOT_TAG_OFFSET;
+    if (read_file(slot, image, NULL) < 0 || memcmp(tag, TAG, sizeof(TAG))) return 0;
+    return read_u32(tag + sizeof(TAG));
 }
 
 int SaveSlots_WriteAt(int slot, long offset, const unsigned char *data, size_t bytes)
@@ -209,35 +243,57 @@ static int card_file(const unsigned char *card, const char *name)
     return -1;
 }
 
-static void import_card(int index, const char *name)
+/* 0 when the card is done with: imported, already in its slot, or not
+ * there to import; -1 when it should be tried again next time. */
+static int import_card(int index, const char *name)
 {
-    static unsigned char card[CARD_SIZE];
+    static unsigned char card[CARD_SIZE], existing[SAVE_SLOT_FILE_SIZE];
     char path[1024], target[1024];
     const char *named = getenv(index ? "MEMORIES_MEMCARD2" : "MEMORIES_MEMCARD1");
     FILE *file;
     int block;
+    long have = read_file(index, existing, NULL);
+    if (have != -1) return have >= 0 ? 0 : -1;   /* never over a slot already there */
     if (named) snprintf(path, sizeof(path), "%s", named);
-    else if (Paths_User(path, sizeof(path), index ? "memcard2.mcd" : "memcard1.mcd")) return;
+    else if (Paths_User(path, sizeof(path), index ? "memcard2.mcd" : "memcard1.mcd")) return 0;
     file = fopen(path, "rb");
-    if (!file) return;
+    if (!file) return errno == ENOENT ? 0 : -1;
     if (fread(card, 1, CARD_SIZE, file) != CARD_SIZE) block = -1;
     else block = card_file(card, name);
     fclose(file);
-    if (block < 0) return;
+    if (block < 0) return 0;
     /* The game's save is one block; the header and both copies are in it. */
-    if (SaveSlots_WriteFile(index, card + SAVE_SLOT_FILE_SIZE * (block + 1), SAVE_SLOT_FILE_SIZE) == 0 &&
-        !SaveSlots_Path(index, target, sizeof(target))) {
+    if (SaveSlots_WriteFile(index, card + SAVE_SLOT_FILE_SIZE * (block + 1), SAVE_SLOT_FILE_SIZE)) return -1;
+    if (!SaveSlots_Path(index, target, sizeof(target)))
         fprintf(stderr, "memories-pc: copied the save on %s into %s\n", path, target);
-    }
+    return 0;
+}
+
+static void touch(const char *path)
+{
+    FILE *file = fopen(path, "wb");
+    if (file) fclose(file);
 }
 
 void SaveSlots_ImportMemoryCards(const char *name)
 {
-    char directory[1024];
+    char directory[1024], done[1100], pending[1100];
     struct stat info;
     if (Paths_User(directory, sizeof(directory), "saves")) return;
-    if (stat(directory, &info) == 0) return;
+    snprintf(done, sizeof(done), "%s/.cards-imported", directory);
+    snprintf(pending, sizeof(pending), "%s/.cards-importing", directory);
+    if (stat(done, &info) == 0) return;
+    if (stat(directory, &info) == 0 && stat(pending, &info) != 0) {
+        /* Made by a build without the markers, which imported as it made
+         * the folder. */
+        touch(done);
+        return;
+    }
     if (Paths_MakeDirs(directory)) return;
-    import_card(0, name);
-    import_card(1, name);
+    touch(pending);
+    /* A card that could not be read is tried again at the next save or
+     * load; one already in its slot, or not there at all, is done. */
+    if (import_card(0, name) | import_card(1, name)) return;
+    touch(done);
+    remove(pending);
 }

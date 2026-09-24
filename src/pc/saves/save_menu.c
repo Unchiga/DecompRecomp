@@ -38,6 +38,20 @@ static int state_code(const unsigned char *state)
     return (int)(state[0x334] | state[0x335] << 8 | state[0x336] << 16 | (unsigned)state[0x337] << 24);
 }
 
+static unsigned state_sequence(const unsigned char *state)
+{
+    return state[0x404] | state[0x405] << 8 | state[0x406] << 16 | (unsigned)state[0x407] << 24;
+}
+
+/* Whether a used slot holds the game being saved as it was last loaded or
+ * saved: the save being written carries the next sequence number. Anything
+ * else of the same duelist is another point in their game, older or newer. */
+static int same_game(const SaveSlotInfo *info)
+{
+    return info->status == SAVE_SLOT_USED && info->duelist_code == state_code(menu.buffer) &&
+           info->sequence + 1 == state_sequence(menu.buffer);
+}
+
 static int selectable(int slot)
 {
     const SaveSlotInfo *info = &menu.slots[slot];
@@ -90,7 +104,7 @@ static int first_cursor(void)
 
 static int write_pair(void)
 {
-    static unsigned char states[2][SAVE_SLOT_STATE_SIZE];
+    static unsigned char states[2][SAVE_SLOT_STATE_SIZE], first[SAVE_SLOT_STATE_SIZE];
     int side;
     if (menu.size != 0x400 || menu.pair_slot[0] == menu.pair_slot[1]) return 2;
     /* Validate both destinations before changing either save. Build from
@@ -104,10 +118,16 @@ static int write_pair(void)
             fprintf(stderr, "memories-pc: could not write the trade back to save slot %d\n", slot + 1);
             return 2;
         }
+        if (side == 0) memcpy(first, state, sizeof(first));
         memcpy(state, record, (size_t)menu.size);
     }
-    for (side = 0; side < 2; side++) {
-        if (SaveSlots_WriteState(menu.pair_slot[side], states[side])) return 2;
+    if (SaveSlots_WriteState(menu.pair_slot[0], states[0])) return 2;
+    if (SaveSlots_WriteState(menu.pair_slot[1], states[1])) {
+        /* Neither or both: the game drops the trade on a failure, so player
+         * 1's save goes back to what it was. */
+        if (SaveSlots_WriteState(menu.pair_slot[0], first))
+            fprintf(stderr, "memories-pc: could not undo the trade in save slot %d\n", menu.pair_slot[0] + 1);
+        return 2;
     }
     return 1;
 }
@@ -173,6 +193,8 @@ int SaveMenu_Begin(int step, unsigned char *buffer, unsigned char *second, int s
 }
 
 int SaveMenu_Active(void) { return menu.view != VIEW_CLOSED; }
+int SaveMenu_CurrentSlot(void) { return menu.current_slot; }
+int SaveMenu_PairSlot(int side) { return side == 0 || side == 1 ? menu.pair_slot[side] : -1; }
 
 int SaveMenu_Poll(unsigned pressed, int channel, int *sound, SaveSlotCheck validity)
 {
@@ -238,6 +260,10 @@ int SaveMenu_Poll(unsigned pressed, int channel, int *sound, SaveSlotCheck valid
     }
     if (!(pressed & (SAVE_MENU_PAD_CONFIRM | SAVE_MENU_PAD_START))) return 0;
     slot = menu.cursor;
+    /* The files, not the list as it was drawn: a save state may have brought
+     * the list back from before a slot was written. */
+    SaveSlots_Scan(menu.slots, check);
+    changed();
     if (!selectable(slot)) {
         *sound = SAVE_MENU_SOUND_BUZZER;
         return 0;
@@ -248,10 +274,10 @@ int SaveMenu_Poll(unsigned pressed, int channel, int *sound, SaveSlotCheck valid
         save(slot);
         return 0;
     }
-    /* Overwriting your own game is the usual case; another duelist's save,
-     * or a damaged one, is kept unless the player moves to Overwrite. */
-    menu.choice = menu.slots[slot].status == SAVE_SLOT_USED &&
-                  menu.slots[slot].duelist_code == state_code(menu.buffer) ? CHOICE_OVERWRITE : CHOICE_KEEP;
+    /* Overwriting the game you are playing is the usual case; another
+     * duelist's save, an older or newer point of this one, or a damaged
+     * save is kept unless the player moves to Overwrite. */
+    menu.choice = same_game(&menu.slots[slot]) ? CHOICE_OVERWRITE : CHOICE_KEEP;
     menu.view = VIEW_CONFIRM;
     changed();
     return 0;
@@ -348,6 +374,11 @@ static void draw_confirm(MenuCanvas *canvas, int px, int pw, int cy, int s)
         centred(canvas, x, w, y + 38 * s, line, COLOUR_DIM);
         if (info->duelist_code != state_code(menu.buffer)) {
             centred(canvas, x, w, y + 58 * s, "It belongs to a different duelist.", COLOUR_WARN);
+        } else if (!same_game(info)) {
+            centred(canvas, x, w, y + 58 * s,
+                    info->sequence + 1 > state_sequence(menu.buffer) ? "It is further along than the game you are saving."
+                                                                     : "It is an earlier save of this game.",
+                    COLOUR_WARN);
         }
     } else {
         centred(canvas, x, w, y + 38 * s, "The save in it is damaged.", COLOUR_WARN);

@@ -46,6 +46,10 @@ enum { SAVE_MENU_SOUND_NONE = 0, SAVE_MENU_SOUND_MOVE = 6, SAVE_MENU_SOUND_CONFI
 int SaveMenu_Begin(int step, unsigned char *buffer, unsigned char *second, int size, const char *name,
                    SaveSlotCheck check);
 int SaveMenu_Active(void);
+/* The slot loaded or saved last, and the slot each side of the last pair
+ * load came from; -1 for none. */
+int SaveMenu_CurrentSlot(void);
+int SaveMenu_PairSlot(int side);
 /* One frame. `pressed` holds the buttons pressed this frame (with the
  * directions' auto-repeat), `channel` the dialog's card channel byte, which
  * tells the two sides of a pair load apart (0x10 is the second). Returns 0

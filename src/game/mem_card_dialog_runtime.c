@@ -23,6 +23,7 @@
 #include "input.h"
 #include "sound.h"
 #include "pc/saves/save_menu.h"
+#include "pc/saves/save_cards.h"
 #endif
 
 /* The empty callback, trade write-back operation, and modal runtime that
@@ -372,8 +373,15 @@ static int MemCardDialog_PollSlots(void)
     if (outcome == 1 && D_8009B3DE == SAVE_MENU_SAVE) {
         D_8009B3D4 = 0;
         gSaveDataSequence = (s32)((u32)gSaveDataSequence + 1);
+        /* Only now, and under the slot it went to: what the save holds of
+           the cards past the disc's (cards.h). */
+        SaveCards_Saved(gSaveData_aTransferBuffer,
+                        ((SaveDataState *)gSaveData_aTransferBuffer)->save_sequence);
     } else if (outcome == 1 && D_8009B3DE == SAVE_MENU_LOAD) {
         D_8009B3D4 = 0;
+        SaveCards_Loaded();
+    } else if (outcome == 1 && D_8009B3DE == SAVE_MENU_LOAD_PAIR) {
+        SaveCards_PairLoaded();
     }
     return outcome;
 }
