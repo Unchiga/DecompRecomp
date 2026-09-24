@@ -52,6 +52,11 @@ int main(void)
     write_text("mods/later/mod.json", "{\"id\":\"later\",\"data\":[{\"lba\":6000,\"patch\":[{\"at\":0,\"bytes\":\"11\"}]}]}");
     make_dir("mods/needs-later");
     write_text("mods/needs-later/mod.json", "{\"id\":\"needs-later\",\"requires\":[\"later\"]}");
+    /* Two folders of one directory with one id: the first, sorted, stays. */
+    make_dir("mods/dup-b");
+    write_text("mods/dup-b/mod.json", "{\"id\":\"dup\",\"name\":\"second\"}");
+    make_dir("mods/dup-a");
+    write_text("mods/dup-a/mod.json", "{\"id\":\"dup\",\"name\":\"first\"}");
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
@@ -69,6 +74,16 @@ int main(void)
     assert(Mods_Failed(partial) && !Mods_Active(partial));
     assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
     assert(Mods_Failed(find("invalid-schema")));
+    {
+        int dup = find("dup"), copies = 0;
+        for (int i = 0; i < Mods_Count(); i++) copies += !strcmp(Mods_Id(i), "dup");
+        assert(dup >= 0 && copies == 1 && !strcmp(Mods_Name(dup), "first") && !Mods_Failed(dup));
+        assert(strstr(Mods_Status(dup), "dup-b was left out: same id as") && strstr(Mods_Status(dup), "dup-a"));
+        /* The warning outlasts applying the mod, which resets its status. */
+        Mods_SetEnabled(dup, 1);
+        assert(Mods_Active(dup) && strstr(Mods_Status(dup), "same id as"));
+        Mods_SetEnabled(dup, 0);
+    }
     assert(Mods_Failed(find("invalid-data")) && !Mods_Active(find("invalid-data")));
     enabled[find("cycle-a")] = enabled[find("cycle-b")] = enabled[a] = 1;
     assert(Mods_Order(enabled, order, error, sizeof(error)) < 0);

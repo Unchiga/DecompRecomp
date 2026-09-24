@@ -55,7 +55,7 @@
 #define ID_MAX 64
 #define NAME_MAX_ 96
 #define PATH_MAX_ 1024
-#define STATUS_MAX 160
+#define STATUS_MAX 256
 #define SECTOR 2048
 #define REGIONS_MAX 64
 #define PATCHES_MAX 1024
@@ -68,6 +68,7 @@ typedef struct {
     char directory[PATH_MAX_];
     char library[NAME_MAX_];     /* empty when the mod is data only */
     char status[STATUS_MAX];
+    char warnings[STATUS_MAX];   /* what the manifest got wrong: shown again whenever status is reset */
     const char *origin;          /* "shipped" or "installed", for the window */
     int restart;                 /* the manifest asks for a fresh process */
     int default_enabled;
@@ -144,6 +145,27 @@ static void note(Mod *mod, const char *format, ...)
     vsnprintf(mod->status, sizeof(mod->status), format, arguments);
     va_end(arguments);
     fprintf(stderr, "memories-pc: mod %s: %s\n", mod->id, mod->status);
+}
+
+/* Something the player should see that does not stop the mod: added to its
+ * status after whatever is there, so several warnings show together. With
+ * `lasting` it is also kept in `warnings`, which status goes back to when
+ * the mod is applied again (a manifest's problems do not go away). */
+static void warn(Mod *mod, int lasting, const char *format, ...)
+{
+    char message[STATUS_MAX];
+    va_list arguments;
+    size_t length;
+    va_start(arguments, format);
+    vsnprintf(message, sizeof(message), format, arguments);
+    va_end(arguments);
+    fprintf(stderr, "memories-pc: mod %s: warning: %s\n", mod->id, message);
+    length = strlen(mod->status);
+    snprintf(mod->status + length, sizeof(mod->status) - length, "%s%s", length ? "; " : "", message);
+    if (lasting) {
+        length = strlen(mod->warnings);
+        snprintf(mod->warnings + length, sizeof(mod->warnings) - length, "%s%s", length ? "; " : "", message);
+    }
 }
 
 /* --- settings -------------------------------------------------------- */
@@ -836,6 +858,7 @@ static void scan(const char *root, const char *origin)
     char path[PATH_MAX_];
     char **names = NULL;
     int count = 0, room = 0, i;
+    unsigned char here[MODS_MAX] = {0};   /* the mods this directory has given so far */
     DIR *directory = opendir(root);
     struct dirent *entry;
     if (!directory) return;
@@ -865,13 +888,20 @@ static void scan(const char *root, const char *origin)
         if (snprintf(path, sizeof(path), "%s/%s", root, names[i]) >= (int)sizeof(path)) continue;
         if (!read_manifest(&candidate, path, origin)) continue;
         existing = by_id(candidate.id);
-        if (existing >= 0) {
+        if (existing >= 0 && here[existing]) {
+            /* Two folders of one directory with one id: the first, in the
+             * sorted order, is kept, whatever order the disk lists them. */
+            warn(&mods[existing], 1, "%s was left out: same id as %s", path, mods[existing].directory);
+            Json_Free(candidate.manifest);
+        } else if (existing >= 0) {
             /* The player's copy wins over the one the release ships. */
             say("%s in %s replaces the one in %s", candidate.id, path, mods[existing].directory);
             Json_Free(mods[existing].manifest);
             candidate.enabled = mods[existing].enabled;
             mods[existing] = candidate;
+            here[existing] = 1;
         } else if (mod_count < MODS_MAX) {
+            here[mod_count] = 1;
             mods[mod_count++] = candidate;
         } else {
             Json_Free(candidate.manifest);
@@ -908,7 +938,7 @@ static void activate(int index, int on)
             mod->broken = 1;
             return;
         }
-        mod->status[0] = 0;
+        copy_text(mod->status, sizeof(mod->status), mod->warnings);
         if (!apply_overrides(mod, index)) { mod->failed = 1; return; }
         if (mod->textures[0]) {
             if (!texture_pack_load || !texture_pack_load(mod->textures)) {
@@ -1065,7 +1095,8 @@ void Mods_SetEnabled(int mod, int enabled)
             return;
         }
     } else if (!mods[mod].active && !Mods_Failed(mod)) {
-        mods[mod].status[0] = 0;   /* whatever it was waiting for, it no longer is */
+        /* whatever it was waiting for, it no longer is */
+        copy_text(mods[mod].status, sizeof(mods[mod].status), mods[mod].warnings);
     }
     activate(mod, enabled);
 }
