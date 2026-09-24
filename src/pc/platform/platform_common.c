@@ -100,10 +100,9 @@ static void advance(uint64_t real_now, uintptr_t eip)
             for (i = 0; i < reported_count && reported[i] != eip; i++) {}
             if (i == reported_count && reported_count < 16) {
                 reported[reported_count++] = eip;
-                LOG(LOG_FRAMES, "clock: the game spun a second without a wait, at 0x%lx (%u steps so far)",
-                    (unsigned long)eip, steps);
-                fprintf(stderr, "memories-pc: clock: the game spun a second without a wait, at 0x%lx\n",
-                        (unsigned long)eip);
+                /* The timer's handler: Log_Signal, never stdio or LOG (log.c). */
+                Log_Signal(LOG_FRAMES, "clock: the game spun a second without a wait, at 0x%lx (%ld steps so far)",
+                           (long)eip, (long)steps, 0, 0, 0, 0);
             }
         }
         return;
@@ -148,8 +147,8 @@ static void on_tick(uintptr_t eip, void *context)
         if (last_vsync_real && real_now - last_vsync_real > 30000 && reported_stretch != last_vsync_real &&
             Log_Wanted(LOG_FRAMES)) {
             reported_stretch = last_vsync_real;
-            LOG(LOG_FRAMES, "long stretch without a VSync: %llu us so far, at 0x%lx",
-                (unsigned long long)(real_now - last_vsync_real), (unsigned long)eip);
+            Log_Signal(LOG_FRAMES, "long stretch without a VSync: %ld us so far, at 0x%lx",
+                       (long)(real_now - last_vsync_real), (long)eip, 0, 0, 0, 0);
         }
     }
 #ifndef _WIN32 /* Windows watches from the clock thread (Win32_SetStallReporter) */
@@ -344,6 +343,7 @@ float Platform_PresentRefresh(void) { return present_refresh; }
 void Platform_NotifyPresent(uint64_t real_now_us, int vsynced)
 {
     (void)real_now_us;
+    service(); /* the cooperative clock's time, as of after the present */
     if (vsynced && rate == 100 && present_refresh >= 59.0f && present_refresh <= 61.0f) {
         sigset_t set, previous;
         unsigned period = (unsigned)(1000000.0f / present_refresh + 0.5f);
