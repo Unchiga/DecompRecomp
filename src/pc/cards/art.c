@@ -24,10 +24,12 @@
  * regular at 13 pixels, baseline under row 11, whole-pixel advances, hard
  * coverage steps), are the YuGiOhForbiddenMemoriesRecomp project's
  * (src/psx_card_packs.c, render_title), found against window captures. */
+#include "pc/compat/fs.h"
 #include "cards.h"
 #include "art.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include "pc/compat/font.h"
 #include <png.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -49,19 +51,24 @@ typedef struct { unsigned char r, g, b; } Rgb;
 static Rgb *load_png_as(const char *path, int *width, int *height, int ink)
 {
     png_image image;
+    FILE *file;
     unsigned char *rgba;
     Rgb *out;
     size_t i, count;
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
-    if (!png_image_begin_read_from_file(&image, path)) return NULL;
+    file = fopen(path, "rb");
+    if (!file) return NULL;
+    if (!png_image_begin_read_from_stdio(&image, file)) { fclose(file); return NULL; }
     image.format = PNG_FORMAT_RGBA;
     rgba = malloc(PNG_IMAGE_SIZE(image));
     if (!rgba || !png_image_finish_read(&image, NULL, rgba, 0, NULL)) {
         free(rgba);
+        fclose(file);
         png_image_free(&image);
         return NULL;
     }
+    fclose(file);
     count = (size_t)image.width * image.height;
     out = malloc(count * sizeof(*out));
     for (i = 0; out && i < count; i++) {

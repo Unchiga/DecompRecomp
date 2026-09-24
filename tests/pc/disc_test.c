@@ -1,6 +1,7 @@
 /* Real ISO lookup, replacement composition and asynchronous drive delivery. */
 #define MODS_REAL_DISC
 #define main original_mods_test
+#include "pc/compat/fs.h"
 #include "mods_test.c"
 #undef main
 #include "psyq/libds.h"

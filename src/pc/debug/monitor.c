@@ -18,6 +18,7 @@
 #define _WIN32_WINNT 0x0A00
 #define PSAPI_VERSION 2
 #endif
+#include "pc/compat/fs.h"
 #include "monitor.h"
 #include "crash.h"
 #include "symbols.h"
@@ -441,15 +442,18 @@ static void load_mappings(void)
         if (!EnumProcessModules(game_process, modules, sizeof(modules), &needed)) return;
         for (i = 0; i < needed / sizeof(HMODULE) && i < 256 && mapping_count < 512; i++) {
             MODULEINFO information;
+            wchar_t wide[MAX_PATH] = {0};
+            char *name;
             Mapping *mapping = &mappings[mapping_count];
             if (!GetModuleInformation(game_process, modules[i], &information, sizeof(information))) continue;
             mapping->low = (uintptr_t)information.lpBaseOfDll;
             mapping->high = mapping->low + information.SizeOfImage;
             mapping->offset = 0;
             mapping->executable = 1;
-            if (!GetModuleBaseNameA(game_process, modules[i], mapping->name, sizeof(mapping->name))) {
-                snprintf(mapping->name, sizeof(mapping->name), "module");
-            }
+            GetModuleBaseNameW(game_process, modules[i], wide, MAX_PATH - 1);
+            name = Memories_WideToUtf8(wide);
+            snprintf(mapping->name, sizeof(mapping->name), "%s", name && *name ? name : "module");
+            free(name);
             mapping_count++;
         }
     }
@@ -747,8 +751,12 @@ static void dump_threads(void)
 
 static int write_minidump(const char *path)
 {
-    HANDLE file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    wchar_t *wide = Memories_Utf8ToWide(path);
+    HANDLE file;
     BOOL written;
+    if (!wide) return -1;
+    file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(wide);
     if (file == INVALID_HANDLE_VALUE) return -1;
     written = MiniDumpWriteDump(game_process, (DWORD)game_pid, file,
                                 (MINIDUMP_TYPE)(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory |

@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include "cheats.h"
 #include "types.h"
 #include "game/card_constants.h"

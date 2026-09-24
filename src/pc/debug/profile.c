@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include "profile.h"
 #include "symbols.h"
 #include "pc/compat/signal.h"

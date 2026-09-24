@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "image.h"
 #include "mips.h"
 #include "pc/debug/crash.h"

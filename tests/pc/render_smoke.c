@@ -1,4 +1,5 @@
 /* Synthetic retail-format packets rendered through PSY-Z, without game assets. */
+#include "pc/compat/fs.h"
 #include <psyz.h>
 #include <libgpu.h>
 #include <libetc.h>

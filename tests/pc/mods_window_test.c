@@ -1,5 +1,6 @@
 /* Real loader/settings, fake font and restart: verify staged UI behavior. */
 #define main original_mods_test
+#include "pc/compat/fs.h"
 #include "mods_test.c"
 #undef main
 #include "pc/platform/mods_window.h"

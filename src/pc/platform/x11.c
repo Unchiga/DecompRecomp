@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "platform.h"
 #include "paths.h"
 #include "pc/audio/spu.h"

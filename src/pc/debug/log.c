@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "pc/compat/fs.h"
 #include "log.h"
 #include "monitor.h"
 #include "pc/platform/platform.h"

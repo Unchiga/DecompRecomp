@@ -1,6 +1,7 @@
 /* The manifest reader (json.h). One pass over a private copy of the text:
  * strings are unescaped in place, which only ever shortens them, and values
  * come from arena blocks so that a parsed document's pointers stay put. */
+#include "pc/compat/fs.h"
 #include "json.h"
 #include <ctype.h>
 #include <errno.h>
