@@ -316,12 +316,13 @@ void Menu_SetScale(int scale)
     }
 }
 
-/* 1 up to about 720 rows, 2 up to about 1200, 3 above: a 4x window is 2, a
- * 4K display 3. */
+/* One step below the original automatic size, with a 1x minimum:
+ * a 4x window is 1, a 4K display 2. Manual sizes are unchanged. */
 int Menu_AutoScale(int window_h)
 {
     int scale = (window_h + 240) / 480;
-    return scale < 1 ? 1 : scale > 3 ? 3 : scale;
+    scale = scale < 1 ? 1 : scale > 3 ? 3 : scale;
+    return scale > 1 ? scale - 1 : 1;
 }
 
 static MenuCanvas *canvas;
