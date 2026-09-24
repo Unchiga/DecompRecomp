@@ -2,6 +2,7 @@
  * to one that is malformed. */
 #include "pc/mods/json.h"
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -59,6 +60,58 @@ int main(void)
     assert(!Json_Parse("", error, sizeof(error)) && error[0]);
     assert(!Json_Parse("{ \"a\": \"\\q\" }", error, sizeof(error)) && error[0]);
     assert(!Json_ParseFile("/does/not/exist.json", error, sizeof(error)) && error[0]);
+    /* Numbers are JSON's, in base 10, and whole. */
+    {
+        static const struct { const char *text; long value; } good[] = {
+            {"[0]", 0}, {"[-0]", 0}, {"[10]", 10}, {"[-42]", -42}, {"[1e3]", 1000}, {"[2.50e1]", 25},
+            {"[7.0]", 7}, {"[1000E-3]", 1}, {"[1E+2]", 100}, {"[2147483647]", 2147483647L},
+        };
+        static const char *bad[] = {
+            "[010]", "[08]", "[1-2]", "[1.5]", "[1e-3]", "[1.]", "[.5]", "[-]", "[1e]", "[+1]",
+            "[0x10]", "[99999999999999999999]", "[1e400]",
+        };
+        char text[64];
+        unsigned i;
+        for (i = 0; i < sizeof(good) / sizeof(good[0]); i++) {
+            document = Json_Parse(good[i].text, error, sizeof(error));
+            assert(document && Json_Number(Json_At(Json_Root(document), 0), -1) == good[i].value);
+            Json_Free(document);
+        }
+        for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+            assert(!Json_Parse(bad[i], error, sizeof(error)) && error[0]);
+        }
+        /* A long's own ends, whatever its size on this system. */
+        snprintf(text, sizeof(text), "[%ld, %ld]", LONG_MAX, LONG_MIN);
+        document = Json_Parse(text, error, sizeof(error));
+        assert(document && Json_Number(Json_At(Json_Root(document), 0), 0) == LONG_MAX &&
+               Json_Number(Json_At(Json_Root(document), 1), 0) == LONG_MIN);
+        Json_Free(document);
+        /* Strings that hold a number: hexadecimal with its 0x, else decimal. */
+        document = Json_Parse("[\"0x5D800\", \"010\", \" -3 \", \"08\", \"1.5\"]", error, sizeof(error));
+        assert(document);
+        assert(Json_Number(Json_At(Json_Root(document), 0), -1) == 0x5D800);
+        assert(Json_Number(Json_At(Json_Root(document), 1), -1) == 10);
+        assert(Json_Number(Json_At(Json_Root(document), 2), -1) == -3);
+        assert(Json_Number(Json_At(Json_Root(document), 3), -1) == 8);
+        assert(Json_Number(Json_At(Json_Root(document), 4), -1) == -1);
+        Json_Free(document);
+    }
+    /* Nesting has a limit, so a hostile manifest cannot run the stack out. */
+    {
+        static char deep[200001];
+        memset(deep, '[', sizeof(deep) - 1);
+        assert(!Json_Parse(deep, error, sizeof(error)) && strstr(error, "nested"));
+        memset(deep, 0, sizeof(deep));
+        memset(deep, '[', 64);
+        memset(deep + 64, ']', 64);
+        document = Json_Parse(deep, error, sizeof(error));
+        assert(document);
+        Json_Free(document);
+        deep[128] = ']';
+        memmove(deep + 1, deep, 128);
+        deep[0] = '[';
+        assert(!Json_Parse(deep, error, sizeof(error)) && strstr(error, "nested"));
+    }
     /* A trailing comma is common enough in a hand-written manifest to allow. */
     document = Json_Parse("{ \"a\": [1, 2,], }", error, sizeof(error));
     assert(document && Json_Count(Json_Member(Json_Root(document), "a")) == 2);

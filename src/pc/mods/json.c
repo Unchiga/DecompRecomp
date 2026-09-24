@@ -3,11 +3,17 @@
  * come from arena blocks so that a parsed document's pointers stay put. */
 #include "json.h"
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define BLOCK 32
+/* Arrays and objects inside each other: a manifest needs a handful, and the
+ * parser recurses once a level, so a file of ten thousand "[" must fail
+ * rather than run the stack out. */
+#define DEPTH_MAX 64
 
 struct JsonValue {
     JsonType type;
@@ -31,6 +37,7 @@ typedef struct {
     char *at;
     char *error;
     size_t error_size;
+    int depth;
 } Parser;
 
 static void fail(Parser *parser, const char *why)
@@ -132,6 +139,65 @@ static JsonValue *parse_container(Parser *parser, JsonValue *value, char close)
     }
 }
 
+/* A number as JSON writes one, in base 10: "010" and "08" are not numbers,
+ * and neither is "1-2". A fraction or an exponent is fine while the value
+ * is still whole ("1e3" is 1000, "2.50e1" is 25); anything else, and
+ * anything past a long, is an error rather than a quietly different value. */
+static int parse_number(Parser *parser, long *out)
+{
+    const char *at = parser->at, *digits, *fraction = "";
+    int negative = 0, whole_count, fraction_count = 0, i, total;
+    long exponent = 0, keep;
+    unsigned long magnitude = 0, limit;
+    if (*at == '-') { negative = 1; at++; }
+    if (!isdigit((unsigned char)*at)) { fail(parser, "bad number"); return 0; }
+    if (at[0] == '0' && isdigit((unsigned char)at[1])) { fail(parser, "a number may not start with 0"); return 0; }
+    digits = at;
+    while (isdigit((unsigned char)*at)) at++;
+    whole_count = (int)(at - digits);
+    if (*at == '.') {
+        at++;
+        if (!isdigit((unsigned char)*at)) { fail(parser, "bad number"); return 0; }
+        fraction = at;
+        while (isdigit((unsigned char)*at)) at++;
+        fraction_count = (int)(at - fraction);
+    }
+    if (*at == 'e' || *at == 'E') {
+        int minus = 0;
+        at++;
+        if (*at == '+' || *at == '-') minus = *at++ == '-';
+        if (!isdigit((unsigned char)*at)) { fail(parser, "bad number"); return 0; }
+        while (isdigit((unsigned char)*at)) {
+            if (exponent < 100000) exponent = exponent * 10 + (*at - '0');
+            at++;
+        }
+        if (minus) exponent = -exponent;
+    }
+    /* The digits, whole part then fraction, are the value times a power of
+     * ten; the first `keep` of them are its whole part, and the rest must
+     * be zeroes. */
+    limit = negative ? (unsigned long)LONG_MAX + 1 : (unsigned long)LONG_MAX;
+    total = whole_count + fraction_count;
+    keep = (long)whole_count + exponent;
+    for (i = 0; i < total; i++) {
+        int digit = (i < whole_count ? digits[i] : fraction[i - whole_count]) - '0';
+        if (i >= keep) {
+            if (digit) { fail(parser, "a number must be whole"); return 0; }
+            continue;
+        }
+        if (magnitude > (limit - (unsigned long)digit) / 10) { fail(parser, "number out of range"); return 0; }
+        magnitude = magnitude * 10 + (unsigned long)digit;
+    }
+    for (; magnitude && i < keep; i++) {
+        if (magnitude > limit / 10) { fail(parser, "number out of range"); return 0; }
+        magnitude *= 10;
+    }
+    if (negative) *out = magnitude > (unsigned long)LONG_MAX ? LONG_MIN : -(long)magnitude;
+    else *out = (long)magnitude;
+    parser->at = (char *)at;
+    return 1;
+}
+
 static JsonValue *parse_value(Parser *parser)
 {
     JsonValue *value;
@@ -140,8 +206,14 @@ static JsonValue *parse_value(Parser *parser)
     if (!value) return NULL;
     memset(value, 0, sizeof(*value));
     switch (*parser->at) {
-    case '{': value->type = JSON_OBJECT; return parse_container(parser, value, '}');
-    case '[': value->type = JSON_ARRAY; return parse_container(parser, value, ']');
+    case '{':
+    case '[':
+        if (parser->depth == DEPTH_MAX) { fail(parser, "nested too deeply"); return NULL; }
+        parser->depth++;
+        value->type = *parser->at == '{' ? JSON_OBJECT : JSON_ARRAY;
+        value = parse_container(parser, value, *parser->at == '{' ? '}' : ']');
+        parser->depth--;
+        return value;
     case '"':
         value->type = JSON_STRING;
         value->text = parse_string(parser);
@@ -151,19 +223,9 @@ static JsonValue *parse_value(Parser *parser)
         if (!strncmp(parser->at, "false", 5)) { parser->at += 5; value->type = JSON_BOOL; return value; }
         if (!strncmp(parser->at, "null", 4)) { parser->at += 4; value->type = JSON_NULL; return value; }
         if (*parser->at == '-' || isdigit((unsigned char)*parser->at)) {
-            char *end;
             value->type = JSON_NUMBER;
             value->text = parser->at;
-            value->number = strtol(parser->at, &end, 0);
-            if (end == parser->at) { fail(parser, "bad number"); return NULL; }
-            /* A fraction or an exponent is read past but not kept: nothing a
-             * manifest holds is fractional. */
-            while (*end == '.' || *end == 'e' || *end == 'E' || *end == '+' ||
-                   *end == '-' || isdigit((unsigned char)*end)) {
-                end++;
-            }
-            parser->at = end;
-            return value;
+            return parse_number(parser, &value->number) ? value : NULL;
         }
         fail(parser, *parser->at ? "unexpected character" : "unexpected end of file");
         return NULL;
@@ -185,6 +247,7 @@ JsonDocument *Json_Parse(const char *text, char *error, size_t error_size)
     parser.at = document->text;
     parser.error = error;
     parser.error_size = error_size;
+    parser.depth = 0;
     document->root = parse_value(&parser);
     if (document->root) {
         skip_space(&parser);
@@ -283,10 +346,16 @@ long Json_Number(const JsonValue *value, long fallback)
     if (value->type == JSON_NUMBER) return value->number;
     if (value->type == JSON_BOOL) return value->boolean;
     if (value->type == JSON_STRING && value->text) {
+        /* Hexadecimal with its "0x", else decimal: a leading 0 is not octal. */
+        const char *digits = value->text;
         char *end;
-        long parsed = strtol(value->text, &end, 0);
+        long parsed;
+        while (isspace((unsigned char)*digits)) digits++;
+        if (*digits == '-' || *digits == '+') digits++;
+        errno = 0;
+        parsed = strtol(value->text, &end, digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X') ? 16 : 10);
         while (isspace((unsigned char)*end)) end++;
-        if (end != value->text && !*end) return parsed;
+        if (end != value->text && !*end && !errno) return parsed;
     }
     return fallback;
 }
