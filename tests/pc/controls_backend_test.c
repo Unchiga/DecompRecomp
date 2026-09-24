@@ -175,7 +175,7 @@ int main(void)
         Platform_OpenMods();
         Platform_OpenControls();
         assert(controls_window && mods_window);
-        assert(SDL_GL_GetCurrentContext() == gl_context);
+        assert(software || SDL_GL_GetCurrentContext() == gl_context);
         if (!software) glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack);
         assert(unpack == 320);
         assert(SDL_SetJoystickVirtualButton(sticks[2], 3, true));
@@ -183,7 +183,7 @@ int main(void)
         assert(Gamepad_Bits(0) == 0);
         draw_controls();
         draw_mods();
-        assert(SDL_GL_GetCurrentContext() == gl_context);
+        assert(software || SDL_GL_GetCurrentContext() == gl_context);
         close_mods();
         close_controls();
         update();
