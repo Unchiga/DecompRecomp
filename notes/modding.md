@@ -298,7 +298,10 @@ python3 tools/pc/build_mod.py my-mod            # writes my-mod/<library>.o
 
 `build_mod.py` compiles every `.c` in the directory and merges them into the
 one object. Beside a released game the same script is
-`sdk/tools/build_mod.py`, and it builds against `sdk/include` there. It needs
+`sdk/tools/build_mod.py`, and it builds against `sdk/include` there. The
+release's `sdk/` also carries `extract_images.py` and `upscale_pack.py` in
+`sdk/tools`, the example mods in `sdk/examples/mods`, and this note with
+`mod-api-3.md` and `more-cards.md` in `sdk/notes`. It needs
 clang (on Windows, the llvm-mingw clang; it builds the Linux object format
 there too) or, on Linux, gcc with 32-bit support. `./build-pc.sh` builds
 every directory under `mods/` this way, once, and copies the same file into

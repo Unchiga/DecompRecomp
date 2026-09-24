@@ -66,8 +66,9 @@ off. Two come with it:
 
 To install someone else's mod, put its folder in the "mods" folder of your
 user folder. A mod that contains code runs as part of the game, so only
-install mods from people you trust. Mod authors: see sdk/ and
-sdk/tools/build_mod.py.
+install mods from people you trust. Mod authors: see sdk/notes/modding.md,
+sdk/examples/mods and sdk/tools (build_mod.py builds a code mod;
+extract_images.py and upscale_pack.py make texture packs).
 
 
 Linux
