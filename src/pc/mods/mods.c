@@ -512,7 +512,8 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
      * disc's own tables, so a replacement may fill the original's sectors
      * and no more: the sectors past them belong to the next file. */
     if ((size_t)info.st_size > (size_t)sectors * SECTOR) {
-        say("%s: %s is larger than the file it replaces; the tail is ignored", mod->id, replacement);
+        warn(mod, 0, "%s is larger than the file it replaces; only its first %lu bytes are used", replacement,
+             (unsigned long)sectors * SECTOR);
     }
     image = map_file(file, (size_t)info.st_size);
     close(file);
