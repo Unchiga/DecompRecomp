@@ -1,3 +1,6 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 #define MAIN_MODE_STATE_NEXT_AS_SCALAR
 #define MAIN_MODE_STATE_ACTIVE_AS_SCALAR
 #define D_8009B0D1_IN_DATA
@@ -16,7 +19,11 @@
 #include "mem_card.h"
 #include "save_data.h"
 
+#ifdef MEMORIES_PC
+static void Main_ApplyMenuSelectionRetail(MainMenuSelection selection)
+#else
 void Main_ApplyMenuSelection(MainMenuSelection selection)
+#endif
 {
     D_8009B268 = 1;
     D_8009B26D = selection;
@@ -66,3 +73,16 @@ void Main_ApplyMenuSelection(MainMenuSelection selection)
         break;
     }
 }
+
+#ifdef MEMORIES_PC
+void Main_ApplyMenuSelection(MainMenuSelection selection)
+{
+    MemoriesModEvent event = {MEMORIES_EVENT_SCENE, MEMORIES_BEFORE, 0, 0, 0, 0, 0};
+    event.a = selection; event.b = D_8009B26C;
+    Mods_Dispatch(&event);
+
+    if (!event.handled) { Main_ApplyMenuSelectionRetail((MainMenuSelection)event.a); }
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+
+}
+#endif

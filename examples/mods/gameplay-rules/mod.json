@@ -1,0 +1,15 @@
+{
+    "id": "gameplay-rules",
+    "name": "Gameplay rules example",
+    "version": "1.0",
+    "author": "DecompRecomp",
+    "description": "A code-mod example: adjustable battle damage, a custom fusion and persistent statistics.",
+    "min_api": 3,
+    "game": "slus_01411",
+    "library": "rules",
+    "enabled": false,
+    "settings": [
+        {"key": "damage_percent", "label": "Damage multiplier", "type": "int", "default": 100, "min": 0, "max": 300, "step": 10, "suffix": "%"},
+        {"key": "fusion", "label": "Example fusion", "type": "bool", "default": 0, "description": "Blue-eyes + Mystical Elf produces Hitotsu-me Giant."}
+    ]
+}

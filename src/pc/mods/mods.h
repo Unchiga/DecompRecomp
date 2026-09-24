@@ -7,7 +7,9 @@
  * (paths.h), which is where a player installs someone else's. Whether a mod
  * is applied is a setting, `mod.<id>`, saved with the rest of them. */
 
-#define MODS_MAX 64
+#define MODS_MAX 256
+#include <stddef.h>
+#include "mod_types.h"
 
 /* Find every mod and apply the ones the settings say are applied. Safe to
  * call again (settings reload): the directories are only scanned once. */
@@ -59,4 +61,38 @@ void Mods_Reset(void);
  * sector was changed. */
 int Mods_DiscSector(int lba, void *user_data);
 
+/* Manager metadata and configuration. Borrowed strings live until exit. */
+const struct JsonValue *Mods_Manifest(int mod);
+const char *Mods_Metadata(int mod, const char *key);
+const char *Mods_Directory(int mod);
+const char *Mods_Origin(int mod);
+int Mods_Active(int mod);
+int Mods_Failed(int mod);
+int Mods_ConflictText(int mod, char *out, size_t size);
+int Mods_OptionCount(int mod);
+const struct JsonValue *Mods_Option(int mod, int option);
+int Mods_OptionValue(int mod, int option);
+int Mods_OptionValid(int mod, int option, int value);
+int Mods_OptionSet(int mod, int option, int value);
+/* Validate the whole proposed set, before saving/changing anything. */
+int Mods_CheckManifest(int mod, char *error, size_t size);
+int Mods_Compatible(int mod, const int *enabled, char *error, size_t size);
+/* The load order of the enabled mods, or -1 on a cycle; order[] then holds
+ * the mods that could still be placed, ended by -1. */
+int Mods_Order(const int *enabled, int *order, char *error, size_t size);
+int Mods_ProfileValue(const char *name, const char *key, int fallback);
+int Mods_Validate(const int *enabled, char *error, size_t size);
+int Mods_Apply(const int *enabled, char *error, size_t size);
+int Mods_ProfileSave(const char *name);
+int Mods_ProfileRead(const char *name, int *enabled);
+void Mods_SetCardSignature(unsigned signature);
+unsigned Mods_CardSignature(void);
+void Mods_SetCardResolver(int (*resolve)(const char *));
+void Mods_Dispatch(MemoriesModEvent *event);
+int Mods_Notify(unsigned type, int a, int b, int c);
+unsigned Mods_Sequence(int mod);
+int Mods_RuntimeOption(int mod, int option);
+unsigned Mods_CodeHash(int mod);
+unsigned Mods_Signature(void);
+int Mods_DamageLife(int side, int life, int damage, int kind);
 #endif

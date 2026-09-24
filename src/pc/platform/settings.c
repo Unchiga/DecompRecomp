@@ -2,6 +2,7 @@
 #include "paths.h"
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,9 +10,8 @@
 #include "pc/compat/posix.h"
 
 #define MAX_UNKNOWN 64
-#define MAX_NAMED 128
-#define MAX_KEY 64
-#define MAX_LINE 256
+#define MAX_KEY 256
+#define MAX_LINE 1024
 #define MAX_OBSERVERS 8
 
 typedef struct {
@@ -62,8 +62,8 @@ static int values[SET_COUNT];
 static int stored[SET_COUNT];
 static char unknown[MAX_UNKNOWN][MAX_LINE];
 static int unknown_count;
-static Named named[MAX_NAMED];
-static int named_count;
+static Named *named;
+static int named_count, named_capacity, named_error;
 static void (*observers[MAX_OBSERVERS])(SettingId, int);
 static int observer_count;
 
@@ -105,7 +105,7 @@ static int parse_value(const char *text, int *value)
     errno = 0;
     parsed = strtol(text, &end, 10);
     while (isspace((unsigned char)*end)) end++;
-    if (errno || end == text || *end) return 0;
+    if (errno || end == text || *end || parsed < INT_MIN || parsed > INT_MAX) return 0;
     *value = (int)parsed;
     return 1;
 }
@@ -117,7 +117,18 @@ static Named *find_named(const char *key, int make)
     for (i = 0; i < named_count; i++) {
         if (!strcmp(named[i].key, key)) return &named[i];
     }
-    if (!make || named_count >= MAX_NAMED || strlen(key) >= MAX_KEY) return NULL;
+    if (!make) return NULL;
+    if (strlen(key) >= MAX_KEY) { named_error = 1; return NULL; }
+    /* A name must read back as itself: one line, split at the first '='. */
+    if (!*key || strpbrk(key, "=\r\n") || isspace((unsigned char)key[0]) || isspace((unsigned char)key[strlen(key) - 1]))
+        return NULL;
+    if (named_count == named_capacity) {
+        int capacity = named_capacity ? named_capacity * 2 : 128;
+        Named *grown = realloc(named, (size_t)capacity * sizeof(*named));
+        if (!grown) { named_error = 1; return NULL; }
+        named = grown;
+        named_capacity = capacity;
+    }
     snprintf(named[named_count].key, MAX_KEY, "%s", key);
     named[named_count].value = 0;
     return &named[named_count++];
@@ -134,7 +145,7 @@ void Settings_Load(void)
     FILE *file;
     char line[MAX_LINE];
     int id;
-    unknown_count = named_count = 0;
+    unknown_count = named_count = named_error = 0;
     for (id = 0; id < SET_COUNT; id++) values[id] = stored[id] = info[id].def;
     file = fopen(settings_path(), "r");
     if (file) {
@@ -183,6 +194,7 @@ int Settings_Save(void)
     FILE *file;
     int id, i;
 
+    if (named_error) return 0; /* Never report success after dropping a setting. */
     if (snprintf(temporary, sizeof(temporary), "%s.tmp", path) >= (int)sizeof(temporary)) return 0;
     file = fopen(temporary, "w");
     if (!file) return 0;
@@ -240,4 +252,10 @@ void Settings_Observe(void (*changed)(SettingId id, int value))
     if (!changed) return;
     for (i = 0; i < observer_count; i++) if (observers[i] == changed) return;
     if (observer_count < MAX_OBSERVERS) observers[observer_count++] = changed;
+}
+
+void Settings_VisitNamed(void (*visit)(const char *, int, void *), void *context)
+{
+    int i;
+    for (i = 0; i < named_count; i++) visit(named[i].key, named[i].value, context);
 }

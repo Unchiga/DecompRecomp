@@ -1,3 +1,4 @@
+#include "pc/mods/mods.h"
 /* LIBETC/LIBAPI: callbacks, VSync, critical sections and the BIOS pad driver.
  * The VBlank "interrupt" is the platform's 60 Hz signal; everything reachable
  * from it must stay async-signal-safe (no stdio, no allocation, no Xlib). */
@@ -61,6 +62,10 @@ static void run_vblank(void)
     for (port = 0; port < 2 && pads_started; port++) {
         if (pad_buffer[port]) {
             unsigned bits = Platform_Pad(port);
+            MemoriesModEvent input = {MEMORIES_EVENT_INPUT, MEMORIES_BEFORE, port, (int)bits, 0, (int)bits, 0};
+            Mods_Dispatch(&input);
+            bits = (unsigned)(input.handled ? input.result : input.b) & 0xffffu;
+            input.result = (int)bits; input.phase = MEMORIES_AFTER; Mods_Dispatch(&input);
             pad_buffer[port][0] = Platform_PadConnected(port) ? 0x00 : 0xff; /* 0xff: no pad */
             pad_buffer[port][1] = 0x41;
             pad_buffer[port][2] = (unsigned char)~bits;

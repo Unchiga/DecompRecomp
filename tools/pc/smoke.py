@@ -153,7 +153,9 @@ def main() -> int:
         exports_ok = check_mod_exports(WINDOWS_EXECUTABLE)
         loader_ok = subprocess.run([sys.executable, str(ROOT / "tools/pc/test_object_loader.py"), "--target", "windows"],
                                    cwd=ROOT, check=False).returncode == 0
-        return 0 if run_smoke(WINDOWS_EXECUTABLE, arguments.record) and exports_ok and loader_ok else 1
+        lifecycle_ok = subprocess.run([sys.executable, str(ROOT / "tools/pc/test_mods_lifecycle.py"), "--target", "windows"],
+                                      cwd=ROOT, check=False).returncode == 0
+        return 0 if run_smoke(WINDOWS_EXECUTABLE, arguments.record) and exports_ok and loader_ok and lifecycle_ok else 1
     exports_ok = check_mod_exports(arguments.executable.resolve())
     screenshots_ok = run_smoke(arguments.executable.resolve(), arguments.record) and exports_ok
     tests_ok = run_ctests(arguments.build.resolve())

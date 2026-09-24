@@ -1,117 +1,127 @@
+/* Real loader/settings, fake font and restart: verify staged UI behavior. */
+#define main original_mods_test
+#include "mods_test.c"
+#undef main
 #include "pc/platform/mods_window.h"
-#include "pc/platform/settings.h"
-#include "pc/mods/mods.h"
-#include <assert.h>
-#include <string.h>
-
-/* Geometry at scale 1 with a 7px-per-character font (see mods_window.c):
- * the lists start at y=96 with 4px padding and 28px rows, the arrow buttons
- * sit centred in the gutter, and the footer buttons are 28px tall ending
- * 16px above the bottom. */
-#define ROW0_Y 114
-#define ARROW_APPLY_Y 124
-#define ARROW_REMOVE_Y 160
-#define FOOTER_Y(h) ((h) - 30)
-#define LEFT_ROW_X 40
-#define RIGHT_ROW_X(w) ((w) - 40)
-#define CLOSE_X(w) ((w) - 30)
-#define PRIMARY_X(w) ((w) - 70)
-#define CANCEL_X(w) ((w) - 206)
-
-/* `stored` is what the settings hold, `live` what is actually in place: a
- * mod that needs a restart is recorded without being put in place. */
-static int stored[2], live[2], restart_required, restarts, saves, save_ok = 1;
-static const char *mod_status[2] = {"", ""};
+static int restarts;
 int Menu_Scale(void) { return 1; }
-int Menu_TextWidth(const char *s) { return (int)strlen(s) * 7; }
-void Menu_DrawText(MenuCanvas *c, int x, int y, const char *s, uint32_t color)
-{ (void)c; (void)x; (void)y; (void)s; (void)color; }
-int Mods_Count(void) { return 2; }
-const char *Mods_Name(int mod) { return mod ? "Hand camera" : "3D Monsters"; }
-const char *Mods_Status(int mod) { return mod_status[mod]; }
-int Mods_Enabled(int mod) { return stored[mod]; }
-int Mods_RequiresRestart(int mod) { (void)mod; return restart_required; }
-void Mods_SetEnabled(int mod, int on)
+int Menu_TextWidthScaled(const char *s, int scale) { return (int)strlen(s) * 7 * scale; }
+void Menu_DrawTextScaled(MenuCanvas *c, int x, int y, const char *s, uint32_t color, int scale)
 {
-    stored[mod] = on;
-    if (!restart_required) live[mod] = on;
+    (void)c;
+    (void)x;
+    (void)y;
+    (void)s;
+    (void)color;
+    (void)scale;
 }
-int Settings_Save(void) { ++saves; return save_ok; }
-int Platform_RestartGame(void) { ++restarts; return -1; }
-static int event(MenuEventType type, int x, int y, MenuKey key)
+int Platform_RestartGame(void)
+{
+    restarts++;
+    return -1;
+}
+static int input(MenuEventType type, int x, int y, MenuKey key, const char *text)
 {
     MenuEvent e = {0};
-    e.type = type; e.x = x; e.y = y; e.button = 1; e.key = key;
+    e.type = type;
+    e.x = x;
+    e.y = y;
+    e.button = 1;
+    e.key = key;
+    if (text)
+        snprintf(e.text, sizeof(e.text), "%s", text);
     return ModsWindow_Event(&e);
 }
-static int click(int x, int y)
-{
-    int r = event(MENU_EVENT_BUTTON_DOWN, x, y, MENU_KEY_OTHER);
-    event(MENU_EVENT_BUTTON_UP, x, y, MENU_KEY_OTHER);
-    return r;
-}
-static void drag(int from_x, int from_y, int to_x, int to_y)
-{
-    event(MENU_EVENT_BUTTON_DOWN, from_x, from_y, MENU_KEY_OTHER);
-    event(MENU_EVENT_MOTION, to_x, to_y, MENU_KEY_OTHER);
-    event(MENU_EVENT_BUTTON_UP, to_x, to_y, MENU_KEY_OTHER);
-}
-static int key(MenuKey k) { return event(MENU_EVENT_KEY_DOWN, 0, 0, k); }
+static int click(int x, int y) { return input(MENU_EVENT_BUTTON_DOWN, x, y, MENU_KEY_OTHER, NULL); }
 int main(void)
 {
+    char path[1024];
     int w, h;
-    ModsWindow_Init(); ModsWindow_Size(&w, &h);
-    assert(w == 602 && h == 264); /* the footer's widest message row sets the width */
-    /* Select 3D Monsters in Available and press the apply arrow. */
-    click(LEFT_ROW_X, ROW0_Y); click(w / 2, ARROW_APPLY_Y);
-    assert(live[0] && saves == 1 && !restarts);
-    /* The apply arrow does nothing while the selection is already applied. */
-    click(w / 2, ARROW_APPLY_Y);
-    assert(saves == 1);
-    /* Drag it back to Available, then to Applied again. */
-    drag(RIGHT_ROW_X(w), ROW0_Y, LEFT_ROW_X, ROW0_Y + 30);
-    assert(!live[0] && saves == 2);
-    drag(LEFT_ROW_X, ROW0_Y, RIGHT_ROW_X(w), ROW0_Y);
-    assert(live[0] && saves == 3);
-    /* A click, a release inside the same row, or a drop outside a list must not apply a mod. */
-    click(LEFT_ROW_X, ROW0_Y);
-    drag(LEFT_ROW_X, ROW0_Y, LEFT_ROW_X + 20, ROW0_Y + 2);
-    drag(LEFT_ROW_X, ROW0_Y, w / 2, FOOTER_Y(h));
-    assert(!live[1] && saves == 3);
-    /* Keyboard: Right applies, Left removes. */
-    key(MENU_KEY_RIGHT);
-    assert(live[1] && saves == 4);
-    key(MENU_KEY_LEFT);
-    assert(!live[1] && saves == 5);
-    key(MENU_KEY_LEFT);
-    assert(saves == 5);
-    /* A restart-only mod asks first; Cancel leaves it, the primary button confirms. */
-    restart_required = 1;
-    click(w / 2, ARROW_APPLY_Y);
-    assert(!restarts && saves == 5);
-    assert(!click(CANCEL_X(w), FOOTER_Y(h)));
-    assert(!restarts && !stored[1]);
-    click(w / 2, ARROW_APPLY_Y);
-    click(PRIMARY_X(w), FOOTER_Y(h)); /* Confirm, simulated exec failure. */
-    assert(restarts == 1 && stored[1] && !live[1]);
-    /* Escape cancels a pending warning rather than closing. A mod that
-     * needs a restart reads back as applied once it is recorded, so it is
-     * removing one that asks the second time. */
-    click(RIGHT_ROW_X(w), ROW0_Y); click(w / 2, ARROW_REMOVE_Y);
-    assert(!key(MENU_KEY_ESCAPE) && restarts == 1);
-    /* Failed persistence rolls back a live change. */
-    restart_required = 0; save_ok = 0;
-    ModsWindow_Init(); click(RIGHT_ROW_X(w), ROW0_Y); click(w / 2, ARROW_REMOVE_Y);
-    assert(live[0] && stored[0]);
-    /* A mod that failed to load says so instead of being applied. */
-    mod_status[1] = "its library could not be opened";
-    stored[1] = live[1] = 0;
-    ModsWindow_Init(); save_ok = 1; saves = 0;
-    click(LEFT_ROW_X, ROW0_Y); click(w / 2, ARROW_APPLY_Y);
-    assert(!saves && !live[1]);
-    mod_status[1] = "";
-    /* Close and Escape both close the window. */
-    assert(click(CLOSE_X(w), FOOTER_Y(h)));
-    assert(key(MENU_KEY_ESCAPE));
+    scratch_template(root, sizeof(root), "memories-mod-window");
+    assert(mkdtemp(root));
+    make_dir("mods");
+    for (int i = 0; i < 80; i++) {
+        snprintf(path, sizeof(path), "mods/mod%02d", i);
+        make_dir(path);
+        snprintf(path, sizeof(path), "mods/mod%02d/mod.json", i);
+        write_text(path, i ? "{}"
+                           : "{\"restart\":true,\"settings\":[{\"key\":\"speed\",\"label\":\"Speed\",\"default\":5,"
+                             "\"min\":0,\"max\":10}]}");
+    }
+    snprintf(path, sizeof(path), "%s/mods", root);
+    setenv("MEMORIES_MODS_DIR", path, 1);
+    snprintf(path, sizeof(path), "%s/settings.txt", root);
+    setenv("MEMORIES_SETTINGS", path, 1);
+    setenv("MEMORIES_USER_DIR", root, 1);
+    Settings_Load();
+    Mods_Load();
+    assert(Mods_Count() == 80);
+    assert(find("mod00") == 0);
+    ModsWindow_Init();
+    ModsWindow_Size(&w, &h);
+    assert(w == 920 && h == 640);
+    click(32, 160);
+    assert(!Mods_Enabled(0)); /* staged */
+    click(800, 610);
+    assert(!restarts && !Mods_Enabled(0)); /* restart warning */
+    click(680, 610);
+    assert(!restarts); /* cancel warning */
+    click(800, 610);
+    click(800, 610);
+    assert(restarts == 1 && Mods_Enabled(0));
+    ModsWindow_Init();
+    click(580, 277); /* settings tab */
+    click(800, 395);
+    input(MENU_EVENT_MOTION, 878, 395, MENU_KEY_OTHER, NULL);
+    input(MENU_EVENT_BUTTON_UP, 878, 395, MENU_KEY_OTHER, NULL);
+    assert(Mods_OptionValue(0, 0) == 5); /* slider edits are staged */
+    click(800, 610);
+    click(800, 610);
+    assert(Mods_OptionValue(0, 0) == 10);
+    click(790, 80); /* save Default profile */
+    click(380, 230);
+    click(800, 610);
+    click(800, 610);
+    assert(!Mods_Enabled(0));
+    click(860, 80);
+    assert(!Mods_Enabled(0)); /* loading a profile is staged too */
+    click(800, 610);
+    click(800, 610);
+    assert(Mods_Enabled(0) && Mods_OptionValue(0, 0) == 10);
+    ModsWindow_Init();
+    click(50, 80);
+    input(MENU_EVENT_TEXT, 0, 0, MENU_KEY_OTHER, "mod79");
+    click(32, 160);
+    click(800, 610);
+    assert(Mods_Enabled(find("mod79"))); /* search actually filters */
+    ModsWindow_Init();
+    click(32, 160);
+    assert(!input(MENU_EVENT_KEY_DOWN, 0, 0, MENU_KEY_ESCAPE, NULL));
+    assert(input(MENU_EVENT_KEY_DOWN, 0, 0, MENU_KEY_ENTER, NULL)); /* explicit discard */
+    assert(Mods_Enabled(0));
+    ModsWindow_Init();
+    click(50, 80); /* a focused search field does not hold the window open */
+    assert(ModsWindow_RequestClose());
+    ModsWindow_Init();
+    click(32, 160);
+    assert(!ModsWindow_RequestClose()); /* unsaved changes: asks first */
+    assert(ModsWindow_RequestClose());  /* the second close discards */
+    {
+        MenuEvent motion = {0};
+        motion.type = MENU_EVENT_MOTION;
+        assert(!ModsWindow_Redraws(&motion)); /* plain pointer motion draws nothing */
+    }
+    ModsWindow_Init();
+    ModsWindow_Resize(720, 480);
+    ModsWindow_Size(&w, &h);
+    assert(w == 720 && h == 480);
+    MenuCanvas canvas = {0};
+    canvas.width = w;
+    canvas.height = h;
+    canvas.stride = w;
+    canvas.pixels = calloc((size_t)w * h, 4);
+    assert(canvas.pixels);
+    ModsWindow_Draw(&canvas);
+    free(canvas.pixels);
     return 0;
 }

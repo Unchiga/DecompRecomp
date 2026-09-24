@@ -851,7 +851,7 @@ static void draw_frame(void)
             /* A card a card mod added stands as the retail card it is a
              * copy of: MODEL.MRG has the disc's monsters only. */
             if (!tunable("test", 0)) {
-                id = Cards_BaseId(id);
+                id = Cards_ModelId(id);
             }
             /* The record carries a stance of its own for a monster in
              * defence, which is the one the battle presentation would use. */

@@ -28,6 +28,7 @@
 #include "exports.h"
 #include "object_loader.h"
 #include "json.h"
+#include "events.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include "pc/platform/platform.h"
@@ -43,6 +44,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <limits.h>
 #include "pc/compat/mman.h"
 #ifdef _WIN32
 #include <io.h>
@@ -71,7 +73,12 @@ typedef struct {
     int default_enabled;
     int enabled;                 /* the player's choice, from the settings */
     int active;                  /* and whether it is in place right now */
+    int failed;
+    int initialized;
     int broken;                  /* it failed to load; it cannot be applied */
+    int *runtime_options;
+    unsigned sequence;
+    unsigned code_hash;
     LoadedObject object;         /* the mod's code, once loaded */
     MemoriesMod hooks;
     MemoriesModHost host;
@@ -98,12 +105,14 @@ typedef struct {
 
 static Mod mods[MODS_MAX];
 static int mod_count;
+static unsigned activation_sequence;
 static int scanned;
 
 static Region regions[REGIONS_MAX];
 static int region_count;
 static Patch patches[PATCHES_MAX];
 static int patch_count;
+static int published_regions, published_patches;
 static volatile int overrides_live;
 static int override_low, override_high;
 
@@ -225,11 +234,10 @@ static FILE *host_open_data(const MemoriesModHost *host, const char *relative, c
 static int host_setting(const MemoriesModHost *host, const char *key, int fallback)
 {
     Mod *mod = owner(host);
-    char name[ID_MAX + 96];
+    char name[256];
     const char *text;
     if (!mod || !key || !*key) return fallback;
-    if (!environment_name(name, sizeof(name), mod->id, key)) return fallback;
-    text = getenv(name);
+    text = environment_name(name, sizeof(name), mod->id, key) ? getenv(name) : NULL;
     if (text && *text) return (int)strtol(text, NULL, 0);
     if (!setting_key(name, sizeof(name), mod->id, key)) return fallback;
     return Settings_GetNamed(name, fallback);
@@ -238,7 +246,7 @@ static int host_setting(const MemoriesModHost *host, const char *key, int fallba
 static void host_set_setting(const MemoriesModHost *host, const char *key, int value)
 {
     Mod *mod = owner(host);
-    char name[ID_MAX + 96];
+    char name[256];
     if (!mod || !key || !*key || !setting_key(name, sizeof(name), mod->id, key)) return;
     Settings_SetNamed(name, value);
 }
@@ -288,8 +296,26 @@ static void *host_map_fixed(const MemoriesModHost *host, uintptr_t address, size
 #endif
 }
 
+static int (*card_resolver)(const char *);
+static unsigned card_signature;
+void Mods_SetCardSignature(unsigned signature) { card_signature = signature; }
+unsigned Mods_CardSignature(void) { return card_signature; }
+void Mods_SetCardResolver(int (*resolve_card)(const char *)) { card_resolver = resolve_card; }
+static int host_card_id(const MemoriesModHost *host, const char *identity)
+{ (void)host; return card_resolver ? card_resolver(identity) : 0; }
+static int host_subscribe(const MemoriesModHost *host, unsigned event, int priority, MemoriesModCallback callback)
+{ return owner(host) ? Mods_Subscribe((int)(owner(host) - mods), event, priority, callback) : 0; }
+static void host_unsubscribe(const MemoriesModHost *host, int token)
+{ if (owner(host)) Mods_Unsubscribe((int)(owner(host) - mods), token); }
+static int host_register_state(const MemoriesModHost *host, void *data, size_t size, unsigned version)
+{ return owner(host) ? Mods_RegisterState((int)(owner(host) - mods), data, size, version) : 0; }
+
 static void fill_host(Mod *mod)
 {
+    mod->host.subscribe = host_subscribe;
+    mod->host.unsubscribe = host_unsubscribe;
+    mod->host.register_state = host_register_state;
+    mod->host.card_id = host_card_id;
     mod->host.api = MEMORIES_MOD_API;
     mod->host.id = mod->id;
     mod->host.directory = mod->directory;
@@ -321,6 +347,8 @@ static void publish_overrides(void)
         if (patches[i].lba < low) low = patches[i].lba;
         if (patches[i].lba > high) high = patches[i].lba;
     }
+    published_regions = region_count;
+    published_patches = patch_count;
     override_low = low;
     override_high = high;
     /* The tables are written before the interrupt is told to read them. */
@@ -477,7 +505,7 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
 }
 
 /* The "data" array of a manifest, once the mod is applied. */
-static void apply_overrides(Mod *mod, int index)
+static int apply_overrides(Mod *mod, int index)
 {
     int i, count = Json_Count(mod->data);
     for (i = 0; i < count; i++) {
@@ -487,21 +515,27 @@ static void apply_overrides(Mod *mod, int index)
         const JsonValue *patch = Json_Member(entry, "patch");
         int lba = (int)Json_Number(Json_Member(entry, "lba"), -1);
         unsigned size = 0;
+        if ((replace && Json_TypeOf(replace) != JSON_STRING) ||
+            (patch && Json_TypeOf(patch) != JSON_ARRAY) || (!replace && !patch)) {
+            note(mod, "a data entry needs a string \"replace\" or an array \"patch\"");
+            goto failed;
+        }
         if (file) {
             if (Memories_DiscFileInfo(file, &lba, &size) || lba < 0) {
                 note(mod, "%s is not on the disc", file);
-                continue;
+                goto failed;
             }
         } else if (lba < 0) {
             note(mod, "a data entry names neither \"file\" nor \"lba\"");
-            continue;
+            goto failed;
         }
         if (Json_String(replace, NULL)) {
             int sectors = size ? (int)((size + SECTOR - 1) / SECTOR) : (int)Json_Number(Json_Member(entry, "sectors"), 0);
-            if (sectors <= 0) {
+            if (sectors <= 0 || lba > INT_MAX - sectors) {
                 note(mod, "\"replace\" at sector %d needs a \"sectors\" count", lba);
+                goto failed;
             } else {
-                add_region(mod, index, lba, sectors, Json_String(replace, NULL));
+                if (!add_region(mod, index, lba, sectors, Json_String(replace, NULL))) goto failed;
             }
         }
         if (patch) {
@@ -514,19 +548,23 @@ static void apply_overrides(Mod *mod, int index)
                 int length;
                 if (at < 0 || !text) {
                     note(mod, "a patch needs \"at\" and \"bytes\"");
-                    continue;
+                    goto failed;
                 }
                 length = read_bytes(text, &bytes);
                 if (length < 0) {
                     note(mod, "\"bytes\": %s is not hexadecimal", text);
-                    continue;
+                    goto failed;
                 }
-                if (file && size && at + length > (long)size) {
+                if (file && size && ((unsigned long)at > size || (unsigned long)length > size - (unsigned long)at)) {
                     note(mod, "a patch at 0x%lX reaches past %s", at, file);
                     free(bytes);
-                    continue;
+                    goto failed;
                 }
-                add_patch(mod, index, lba + (int)(at / SECTOR), (int)(at % SECTOR), bytes, length);
+                if (at > INT_MAX - length || at / SECTOR > INT_MAX - lba - (length + SECTOR - 1) / SECTOR ||
+                    !add_patch(mod, index, lba + (int)(at / SECTOR), (int)(at % SECTOR), bytes, length)) {
+                    free(bytes);
+                    goto failed;
+                }
                 free(bytes);
             }
         }
@@ -536,6 +574,11 @@ static void apply_overrides(Mod *mod, int index)
         say("%s: %d replaced regions, %d patched runs, sectors %d to %d",
             mod->id, region_count, patch_count, override_low, override_high);
     }
+    return 1;
+failed:
+    drop_overrides(index);
+    if (!mod->status[0]) note(mod, "could not prepare data overrides");
+    return 0;
 }
 
 int Mods_DiscSector(int lba, void *user_data)
@@ -545,7 +588,7 @@ int Mods_DiscSector(int lba, void *user_data)
     if (!overrides_live) return 0;
     __asm__ volatile("" ::: "memory");
     if (lba < override_low || lba > override_high) return 0;
-    for (i = 0; i < region_count; i++) {
+    for (i = 0; i < published_regions; i++) {
         const Region *region = &regions[i];
         size_t at, have;
         if (lba < region->lba || lba >= region->lba + region->sectors) continue;
@@ -556,7 +599,7 @@ int Mods_DiscSector(int lba, void *user_data)
         if (have < SECTOR) memset(out + have, 0, SECTOR - have);
         changed = 1;
     }
-    for (i = 0; i < patch_count; i++) {
+    for (i = 0; i < published_patches; i++) {
         if (patches[i].lba != lba) continue;
         memcpy(out + patches[i].offset, patches[i].bytes, (size_t)patches[i].length);
         changed = 1;
@@ -647,6 +690,8 @@ static void *load_object(Mod *mod, const char *path)
         note(mod, "%s %s", mod->library, error);
         return NULL;
     }
+    mod->code_hash = 2166136261u;
+    for (long i = 0; i < size; i++) mod->code_hash = (mod->code_hash ^ data[i]) * 16777619u;
     free(data);
     entry = ObjectLoader_Symbol(&mod->object, "MemoriesModInit");
     if (!entry) {
@@ -671,17 +716,21 @@ static int load_library(Mod *mod)
     fill_host(mod);
     memset(&mod->hooks, 0, sizeof(mod->hooks));
     if (!entry(&mod->host, &mod->hooks)) {
+        memset(&mod->hooks, 0, sizeof(mod->hooks));
+        Mods_ClearHooks((int)(mod - mods));
         note(mod, "refused to start");
         return 0;
     }
     if (mod->hooks.api > MEMORIES_MOD_API) {
         note(mod, "was built for mod API %u; this game has %u", mod->hooks.api, MEMORIES_MOD_API);
         memset(&mod->hooks, 0, sizeof(mod->hooks));
+        Mods_ClearHooks((int)(mod - mods));
         return 0;
     }
     if (mod->hooks.name && *mod->hooks.name && !mod->name[0]) {
         copy_text(mod->name, sizeof(mod->name), mod->hooks.name);
     }
+    mod->initialized = 1;
     say("%s: loaded %s", mod->id, mod->library);
     return 1;
 }
@@ -712,7 +761,11 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         const char *slash = strrchr(directory, '/');
         text = slash ? slash + 1 : directory;
     }
-    copy_text(mod->id, sizeof(mod->id), text);
+    if (strlen(text) >= sizeof(mod->id) || !*text || strspn(text, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != strlen(text)) {
+        copy_text(mod->id, sizeof(mod->id), strrchr(directory, '/') + 1);
+        mod->broken = 1;
+        note(mod, "id must be 1-63 letters, digits, hyphens or underscores");
+    } else copy_text(mod->id, sizeof(mod->id), text);
     copy_text(mod->name, sizeof(mod->name), Json_String(Json_Member(root, "name"), mod->id));
     text = Json_String(Json_Member(root, "library"), NULL);
     if (text && *text) {
@@ -750,10 +803,11 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
     /* Data overrides change what the game loaded on its way up, so they are
      * only whole while the game starts with them in place; the cards a mod
      * adds are counted once, when the game starts. */
-    if (Json_Count(mod->data) || Json_Count(mod->cards)) mod->restart = Json_Bool(Json_Member(root, "restart"), 1);
+    if (Json_Count(mod->data)) mod->restart = Json_Bool(Json_Member(root, "restart"), 1);
+    if (Json_Count(mod->cards)) mod->restart = 1;
     {   /* The key this mod's choice was stored under before it was a mod. */
         const char *legacy = Json_String(Json_Member(root, "legacy_setting"), NULL);
-        char key[ID_MAX + 96];
+        char key[256];
         int fallback = mod->default_enabled;
         if (legacy && *legacy) fallback = Settings_GetNamed(legacy, fallback);
         if (setting_key(key, sizeof(key), mod->id, NULL)) fallback = Settings_GetNamed(key, fallback);
@@ -837,17 +891,37 @@ static void activate(int index, int on)
     Mod *mod = &mods[index];
     if (on == mod->active) return;
     if (on) {
+        int option_count = Mods_OptionCount(index);
+        if (option_count && !mod->runtime_options) {
+            mod->runtime_options = malloc((size_t)option_count * sizeof(int));
+            if (!mod->runtime_options) { mod->failed = 1; note(mod, "out of memory for settings"); return; }
+        }
         /* A mod that cannot load keeps the player's choice and its reason:
          * the window shows both, and removing it still works. */
         if (mod->broken || !load_library(mod)) {
             mod->broken = 1;
             return;
         }
-        apply_overrides(mod, index);
+        mod->status[0] = 0;
+        if (!apply_overrides(mod, index)) { mod->failed = 1; return; }
         if (mod->textures[0]) {
-            if (!texture_pack_load) note(mod, "this build has no texture packs");
-            else if (!texture_pack_load(mod->textures)) note(mod, "texture pack %s did not load", mod->textures);
+            if (!texture_pack_load || !texture_pack_load(mod->textures)) {
+                mod->failed = 1;
+                note(mod, "texture pack could not load");
+                drop_overrides(index);
+                if (texture_pack_unload) {
+                    int other;
+                    texture_pack_unload();
+                    for (other = 0; other < mod_count; other++)
+                        if (mods[other].active && mods[other].textures[0] && texture_pack_load)
+                            texture_pack_load(mods[other].textures);
+                }
+                return;
+            }
         }
+        for (int option = 0; option < option_count; option++) mod->runtime_options[option] = Mods_OptionValue(index, option);
+        mod->sequence = ++activation_sequence;
+        mod->failed = 0;
         mod->active = 1;
         if (mod->hooks.applied) mod->hooks.applied(1);
     } else {
@@ -871,7 +945,8 @@ void Mods_Load(void)
 {
     const char *all = getenv("MEMORIES_MODS");
     char path[PATH_MAX_];
-    int i;
+    int i, enabled[MODS_MAX], order[MODS_MAX], count;
+    char error[160];
     if (!scanned) {
         const char *named = getenv("MEMORIES_MODS_DIR");
         scanned = 1;
@@ -881,20 +956,41 @@ void Mods_Load(void)
             if (!Paths_Program(path, sizeof(path), "mods")) scan(path, "shipped");
             if (!Paths_User(path, sizeof(path), "mods")) scan(path, "installed");
         }
+        for (i = 0; i < mod_count; i++) {
+            if (!Mods_CheckManifest(i, error, sizeof(error))) { mods[i].broken = 1; note(&mods[i], "%s", error); }
+        }
         say("%d mods found", mod_count);
     }
     for (i = 0; i < mod_count; i++) {
         /* The settings are the choice, here and after a settings reload.
          * A mod that wants a restart is still put in place at startup: it
          * is only a live change it cannot take. */
-        char key[ID_MAX + 96];
+        char key[256];
         int want;
         want = mods[i].enabled;
         if (setting_key(key, sizeof(key), mods[i].id, NULL)) want = Settings_GetNamed(key, want);
         want = environment_choice(mods[i].id, want) != 0;
         if (all && (!strcmp(all, "0") || !strcmp(all, "off"))) want = 0;
         mods[i].enabled = want;
-        activate(i, want);
+        enabled[i] = want;
+    }
+    for (i = 0; i < mod_count; i++) if (enabled[i] && !Mods_Compatible(i, enabled, error, sizeof(error))) {
+        note(&mods[i], "%s", error); enabled[i] = 0;
+    }
+    count = Mods_Order(enabled, order, error, sizeof(error));
+    if (count < 0) {
+        /* Only the mods in the cycle, or waiting on it, stay off. */
+        int placed[MODS_MAX] = {0};
+        for (count = 0; order[count] >= 0; count++) placed[order[count]] = 1;
+        for (i = 0; i < mod_count; i++) if (enabled[i] && !placed[i]) { note(&mods[i], "%s", error); enabled[i] = 0; }
+    }
+    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i]) activate(i, 0);
+    for (i = 0; i < count; i++) {
+        int current = order[i], j, active[MODS_MAX];
+        for (j = 0; j < mod_count; j++) active[j] = mods[j].active;
+        active[current] = 1;
+        if (!Mods_Compatible(current, active, error, sizeof(error))) { note(&mods[current], "%s", error); continue; }
+        activate(current, 1);
     }
 }
 
@@ -902,7 +998,7 @@ void Mods_Shutdown(void)
 {
     int i;
     for (i = 0; i < mod_count; i++) {
-        if (mods[i].hooks.shutdown) mods[i].hooks.shutdown();
+        if (mods[i].initialized && mods[i].hooks.shutdown) mods[i].hooks.shutdown();
     }
 }
 
@@ -921,7 +1017,7 @@ int Mods_RequiresRestart(int mod) { return at(mod) ? mods[mod].restart : 0; }
 
 void Mods_SetEnabled(int mod, int enabled)
 {
-    char key[ID_MAX + 96];
+    char key[256];
     if (!at(mod)) return;
     enabled = enabled != 0;
     if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
@@ -943,10 +1039,10 @@ void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const 
 
 int Mods_Setting(const char *id, const char *key, int fallback)
 {
-    char name[ID_MAX + 96];
+    char name[256];
     const char *text;
-    if (by_id(id) < 0 || !key || !*key || !environment_name(name, sizeof(name), id, key)) return fallback;
-    text = getenv(name);
+    if (by_id(id) < 0 || !key || !*key) return fallback;
+    text = environment_name(name, sizeof(name), id, key) ? getenv(name) : NULL;
     if (text && *text) return (int)strtol(text, NULL, 0);
     if (!setting_key(name, sizeof(name), id, key)) return fallback;
     return Settings_GetNamed(name, fallback);
@@ -967,7 +1063,7 @@ void Mods_DrawFrame(void)
 {
     int i;
     for (i = 0; i < mod_count; i++) {
-        if (mods[i].enabled && mods[i].hooks.frame) mods[i].hooks.frame();
+        if (mods[i].active && mods[i].initialized && mods[i].hooks.frame) mods[i].hooks.frame();
     }
 }
 
@@ -975,6 +1071,23 @@ void Mods_Reset(void)
 {
     int i;
     for (i = 0; i < mod_count; i++) {
-        if (mods[i].hooks.reset) mods[i].hooks.reset();
+        if (mods[i].active && mods[i].initialized && mods[i].hooks.reset) mods[i].hooks.reset();
     }
+}
+
+const JsonValue *Mods_Manifest(int index) { return at(index) ? Json_Root(mods[index].manifest) : NULL; }
+const char *Mods_Metadata(int index, const char *key) { return Json_String(Json_Member(Mods_Manifest(index), key), ""); }
+const char *Mods_Directory(int index) { return at(index) ? mods[index].directory : ""; }
+const char *Mods_Origin(int index) { return at(index) ? mods[index].origin : ""; }
+int Mods_Active(int index) { return at(index) && mods[index].active; }
+int Mods_Failed(int index) { return at(index) && (mods[index].broken || mods[index].failed); }
+
+unsigned Mods_CodeHash(int index) { return at(index) ? mods[index].code_hash : 0; }
+
+unsigned Mods_Sequence(int index) { return at(index) ? mods[index].sequence : 0; }
+int Mods_RuntimeOption(int index, int option) {
+    const JsonValue *spec = Mods_Option(index, option);
+    if (at(index) && mods[index].active && mods[index].runtime_options &&
+        (mods[index].restart || Json_Bool(Json_Member(spec, "restart"), 0))) return mods[index].runtime_options[option];
+    return Mods_OptionValue(index, option);
 }

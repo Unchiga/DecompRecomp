@@ -1,3 +1,6 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 #define gDuel_bEffectRequestStatus_IN_DATA
 #define DUEL_FIELD_GRID_ALIASES
 #include "../types.h"
@@ -102,8 +105,13 @@ block_9:
         }
     } else {
         u8 *p = &gDuel_abLifePointRecoveryUnits[s1];
+#ifdef MEMORIES_PC
+        v1 = Mods_DamageLife((int)(D_8009B1C8 - D_800E9FF0), D_8009B1C8->life_points.unsigned_value,
+                            (*p) * DUEL_LIFE_POINT_RECOVERY_SCALE, 1);
+#else
         v1 = D_8009B1C8->life_points.unsigned_value -
              (*p) * DUEL_LIFE_POINT_RECOVERY_SCALE;
+#endif
         D_8009B1C8->life_points.unsigned_value = v1;
         if ((s16) v1 < 0) {
             D_8009B1C8->life_points.unsigned_value = 0;
@@ -155,9 +163,14 @@ void DuelEffect_ApplyDirectDamage(void) {
     } else {
         p = &D_800E9FF0[D_8009B1D5];
 apply:
+#ifdef MEMORIES_PC
+        remaining = Mods_DamageLife((int)(p - D_800E9FF0), p->life_points.unsigned_value,
+                                   gDuel_abDirectDamageUnits[unit] * DUEL_DIRECT_DAMAGE_SCALE, 1);
+#else
         remaining = p->life_points.unsigned_value -
                     gDuel_abDirectDamageUnits[unit] *
                         DUEL_DIRECT_DAMAGE_SCALE;
+#endif
         p->life_points.unsigned_value = remaining;
         if ((s16) remaining < 0) {
             p->life_points.unsigned_value = 0;

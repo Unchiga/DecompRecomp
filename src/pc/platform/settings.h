@@ -49,4 +49,6 @@ void Settings_Observe(void (*changed)(SettingId id, int value));
 int Settings_GetNamed(const char *key, int fallback);
 void Settings_SetNamed(const char *key, int value);
 
+void Settings_VisitNamed(void (*visit)(const char *, int, void *), void *context);
+
 #endif

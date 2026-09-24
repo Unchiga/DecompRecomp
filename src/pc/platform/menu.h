@@ -10,7 +10,7 @@
  * File  > Save state, Load state, Exit
  * Audio > Volume slider over the whole mix (src/pc/audio/spu.c)
  * View  > Scale 1x-4x
- * Game  > Mods opens the separate available/applied mods window
+ * Game  > Mods opens the searchable mod manager
  * Debug > development helpers (src/pc/debug) */
 
 typedef struct MenuCanvas {
@@ -31,18 +31,20 @@ typedef enum {
     MENU_EVENT_WHEEL,       /* wheel: +1 up, -1 down; x, y */
     MENU_EVENT_LEAVE,       /* the pointer left the window */
     MENU_EVENT_KEY_DOWN,    /* key */
-    MENU_EVENT_KEY_UP
+    MENU_EVENT_KEY_UP,
+    MENU_EVENT_TEXT
 } MenuEventType;
 
 typedef enum {
     MENU_KEY_OTHER, MENU_KEY_ESCAPE, MENU_KEY_F10, MENU_KEY_LEFT, MENU_KEY_RIGHT, MENU_KEY_UP, MENU_KEY_DOWN,
-    MENU_KEY_ENTER
+    MENU_KEY_ENTER, MENU_KEY_TAB, MENU_KEY_BACKSPACE
 } MenuKey;
 
 typedef struct MenuEvent {
     MenuEventType type;
     int x, y, button, wheel;
     MenuKey key;
+    char text[32];
 } MenuEvent;
 
 typedef enum {

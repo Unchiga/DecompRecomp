@@ -36,6 +36,11 @@ extern unsigned char gCard_abPairPending[2][CARD_TABLE_ID_END];
 /* At startup, once the mods are applied: the retail tables from the game's
  * executable, then every applied mod's cards. */
 void Cards_Build(void);
+const char *Cards_Identity(int id);
+int Cards_FindIdentity(const char *identity);
+int Cards_ModelId(int id);
+int Cards_EffectId(int id);
+int Cards_Fusion(int a, int b, int *result);
 
 /* The retail card `id` is a copy of, or `id` itself; 0 for no card. */
 int Cards_BaseId(int id);
