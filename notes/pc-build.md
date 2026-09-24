@@ -415,7 +415,7 @@ window, which is how the menus are checked.
 
 ### Back to the title screen
 
-Debug > Back to title screen leaves whatever is running for the title, the
+Game > Back to title screen leaves whatever is running for the title, the
 way the retail game leaves a campaign loss. `Main_RunGameOver` fades the
 music and the screen out, asks for the title menu (`D_8009B268 = 1`,
 `D_8009B26D = 0`, mode 8), and longjmps to the point `Main_Init` set up after

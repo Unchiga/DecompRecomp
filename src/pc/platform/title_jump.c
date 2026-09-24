@@ -1,4 +1,4 @@
-/* Debug > Back to title screen: the game's own way back, taken from anywhere.
+/* Game > Back to title screen: the game's own way back, taken from anywhere.
  *
  * Retail already has one: when a campaign loss is over, Main_RunGameOver
  * (src/game/main_mode_runners.c) fades the music and the screen out, asks
