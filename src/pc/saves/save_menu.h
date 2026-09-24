@@ -51,7 +51,9 @@ int SaveMenu_Active(void);
  * tells the two sides of a pair load apart (0x10 is the second). Returns 0
  * while the menu is open and then the outcome. *sound is set to the sound
  * to play this frame. */
-int SaveMenu_Poll(unsigned pressed, int channel, int *sound);
+/* Supply the running build's callback on every poll: an open menu can be
+ * restored in a new process without passing through SaveMenu_Begin. */
+int SaveMenu_Poll(unsigned pressed, int channel, int *sound, SaveSlotCheck validity);
 
 /* The overlay: draw over `canvas` and report the rectangle drawn. */
 void SaveMenu_Draw(MenuCanvas *canvas, int *x, int *y, int *w, int *h);

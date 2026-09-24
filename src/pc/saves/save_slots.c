@@ -1,6 +1,7 @@
 /* Save slot files. See save_slots.h. */
 #include "save_slots.h"
 #include "pc/platform/paths.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,17 +71,21 @@ void SaveSlots_StateName(const unsigned char *state, char *out, size_t size)
     out[length] = 0;
 }
 
-/* The slot's whole file, or -1 when it cannot be read. */
+/* The slot's whole file, -1 when missing, -2 for other read failures. */
 static long read_file(int slot, unsigned char image[SAVE_SLOT_FILE_SIZE], long long *saved_at)
 {
     char path[1024];
     struct stat info;
     FILE *file;
     size_t got;
-    if (SaveSlots_Path(slot, path, sizeof(path))) return -1;
+    if (SaveSlots_Path(slot, path, sizeof(path))) return -2;
     file = fopen(path, "rb");
-    if (!file) return -1;
+    if (!file) return errno == ENOENT ? -1 : -2;
     got = fread(image, 1, SAVE_SLOT_FILE_SIZE, file);
+    if (ferror(file)) {
+        fclose(file);
+        return -2;
+    }
     fclose(file);
     memset(image + got, 0, SAVE_SLOT_FILE_SIZE - got);
     if (saved_at) *saved_at = stat(path, &info) == 0 ? (long long)info.st_mtime : 0;
@@ -107,7 +112,7 @@ void SaveSlots_Scan(SaveSlotInfo out[SAVE_SLOT_COUNT], SaveSlotCheck check)
         int copy;
         memset(info, 0, sizeof(*info));
         info->saved_at = saved_at;
-        if (got < 0) {
+        if (got == -1) {
             info->status = SAVE_SLOT_EMPTY;
             continue;
         }
@@ -144,6 +149,7 @@ static int store(int slot, const unsigned char image[SAVE_SLOT_FILE_SIZE])
 {
     char path[1024], partial[1100];
     FILE *file;
+    int failed;
     if (SaveSlots_Path(slot, path, sizeof(path))) return -1;
     snprintf(partial, sizeof(partial), "%s.partial", path);
     file = fopen(partial, "wb");
@@ -151,8 +157,10 @@ static int store(int slot, const unsigned char image[SAVE_SLOT_FILE_SIZE])
         fprintf(stderr, "memories-pc: cannot write save slot %s\n", partial);
         return -1;
     }
-    if (fwrite(image, 1, SAVE_SLOT_FILE_SIZE, file) != SAVE_SLOT_FILE_SIZE || fclose(file) != 0 ||
-        rename(partial, path) != 0) {
+    failed = fwrite(image, 1, SAVE_SLOT_FILE_SIZE, file) != SAVE_SLOT_FILE_SIZE;
+    /* Always close, including after a short write (e.g. a full disk). */
+    if (fclose(file) != 0) failed = 1;
+    if (failed || rename(partial, path) != 0) {
         fprintf(stderr, "memories-pc: cannot write save slot %s\n", path);
         remove(partial);
         return -1;
@@ -172,9 +180,18 @@ int SaveSlots_WriteFile(int slot, const unsigned char *image, size_t bytes)
 int SaveSlots_WriteAt(int slot, long offset, const unsigned char *data, size_t bytes)
 {
     static unsigned char block[SAVE_SLOT_FILE_SIZE];
-    if (offset < 0 || (size_t)offset + bytes > SAVE_SLOT_FILE_SIZE) return -1;
+    if (offset < 0 || offset > SAVE_SLOT_FILE_SIZE || bytes > SAVE_SLOT_FILE_SIZE - (size_t)offset) return -1;
     if (read_file(slot, block, NULL) < 0) return -1;
     memcpy(block + offset, data, bytes);
+    return store(slot, block);
+}
+
+int SaveSlots_WriteState(int slot, const unsigned char state[SAVE_SLOT_STATE_SIZE])
+{
+    static unsigned char block[SAVE_SLOT_FILE_SIZE];
+    if (read_file(slot, block, NULL) < 0) return -1;
+    memcpy(block + SAVE_SLOT_HEADER_SIZE, state, SAVE_SLOT_STATE_SIZE);
+    memcpy(block + SAVE_SLOT_DUPLICATE_OFFSET, state, SAVE_SLOT_STATE_SIZE);
     return store(slot, block);
 }
 

@@ -90,17 +90,24 @@ static int first_cursor(void)
 
 static int write_pair(void)
 {
-    static unsigned char state[SAVE_SLOT_STATE_SIZE];
+    static unsigned char states[2][SAVE_SLOT_STATE_SIZE];
     int side;
+    if (menu.size != 0x400 || menu.pair_slot[0] == menu.pair_slot[1]) return 2;
+    /* Validate both destinations before changing either save. Build from
+     * the sound copy so a recovered slot keeps its untouched progress. */
     for (side = 0; side < 2; side++) {
         int slot = menu.pair_slot[side];
         const unsigned char *record = side ? menu.second : menu.buffer;
+        unsigned char *state = states[side];
         /* As the card dialog did: only write back over the same duelist. */
-        if (slot < 0 || !record || SaveSlots_ReadState(slot, state, check) || state_code(state) != state_code(record) ||
-            SaveSlots_WriteAt(slot, SAVE_SLOT_HEADER_SIZE, record, (size_t)menu.size)) {
+        if (slot < 0 || !record || SaveSlots_ReadState(slot, state, check) || state_code(state) != state_code(record)) {
             fprintf(stderr, "memories-pc: could not write the trade back to save slot %d\n", slot + 1);
             return 2;
         }
+        memcpy(state, record, (size_t)menu.size);
+    }
+    for (side = 0; side < 2; side++) {
+        if (SaveSlots_WriteState(menu.pair_slot[side], states[side])) return 2;
     }
     return 1;
 }
@@ -167,9 +174,10 @@ int SaveMenu_Begin(int step, unsigned char *buffer, unsigned char *second, int s
 
 int SaveMenu_Active(void) { return menu.view != VIEW_CLOSED; }
 
-int SaveMenu_Poll(unsigned pressed, int channel, int *sound)
+int SaveMenu_Poll(unsigned pressed, int channel, int *sound, SaveSlotCheck validity)
 {
     int slot;
+    check = validity;
     *sound = SAVE_MENU_SOUND_NONE;
     if (menu.view == VIEW_CLOSED) return 2;
     if (!menu.started) {

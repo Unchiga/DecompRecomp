@@ -846,11 +846,19 @@ the duplicate is used; when both fail the slot shows as damaged. The menu
 lists the player name, starchips, cards owned (chest plus deck), wins and
 losses, and the file's modification time.
 
+Trade write-back checks both destination duelists before writing either
+slot. It updates both copies in each slot together, preserving the valid
+copy's progress outside the traded card data. Each slot replacement is
+atomic; the two files are still separate writes.
+
 The first time the `saves` folder is created, the game's save
 (`BASLUS-01411-YUGIOH`) on `memcard1.mcd` and `memcard2.mcd` is copied into
 slots 1 and 2. The card images are only read. `pc_save_slots` tests the slot
-files and the import. The menu's own state is a save-state chunk
-(`save-menu`), so a state taken with the menu open resumes in it.
+files and the import. `pc_save_menu` covers save/load/cancel, overwrite
+defaults, pair selection, trade validation and backup consistency. The
+menu's own state is a save-state chunk (`save-menu`), so a state taken with
+the menu open resumes in it; each poll supplies the current build's
+integrity callback, including after loading a state in a fresh process.
 
 Checked on Linux and under Wine: LOAD on the title imports the card's save
 and loads it, SAVE writes an empty slot at once and asks before overwriting

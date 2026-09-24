@@ -360,7 +360,7 @@ static int MemCardDialog_PollSlots(void)
     int sound;
     int outcome = SaveMenu_Poll(
         gInput_wPad1Pressed | (gInput_wPad1Repeat & PAD_DIRECTION_MASK),
-        D_8009B3F9, &sound);
+        D_8009B3F9, &sound, MemCardDialog_CheckSlot);
 
     if (sound != SAVE_MENU_SOUND_NONE) {
         SD_SEPlayFull(sound);

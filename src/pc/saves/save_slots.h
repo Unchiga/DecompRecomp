@@ -51,6 +51,9 @@ int SaveSlots_ReadState(int slot, unsigned char state[SAVE_SLOT_STATE_SIZE], Sav
 int SaveSlots_WriteFile(int slot, const unsigned char *image, size_t bytes);
 /* Patch `bytes` at `offset` of an existing slot, the same way. */
 int SaveSlots_WriteAt(int slot, long offset, const unsigned char *data, size_t bytes);
+/* Replace both state copies together, preserving the existing header and
+ * padding. Used after a trade so backup recovery retains the traded cards. */
+int SaveSlots_WriteState(int slot, const unsigned char state[SAVE_SLOT_STATE_SIZE]);
 /* Copy the save named `name` off the memory card images into slots 1 and
  * 2, once: only when the saves directory does not exist yet. */
 void SaveSlots_ImportMemoryCards(const char *name);

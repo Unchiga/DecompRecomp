@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#ifndef _WIN32
+#include <fcntl.h>
+#endif
 #include "pc/compat/posix.h"
 #include "scratch.h"
 #include <unistd.h>
@@ -124,6 +128,37 @@ int main(void)
     assert(state[0x10] == 0xEE && state[0x1F] == 0xEE && state[0x20] == 0 && state[0x50] == 3);
     assert(SaveSlots_WriteAt(8, SAVE_SLOT_HEADER_SIZE, state, 0x10) == -1); /* no file to patch */
     assert(SaveSlots_WriteAt(4, SAVE_SLOT_FILE_SIZE - 4, state, 8) == -1);
+    assert(SaveSlots_WriteAt(4, 1, state, SIZE_MAX) == -1);
+    assert(SaveSlots_WriteAt(4, -1, state, 1) == -1);
+
+    /* An unreadable existing path is damaged, never an empty slot that can
+     * be overwritten without confirmation. Directories fail on both OSes. */
+    assert(!SaveSlots_Path(9, path, sizeof(path)));
+    assert(!mkdir(path, 0700));
+    SaveSlots_Scan(slots, sound);
+    assert(slots[9].status == SAVE_SLOT_DAMAGED);
+    assert(!rmdir(path));
+
+#ifndef _WIN32
+    /* Force a short write without filling a disk. The old save must survive
+     * and the partial stream must close, so retrying cannot leak handles. */
+    {
+        char partial[1100];
+        int fd, next;
+        assert(!SaveSlots_Path(4, path, sizeof(path)));
+        snprintf(partial, sizeof(partial), "%s.partial", path);
+        fd = open("/dev/null", O_RDONLY);
+        assert(fd >= 0 && !close(fd));
+        assert(!symlink("/dev/full", partial));
+        assert(SaveSlots_WriteFile(4, image, sizeof(image)) == -1);
+        next = open("/dev/null", O_RDONLY);
+        assert(next == fd);
+        assert(!close(next));
+        assert(access(partial, F_OK) == -1);
+        assert(!SaveSlots_ReadState(4, state, sound));
+        assert(state[0x10] == 0xEE && state[0x50] == 3);
+    }
+#endif
 
     for (i = 0; i < SAVE_SLOT_COUNT; i++) {
         assert(!SaveSlots_Path(i, path, sizeof(path)));
