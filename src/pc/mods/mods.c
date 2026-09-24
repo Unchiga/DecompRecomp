@@ -764,6 +764,60 @@ static int load_library(Mod *mod)
     return 1;
 }
 
+/* Every key a manifest's top level may have (here, in manager.c and in
+ * notes/modding.md and mod-api-3.md). Anything else is most likely a typo
+ * that would leave the mod doing nothing, so it is a warning, not an error. */
+static const char *const manifest_keys[] = {
+    "id", "name", "version", "author", "description", "library", "enabled", "restart", "legacy_setting",
+    "data", "textures", "cards", "audio", "min_api", "game", "requires", "after", "conflicts", "priority",
+    "settings",
+};
+
+/* How many letters to add, remove or change to turn one word into the
+ * other, for "did you mean": 99 for words too long to bother with. */
+static int distance(const char *a, const char *b)
+{
+    int row[33], i, j, length_a = (int)strlen(a), length_b = (int)strlen(b);
+    if (length_a > 32 || length_b > 32) return 99;
+    for (j = 0; j <= length_b; j++) row[j] = j;
+    for (i = 1; i <= length_a; i++) {
+        int diagonal = row[0];
+        row[0] = i;
+        for (j = 1; j <= length_b; j++) {
+            int above = row[j], best = diagonal + (tolower((unsigned char)a[i - 1]) != tolower((unsigned char)b[j - 1]));
+            if (above + 1 < best) best = above + 1;
+            if (row[j - 1] + 1 < best) best = row[j - 1] + 1;
+            diagonal = above;
+            row[j] = best;
+        }
+    }
+    return row[length_b];
+}
+
+static void check_keys(Mod *mod, const JsonValue *root)
+{
+    static const char *const booleans[] = {"enabled", "restart"};
+    const JsonValue *member;
+    unsigned i;
+    for (member = Json_At(root, 0); member; member = Json_Next(member)) {
+        const char *name = Json_Name(member), *closest = NULL;
+        int best = 3;   /* at most two letters off, to be a likely typo */
+        for (i = 0; i < sizeof(manifest_keys) / sizeof(manifest_keys[0]); i++) {
+            int apart;
+            if (!strcmp(name, manifest_keys[i])) break;
+            apart = distance(name, manifest_keys[i]);   /* letter case counts as no distance: "Name" */
+            if (apart < best) { best = apart; closest = manifest_keys[i]; }
+        }
+        if (i < sizeof(manifest_keys) / sizeof(manifest_keys[0])) continue;
+        if (closest) warn(mod, 1, "unknown key '%s' (did you mean '%s'?)", name, closest);
+        else warn(mod, 1, "unknown key '%s'", name);
+    }
+    for (i = 0; i < sizeof(booleans) / sizeof(booleans[0]); i++) {
+        const JsonValue *value = Json_Member(root, booleans[i]);
+        if (value && Json_TypeOf(value) != JSON_BOOL) warn(mod, 1, "\"%s\" should be true or false", booleans[i]);
+    }
+}
+
 /* mod.json, read into the record. Returns 0 when it is not a mod at all. */
 static int read_manifest(Mod *mod, const char *directory, const char *origin)
 {
@@ -842,6 +896,7 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         if (setting_key(key, sizeof(key), mod->id, NULL)) fallback = Settings_GetNamed(key, fallback);
         mod->enabled = environment_choice(mod->id, fallback) != 0;
     }
+    check_keys(mod, root);
     return 1;
 }
 

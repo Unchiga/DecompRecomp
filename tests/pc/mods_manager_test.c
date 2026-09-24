@@ -61,6 +61,10 @@ int main(void)
     make_dir("mods/missing");
     write_text("mods/missing/mod.json",
                "{\"id\":\"missing\",\"restart\":false,\"data\":[{\"lba\":7000,\"sectors\":1,\"replace\":\"late.bin\"}]}");
+    /* Typos in a manifest: warned about, and the mod still loads. */
+    make_dir("mods/typo");
+    write_text("mods/typo/mod.json", "{\"id\":\"typo\",\"libary\":\"x\",\"Name\":\"T\",\"zzzzzz\":1,"
+                                     "\"enabled\":\"yes\",\"restart\":0,\"audio\":{}}");
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
@@ -78,6 +82,16 @@ int main(void)
     assert(Mods_Failed(partial) && !Mods_Active(partial));
     assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
     assert(Mods_Failed(find("invalid-schema")));
+    {
+        int typo = find("typo");
+        const char *status = Mods_Status(typo);
+        assert(typo >= 0 && !Mods_Failed(typo));
+        assert(strstr(status, "unknown key 'libary' (did you mean 'library'?)"));
+        assert(strstr(status, "unknown key 'Name' (did you mean 'name'?)"));
+        assert(strstr(status, "unknown key 'zzzzzz'") && !strstr(status, "zzzzzz' (did"));
+        assert(strstr(status, "\"enabled\" should be true or false") && strstr(status, "\"restart\" should be"));
+        assert(!strstr(status, "audio"));
+    }
     {
         /* A failed mod is tried again once the player removes and reapplies
          * it, and goes in place when what it lacked is there. */
