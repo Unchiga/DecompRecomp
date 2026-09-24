@@ -34,7 +34,10 @@
  * before it calls an entry the host may not have.
  *   1  the first
  *   2  now_us, map_fixed; setting() reads MEMORIES_MOD_<ID>_<KEY> first
- *   3  managed events, registered state and stable card lookup */
+ *   3  managed events, registered state and stable card lookup
+ *   4  hook/unhook any game function; symbol looks a name up at run time;
+ *      provide/find share functions between mods; draw over the picture
+ *      (MemoriesMod.overlay); save slot events; more of the C library */
 #include "mod_types.h"
 
 typedef struct MemoriesModHost MemoriesModHost;
@@ -52,6 +55,14 @@ typedef struct {
     void (*reset)(void);
     /* The game is closing. */
     void (*shutdown)(void);
+    /* --- API 4 ---
+     * Draw over the picture, at the window's own resolution, with the host's
+     * draw_text and fill (only valid in here). The overlay is drawn again
+     * only when overlay_signature returns something new, so return a number
+     * that changes with what you draw; without one it is drawn every
+     * frame. Only while the mod is applied. */
+    void (*overlay)(void);
+    unsigned (*overlay_signature)(void);
 } MemoriesMod;
 
 struct MemoriesModHost {
@@ -115,6 +126,43 @@ struct MemoriesModHost {
     int (*register_state)(const MemoriesModHost *, void *data, size_t size, unsigned version);
     /* Resolve a stable "mod-id:card-key" identity after card tables build. */
     int (*card_id)(const MemoriesModHost *, const char *identity);
+
+    /* --- API 4 ---
+     * Replace one of the game's functions (anything in src/game, named
+     * directly: `host->hook(host, Duel_DrawFieldCards, my_draw, &original)`)
+     * with `replacement`, which has the same signature. While the mod is
+     * applied every call goes to `replacement`; `*original`, when given, is
+     * kept pointing at what it displaced -- the game's function, or another
+     * mod's replacement made earlier -- so a hook that calls it wraps the
+     * function rather than replacing it. `original` must point at storage
+     * that lives as long as the mod (a static variable, not a local): the
+     * host rewrites it whenever other mods are applied or removed, so read
+     * it at each call. Removing the mod
+     * takes its hooks out of the way at once. A token, or 0 when `function`
+     * is not a game function (port code and the C library cannot be hooked). */
+    int (*hook)(const MemoriesModHost *, void *function, void *replacement, void **original);
+    void (*unhook)(const MemoriesModHost *, int token);
+    /* The address of a game or port name, as the loader binds a mod's
+     * undefined names, or NULL: for a name a mod can do without. */
+    void *(*symbol)(const MemoriesModHost *, const char *name);
+    /* Share something with other mods under a name of this mod's own
+     * (letters, digits, '_' and '-'); another mod finds it as
+     * "<this mod's id>:<name>" -- in its MemoriesModInit too, when it
+     * "requires" this mod, which is then initialized first. 0 when the name
+     * is not valid or the table is full; find gives NULL when no loaded mod
+     * provides that. What is shared stays loaded until the game exits,
+     * whether or not its mod is applied. */
+    int (*provide)(const MemoriesModHost *, const char *name, void *pointer);
+    void *(*find)(const MemoriesModHost *, const char *qualified);
+    /* Overlay drawing, for MemoriesMod.overlay: the canvas's size in pixels
+     * and the scale the port draws its own menus at (1 at 480 lines, more in
+     * a bigger window); text (ASCII) with `middle` its vertical centre and
+     * its width; a rectangle blended in at `alpha` (0-255). Colours are
+     * 0xRRGGBB. Outside the overlay callback these do nothing. */
+    void (*overlay_size)(const MemoriesModHost *, int *width, int *height, int *scale);
+    void (*draw_text)(const MemoriesModHost *, int x, int middle, const char *text, uint32_t rgb, int scale);
+    int (*text_width)(const MemoriesModHost *, const char *text, int scale);
+    void (*fill)(const MemoriesModHost *, int x, int y, int w, int h, uint32_t rgb, unsigned alpha);
 };
 
 /* The symbol a mod's object defines, and its type. */

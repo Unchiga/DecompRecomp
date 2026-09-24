@@ -10,7 +10,7 @@ import build_win32_deps
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tmp/pc/mods-lifecycle"
-SOURCES = ["src/pc/compat/fs.c", "tests/pc/mods_lifecycle_test.c", "src/pc/mods/mods.c", "src/pc/mods/events.c",
+SOURCES = ["src/pc/compat/fs.c", "tests/pc/mods_lifecycle_test.c", "src/pc/mods/mods.c", "src/pc/mods/events.c", "src/pc/mods/hooks.c",
            "src/pc/mods/manager.c", "src/pc/mods/mod_libc.c", "src/pc/mods/object_loader.c",
            "src/pc/mods/json.c", "src/pc/platform/settings.c", "src/pc/platform/paths.c"]
 
@@ -43,6 +43,14 @@ def main():
         subprocess.run(compile_cmd, check=True)
         subprocess.run([*launch, str(fixture), str(no_api)], env=environment, check=True, timeout=60)
         print(f"mods lifecycle: {target} passed")
+        # Function hooks, on targets laid out as the game units are.
+        hooks_program = str(OUT / program.name.replace("lifecycle", "hooks"))
+        hooks_cmd = [compile_cmd[0], *compile_cmd[1:compile_cmd.index(SOURCES[0])], "-O0",
+                     "tests/pc/hooks_test.c", "src/pc/mods/hooks.c", "-o", hooks_program]
+        if target == "windows":
+            hooks_cmd.insert(-2, "-static")
+        subprocess.run(hooks_cmd, check=True)
+        subprocess.run([*launch[:-1], hooks_program], env=environment, check=True, timeout=60)
         if target == "linux":
             state_program = str(program) + "-state"
             state_command = [*compile_cmd[:compile_cmd.index(SOURCES[0])], "-ffunction-sections", "-fdata-sections",

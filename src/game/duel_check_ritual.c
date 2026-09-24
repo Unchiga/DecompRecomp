@@ -8,6 +8,7 @@
 #include "duel_grid.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/cards/tables.h"
 #endif
 
 s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
@@ -15,16 +16,30 @@ s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
     DuelCardRecord *found[DUEL_RITUAL_TRIBUTE_COUNT];
     DuelCardRecord *cands[DUEL_FIELD_ROW_SIZE];
     DuelCardRecord *card;
+#ifndef MEMORIES_PC
     DuelCardRecord **first;
     DuelCardRecord **dst;
+#endif
     DuelCardRecord **w;
     DuelCardRecord *c;
     u16 *p;
+#ifndef MEMORIES_PC
     u16 *q;
+#endif
     s32 i;
     s32 j;
+#ifdef MEMORIES_PC
+    /* A mod's recipe, laid out as the disc's table is, comes first. */
+    u16 own[DUEL_RITUAL_RECIPE_HALFWORD_COUNT + 1];
+    s32 ruled = Tables_Ritual(ritualId, own);
 
+    if (ruled == 0) {
+        return 0;
+    }
+    p = ruled > 0 ? own : gDuel_awRitualData;
+#else
     p = gDuel_awRitualData;
+#endif
     while (1) {
         if (p[0] == 0) {
             return 0;
@@ -52,6 +67,41 @@ s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
     }
 
     p++;
+#ifdef MEMORIES_PC
+    /* A copy of a tribute monster counts as it; a mod's recipe may also
+       name the copy itself. Every tribute takes a monster that is exactly
+       it first, and only then one that is a copy of it: taken in the
+       recipe's order, a retail tribute could take the very copy a later
+       one names while the retail monster stays on the field. */
+    {
+        s32 pass;
+
+        for (j = 0; j < DUEL_RITUAL_TRIBUTE_COUNT; j++) {
+            found[j] = 0;
+        }
+        for (pass = 0; pass < 2; pass++) {
+            for (j = 0; j < DUEL_RITUAL_TRIBUTE_COUNT; j++) {
+                if (found[j] != 0) {
+                    continue;
+                }
+                for (i = 0; i < DUEL_FIELD_ROW_SIZE; i++) {
+                    card = cands[i];
+                    if (card != 0 && (pass == 0 ? card->card_id == p[j] :
+                                      Cards_BaseId(card->card_id) == p[j])) {
+                        found[j] = card;
+                        cands[i] = 0;
+                        break;
+                    }
+                }
+            }
+        }
+        for (j = 0; j < DUEL_RITUAL_TRIBUTE_COUNT; j++) {
+            if (found[j] == 0) {
+                return 0;
+            }
+        }
+    }
+#else
     j = 0;
     first = cands;
     dst = found;
@@ -59,12 +109,7 @@ s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
     for (j = 0; j < DUEL_RITUAL_TRIBUTE_COUNT; j++) {
         for (i = 0; i < DUEL_FIELD_ROW_SIZE; i++) {
             card = (c = first[i]);
-#ifdef MEMORIES_PC
-            /* A copy of a tribute monster counts as it. */
-            if (card != 0 && Cards_BaseId(card->card_id) == q[0]) {
-#else
             if (card != 0 && card->card_id == q[0]) {
-#endif
                 goto matched;
             }
         }
@@ -74,6 +119,7 @@ matched:
         first[i] = 0;
         q++;
     }
+#endif
 
     if (out != 0) {
         for (i = 0; i < DUEL_RITUAL_TRIBUTE_COUNT; i++) {

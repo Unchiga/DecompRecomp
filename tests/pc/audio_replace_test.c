@@ -27,6 +27,7 @@ void Log_Signal(int channel, const char *format, long a, long b, long c, long d,
 /* --- building WAV files ------------------------------------------------- */
 
 static unsigned char wav[1 << 20];
+static uint32_t wav_mask; /* an extensible file's channel mask; 0 says none */
 
 static void put16(unsigned char *p, unsigned v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); }
 static void put32(unsigned char *p, uint32_t v) { put16(p, v & 0xFFFF); put16(p + 2, v >> 16); }
@@ -57,6 +58,7 @@ static size_t make_wav(int format, int bits, int channels, unsigned rate, size_t
     if (extensible) {
         memset(wav + at + 24, 0, 24);
         put16(wav + at + 24, 22);
+        put32(wav + at + 28, wav_mask);
         put16(wav + at + 32, (unsigned)format);
     }
     at += 8 + fmt_size;
@@ -133,10 +135,18 @@ static void check_wav(int format, int bits, int channels, unsigned rate, int ext
         assert(left == right);
     } else if (channels == 2) {
         assert(abs(right - 8191) < 400); /* the second channel is half */
+    } else if (channels == 6) {
+        /* 5.1 in WAV's order, L R C LFE Ls Rs, channel c at 1/(c+1): the
+         * front pair whole, the centre and surrounds at 0.707 (2896/4096),
+         * the LFE left out, all over the 9888 one side's weights add to:
+         * (4096 + 2896/3 + 2896/5) / 9888 and (4096/2 + 2896/3 + 2896/6) / 9888. */
+        assert(abs(left - 9346) < 300 && abs(right - 5793) < 300);
+    } else if (wav_mask == 0xF) {
+        /* Four channels the mask says are L R C LFE, not the default quad. */
+        assert(abs(left - 11859) < 300 && abs(right - 7060) < 300);
     } else {
-        /* Folded: the even channels average left, the odd ones right
-         * (channel c is at 1/(c+1): (1 + 1/3 + 1/5) / 3 and (1/2 + 1/4 + 1/6) / 3). */
-        assert(abs(left - 8373) < 300 && abs(right - 5005) < 300);
+        /* The default quad, L R Ls Rs. */
+        assert(channels == 4 && abs(left - 11859) < 300 && abs(right - 6495) < 300);
     }
     free(clip.frames);
 }
@@ -156,12 +166,16 @@ static void test_decode(void)
     check_wav(3, 64, 1, 8000, 0);
     check_wav(1, 16, 2, 48000, 1);   /* WAVE_FORMAT_EXTENSIBLE */
     check_wav(1, 16, 6, 44100, 0);   /* 5.1 folds to stereo */
+    check_wav(1, 16, 4, 44100, 0);   /* quad, by its channel count */
+    wav_mask = 0xF;
+    check_wav(1, 16, 4, 44100, 1);   /* four channels placed by the mask */
+    wav_mask = 0;
     /* 44.1 kHz stereo passes through untouched. */
-    assert(!AudioReplace_Convert(samples, 4, 2, AUDIO_RATE, &clip));
+    assert(!AudioReplace_Convert(samples, 4, 2, NULL, AUDIO_RATE, &clip));
     assert(clip.count == 4 && !memcmp(clip.frames, samples, sizeof(samples)));
     free(clip.frames);
     /* Doubling the rate puts the midpoints between. */
-    assert(!AudioReplace_Convert(samples, 4, 2, AUDIO_RATE / 2, &clip));
+    assert(!AudioReplace_Convert(samples, 4, 2, NULL, AUDIO_RATE / 2, &clip));
     assert(clip.count == 8 && clip.frames[2] == 500 && clip.frames[3] == -500 && clip.frames[4] == 1000);
     free(clip.frames);
     /* Broken files say why and give nothing back. */
@@ -205,6 +219,17 @@ static void test_vorbis(void)
     assert(fabs(frequency_of(&clip, 0) - 880.0) < 5.0);
     assert(peak_of(&clip, 0) > 1000 && peak_of(&clip, 0) == peak_of(&clip, 1));
     free(clip.frames);
+    free(data);
+    /* 5.1 in Vorbis's own order, L C R Ls Rs LFE (not WAV's): a tone in
+     * the third channel, the right front, and in the sixth, the LFE,
+     * plays on the right alone, at the front pair's share of 9888. */
+    data = read_whole(AUDIO_FIXTURES "/tone440_fr_lfe_51.ogg", &size);
+    assert(!AudioReplace_Decode(data, size, &clip, error, sizeof(error)));
+    assert(fabs(frequency_of(&clip, 1) - 440.0) < 5.0);
+    assert(peak_of(&clip, 0) < 300 && abs(peak_of(&clip, 1) - 16383 * 4096 / 9888) < 600);
+    free(clip.frames);
+    free(data);
+    data = read_whole(AUDIO_FIXTURES "/tone880.ogg", &size);
     /* A damaged stream is refused, not played as noise. */
     memset(data + 60, 0x55, size - 60);
     assert(AudioReplace_Decode(data, size, &clip, error, sizeof(error)) && strstr(error, "Vorbis"));

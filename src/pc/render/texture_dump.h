@@ -34,7 +34,11 @@ int TextureDump_EnableTags(void);
 /* The shadow a texture pack draws from: one cell per 4-bit texel of VRAM
  * (four per word; an 8-bit texel is two cells, a 16-bit one four), holding
  * the replacement colour as a 15-bit word with bit 15 set, 0 where nothing
- * replaces the texel. The pack (texture_pack.c, which reads the PNGs) fills
+ * replaces the texel. 0x8000 alone is a texel painted transparent, so
+ * opaque black, which a PS1 word can only be with its semi-transparency
+ * bit, is TEXTURE_SHADOW_BLACK: the renderer draws it as 0x8000 where the
+ * game's word has that bit and as the darkest red, 0x0001, where it has
+ * not (0x0000 would be transparent). The pack (texture_pack.c, which reads the PNGs) fills
  * cells through `paint`, called after an upload has tagged its words; the
  * cells follow the words through moves and clears. `prepare` runs once per
  * textured primitive, before it samples, with one texel it will sample,
@@ -44,6 +48,7 @@ int TextureDump_EnableTags(void);
  * the shadow holds another reading's colours). Both NULL when no pack is
  * loaded. */
 #define TEXTURE_SHADOW_WIDTH (SOFT_GPU_WIDTH * 4)
+#define TEXTURE_SHADOW_BLACK 0x8001
 extern uint16_t *TextureDump_Shadow;
 extern void (*TextureDump_Paint)(int x, int y, int w, int h);
 extern int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);

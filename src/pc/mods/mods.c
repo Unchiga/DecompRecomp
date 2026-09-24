@@ -30,9 +30,11 @@
 #include "object_loader.h"
 #include "json.h"
 #include "events.h"
+#include "hooks.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include "pc/platform/platform.h"
+#include "pc/platform/menu.h"
 #include "pc/debug/log.h"
 #include "pc/debug/symbols.h"
 #include "pc/sdk/disc.h"
@@ -128,6 +130,8 @@ static int region_count;
 static Patch patches[PATCHES_MAX];
 static int patch_count;
 static int published_regions, published_patches;
+/* The mods applied at startup, in the order they were loaded. */
+static int loaded[MODS_MAX], loaded_count;
 static volatile int overrides_live;
 static int override_low, override_high;
 static void activate(int index, int on);
@@ -356,8 +360,127 @@ static void host_unsubscribe(const MemoriesModHost *host, int token)
 static int host_register_state(const MemoriesModHost *host, void *data, size_t size, unsigned version)
 { return owner(host) ? Mods_RegisterState((int)(owner(host) - mods), data, size, version) : 0; }
 
+static int host_hook(const MemoriesModHost *host, void *function, void *replacement, void **original)
+{ return owner(host) ? Hooks_Add((int)(owner(host) - mods), function, replacement, original) : 0; }
+static void host_unhook(const MemoriesModHost *host, int token)
+{ if (owner(host)) Hooks_Remove((int)(owner(host) - mods), token); }
+static void *host_symbol(const MemoriesModHost *host, const char *name)
+{ return owner(host) && name ? Mods_Lookup(name) : NULL; }
+static int host_provide(const MemoriesModHost *host, const char *name, void *pointer)
+{ return owner(host) ? Mods_Provide((int)(owner(host) - mods), name, pointer) : 0; }
+static void *host_find(const MemoriesModHost *host, const char *qualified)
+{ return owner(host) ? Mods_Find(qualified) : NULL; }
+
+/* --- drawing over the picture ------------------------------------------ */
+
+/* Only while Mods_DrawOverlay runs a mod's overlay callback. */
+static struct {
+    MenuCanvas *canvas;
+    int scale;
+    void (*text)(MenuCanvas *, int, int, const char *, uint32_t, int);
+    int (*width)(const char *, int);
+    int x0, y0, x1, y1;   /* what the mods drew, to report as the overlay's bounds */
+} overlay;
+
+static void overlay_touch(int x, int y, int w, int h)
+{
+    int x1 = x + w, y1 = y + h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x1 > overlay.canvas->width) x1 = overlay.canvas->width;
+    if (y1 > overlay.canvas->height) y1 = overlay.canvas->height;
+    if (x >= x1 || y >= y1) return;
+    if (overlay.x0 >= overlay.x1) { overlay.x0 = x; overlay.y0 = y; overlay.x1 = x1; overlay.y1 = y1; return; }
+    if (x < overlay.x0) overlay.x0 = x;
+    if (y < overlay.y0) overlay.y0 = y;
+    if (x1 > overlay.x1) overlay.x1 = x1;
+    if (y1 > overlay.y1) overlay.y1 = y1;
+}
+
+static void host_overlay_size(const MemoriesModHost *host, int *width, int *height, int *scale)
+{
+    int on = owner(host) && overlay.canvas;
+    if (width) *width = on ? overlay.canvas->width : 0;
+    if (height) *height = on ? overlay.canvas->height : 0;
+    if (scale) *scale = on ? overlay.scale : 1;
+}
+
+static int host_text_width(const MemoriesModHost *host, const char *text, int scale)
+{
+    return owner(host) && overlay.width && text ? overlay.width(text, scale < 1 ? 1 : scale) : 0;
+}
+
+static void host_draw_text(const MemoriesModHost *host, int x, int middle, const char *text, uint32_t rgb, int scale)
+{
+    if (!owner(host) || !overlay.canvas || !text) return;
+    if (scale < 1) scale = 1;
+    overlay.text(overlay.canvas, x, middle, text, rgb & 0xFFFFFFu, scale);
+    overlay_touch(x, middle - 10 * scale, overlay.width(text, scale), 20 * scale);
+}
+
+static void host_fill(const MemoriesModHost *host, int x, int y, int w, int h, uint32_t rgb, unsigned alpha)
+{
+    MenuCanvas *canvas = overlay.canvas;
+    unsigned inverse;
+    if (!owner(host) || !canvas || w <= 0 || h <= 0) return;
+    if (alpha > 255) alpha = 255;
+    inverse = 255 - alpha;
+    for (int row = y < 0 ? 0 : y; row < y + h && row < canvas->height; row++) {
+        for (int column = x < 0 ? 0 : x; column < x + w && column < canvas->width; column++) {
+            uint32_t *pixel = canvas->pixels + (size_t)row * (size_t)canvas->stride + (size_t)column, under = *pixel;
+            unsigned r = ((rgb >> 16 & 255) * alpha + (under >> 16 & 255) * inverse) / 255;
+            unsigned g = ((rgb >> 8 & 255) * alpha + (under >> 8 & 255) * inverse) / 255;
+            unsigned b = ((rgb & 255) * alpha + (under & 255) * inverse) / 255;
+            unsigned a = alpha + (under >> 24) * inverse / 255;
+            *pixel = a << 24 | r << 16 | g << 8 | b;
+        }
+    }
+    overlay_touch(x, y, w, h);
+}
+
+void Mods_DrawOverlay(MenuCanvas *canvas, int scale, void (*text)(MenuCanvas *, int, int, const char *, uint32_t, int),
+                      int (*width)(const char *, int), int *x, int *y, int *w, int *h)
+{
+    *x = *y = *w = *h = 0;
+    if (shut_down || !canvas || !canvas->pixels || !text || !width) return;
+    overlay.canvas = canvas;
+    overlay.scale = scale < 1 ? 1 : scale;
+    overlay.text = text;
+    overlay.width = width;
+    overlay.x0 = overlay.y0 = overlay.x1 = overlay.y1 = 0;
+    for (int i = 0; i < mod_count; i++) {
+        if (mods[i].active && mods[i].initialized && mods[i].hooks.overlay) mods[i].hooks.overlay();
+    }
+    overlay.canvas = NULL;
+    if (overlay.x0 < overlay.x1) {
+        *x = overlay.x0; *y = overlay.y0; *w = overlay.x1 - overlay.x0; *h = overlay.y1 - overlay.y0;
+    }
+}
+
+unsigned Mods_OverlaySignature(unsigned frame)
+{
+    unsigned signature = 0;
+    if (shut_down) return 0;
+    for (int i = 0; i < mod_count; i++) {
+        const MemoriesMod *hooks = &mods[i].hooks;
+        if (!mods[i].active || !mods[i].initialized || !hooks->overlay) continue;
+        signature = signature * 31u + (unsigned)i + 1u;
+        signature = signature * 2654435761u + (hooks->overlay_signature ? hooks->overlay_signature() : frame);
+    }
+    return signature;
+}
+
 static void fill_host(Mod *mod)
 {
+    mod->host.hook = host_hook;
+    mod->host.unhook = host_unhook;
+    mod->host.symbol = host_symbol;
+    mod->host.provide = host_provide;
+    mod->host.find = host_find;
+    mod->host.overlay_size = host_overlay_size;
+    mod->host.draw_text = host_draw_text;
+    mod->host.text_width = host_text_width;
+    mod->host.fill = host_fill;
     mod->host.subscribe = host_subscribe;
     mod->host.unsubscribe = host_unsubscribe;
     mod->host.register_state = host_register_state;
@@ -614,15 +737,51 @@ static int read_bytes(const char *text, unsigned char **out)
     return (int)digits;
 }
 
-/* One patch, split at the sector boundaries it crosses. */
+/* The disc's streamed files: XA audio and the STR movie. Their sectors are
+ * MODE2 Form 2, 2304 bytes each (an XA sector's sound, a movie's
+ * interleaved sound), where an override writes the 2048 of a data sector:
+ * a replacement or patch would leave the rest of each sector's old sound
+ * after the new bytes. Their sounds are replaced from files instead, with
+ * the "audio" key (src/pc/audio/replace.h). The name of the streamed file
+ * the sectors [lba, lba + sectors) reach into, or NULL. */
+static const char *streamed_file(const char *file, int lba, int sectors)
+{
+    static const char *const streamed[] = {"\\DATA\\MASTER.XA;1", "\\DATA\\MOVIE.STR;1"};
+    size_t i;
+    if (file) {
+        const char *dot = strrchr(file, '.');
+        size_t length = dot ? strcspn(dot, ";") : 0;
+        if (dot && ((length == 3 && !strncmp(dot, ".XA", 3)) || (length == 4 && !strncmp(dot, ".STR", 4)))) return file;
+        return NULL;
+    }
+    for (i = 0; i < sizeof(streamed) / sizeof(streamed[0]); i++) {
+        int start;
+        unsigned size;
+        if (Memories_DiscOriginalFileInfo(streamed[i], &start, &size) || start < 0) continue;
+        if (lba < start + (int)((size + SECTOR - 1) / SECTOR) && start < lba + sectors) return streamed[i];
+    }
+    return NULL;
+}
+
+/* One patch, split at the sector boundaries it crosses. Bytes another mod
+ * patches too are the later mod's: the Mods window says so. */
 static int add_patch(Mod *mod, int index, int file, int lba, int offset, const unsigned char *bytes, int length)
 {
+    int warned = 0;
     while (length > 0) {
-        int here = SECTOR - offset;
+        int here = SECTOR - offset, i;
         if (here > length) here = length;
         if (patch_count >= PATCHES_MAX) {
             note(mod, "more than %d patched byte runs", PATCHES_MAX);
             return 0;
+        }
+        for (i = 0; i < patch_count && !warned; i++) {
+            const Patch *other = &patches[i];
+            if (other->mod != index && other->file == file && other->lba == lba &&
+                other->offset < offset + here && offset < other->offset + other->length) {
+                warn(mod, 0, "patches the same bytes as %s; later patch wins", mods[other->mod].id);
+                warned = 1;
+            }
         }
         patches[patch_count].bytes = malloc((size_t)here);
         if (!patches[patch_count].bytes) return 0;
@@ -687,9 +846,15 @@ static int add_region(Mod *mod, int index, int named, int lba, int sectors, cons
     regions[region_count].image_size = (size_t)info.st_size;
     regions[region_count].mapped = (size_t)info.st_size;
     regions[region_count].hash = hash_bytes(2166136261u, image, (size_t)info.st_size);
-    for (int i = 0; named >= 0 && i < region_count; i++) if (regions[i].file == named) {
-        warn(mod, 0, "%s replaces the same disc file as %s; later replacement wins", replacement, mods[regions[i].mod].id);
-        break;
+    for (int i = 0; i < region_count; i++) {
+        const Region *other = &regions[i];
+        if (named >= 0 ? other->file == named
+                       : other->file < 0 && other->mod != index && other->lba < lba + sectors &&
+                             lba < other->lba + other->sectors) {
+            warn(mod, 0, "%s replaces the same %s as %s; later replacement wins", replacement,
+                 named >= 0 ? "disc file" : "sectors", mods[other->mod].id);
+            break;
+        }
     }
     region_count++;
     if (!layout_disc_files()) {
@@ -703,6 +868,7 @@ static int add_region(Mod *mod, int index, int named, int lba, int sectors, cons
 static int apply_overrides(Mod *mod, int index)
 {
     int i, count = Json_Count(mod->data);
+    const char *stream = NULL;
     for (i = 0; i < count; i++) {
         const JsonValue *entry = Json_At(mod->data, i);
         const char *file = Json_String(Json_Member(entry, "file"), NULL);
@@ -722,6 +888,7 @@ static int apply_overrides(Mod *mod, int index)
                 note(mod, "%s is not on the disc", file);
                 goto failed;
             }
+            if ((stream = streamed_file(file, lba, 0)) != NULL) goto streamed;
             named = disc_file(lba, size);
             if (named < 0) { note(mod, "cannot register disc file %s", file); goto failed; }
         } else if (lba < 0) {
@@ -735,11 +902,10 @@ static int apply_overrides(Mod *mod, int index)
             if (sectors <= 0 || lba > INT_MAX - sectors) {
                 note(mod, "\"replace\" at sector %d needs a \"sectors\" count", lba);
                 goto failed;
-            } else {
-                /* Existing in-place streaming overrides keep their raw
-                 * headers. Growth cannot synthesize XA/STR metadata. */
-                int backing_file = file && (strstr(file, ".XA") || strstr(file, ".STR")) ? -1 : named;
-                if (!add_region(mod, index, backing_file, lba, sectors, Json_String(replace, NULL))) goto failed;
+            } else if (!file && (stream = streamed_file(NULL, lba, sectors)) != NULL) {
+                goto streamed;
+            } else if (!add_region(mod, index, named, lba, sectors, Json_String(replace, NULL))) {
+                goto failed;
             }
         }
         if (patch) {
@@ -768,6 +934,12 @@ static int apply_overrides(Mod *mod, int index)
                     free(bytes);
                     goto failed;
                 }
+                if (!file && at <= INT_MAX - length &&
+                    (stream = streamed_file(NULL, lba + (int)(at / SECTOR),
+                                            (int)((at % SECTOR + length + SECTOR - 1) / SECTOR))) != NULL) {
+                    free(bytes);
+                    goto streamed;
+                }
                 if (at > INT_MAX - length || at / SECTOR > INT_MAX - lba - (length + SECTOR - 1) / SECTOR ||
                     !add_patch(mod, index, named, (named < 0 ? lba : 0) + (int)(at / SECTOR), (int)(at % SECTOR), bytes, length)) {
                     free(bytes);
@@ -783,6 +955,9 @@ static int apply_overrides(Mod *mod, int index)
             mod->id, region_count, patch_count, override_low, override_high);
     }
     return 1;
+streamed:
+    note(mod, "%s is streamed XA/STR audio or video, which \"data\" cannot replace or patch; "
+         "use \"audio\" for its sounds", stream);
 failed:
     drop_overrides(index);
     if (!mod->status[0]) note(mod, "could not prepare data overrides");
@@ -986,7 +1161,7 @@ static int load_library(Mod *mod)
 static const char *const manifest_keys[] = {
     "id", "name", "version", "author", "description", "library", "enabled", "restart", "legacy_setting",
     "data", "textures", "cards", "audio", "min_api", "game", "requires", "after", "conflicts", "priority",
-    "settings",
+    "settings", "fusions", "equips", "rituals", "drops", "decks", "text", "font",
 };
 
 /* How many letters to add, remove or change to turn one word into the
@@ -1113,6 +1288,15 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         if (Json_Member(entry, "file") && Json_Member(entry, "replace")) mod->restart = 1;
     }
     if (Json_Count(mod->cards)) mod->restart = 1;
+    {   /* So are the rule tables (src/pc/cards/tables.c) and a translation
+         * (src/pc/text): both are read once, at startup. */
+        static const char *const tables[] = {"fusions", "equips", "rituals", "drops", "decks", "text", "font"};
+        for (size_t t = 0; t < sizeof(tables) / sizeof(tables[0]); t++) {
+            const JsonValue *value = Json_Member(root, tables[t]);
+            /* "text": "text.txt" is one file named as a string. */
+            if (Json_Count(value) || *Json_String(value, "")) mod->restart = 1;
+        }
+    }
     {   /* The key this mod's choice was stored under before it was a mod. */
         const char *legacy = Json_String(Json_Member(root, "legacy_setting"), NULL);
         char key[256];
@@ -1242,7 +1426,16 @@ static int load_texture_packs(int with, int without, char *problems, size_t size
     return loaded;
 }
 
+static void activate_once(int index, int on);
+
+/* Function hooks follow what is applied, however activation ended. */
 static void activate(int index, int on)
+{
+    activate_once(index, on);
+    Hooks_Relink();
+}
+
+static void activate_once(int index, int on)
 {
     Mod *mod = &mods[index];
     if (on == mod->active) return;
@@ -1386,7 +1579,17 @@ void Mods_Load(void)
     /* After the first load (a settings reload) a mod that wants a restart is
      * only recorded, as Mods_SetEnabled does, and a live one that requires
      * it waits for the same restart. */
-    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
+    {   /* Applied last, removed first (as Mods_Apply does). */
+        int newest[MODS_MAX], j;
+        for (i = 0; i < mod_count; i++) {
+            for (j = i; j > 0 && mods[newest[j - 1]].sequence < mods[i].sequence; j--) newest[j] = newest[j - 1];
+            newest[j] = i;
+        }
+        for (j = 0; j < mod_count; j++) {
+            i = newest[j];
+            if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
+        }
+    }
     for (i = 0; i < count; i++) {
         int current = order[i], j, active[MODS_MAX];
         if (!enabled[current] || (first && mods[current].failed)) continue;
@@ -1420,7 +1623,17 @@ void Mods_Load(void)
         }
         if (!changed) break;
     }
+    /* What the startup-only readers (rule tables, translation) see: the mods
+     * active once the game has started, in load order. A settings reload
+     * leaves it alone, as those readers do not run again. */
+    if (first) {
+        loaded_count = 0;
+        for (i = 0; i < count; i++) if (mods[order[i]].active) loaded[loaded_count++] = order[i];
+    }
 }
+
+int Mods_LoadedCount(void) { return loaded_count; }
+int Mods_Loaded(int index) { return index >= 0 && index < loaded_count ? loaded[index] : -1; }
 
 void Mods_Shutdown(void)
 {
@@ -1453,8 +1666,10 @@ void Mods_SetEnabled(int mod, int enabled)
     char key[256];
     if (!at(mod)) return;
     enabled = enabled != 0;
-    if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
+    /* Unchanged, nothing is written: the choice stored stays, even when an
+     * environment variable overrides it for this run. */
     if (mods[mod].enabled == enabled) return;
+    if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
     mods[mod].enabled = enabled;
     /* A mod that could not go in place (a replacement file missing, say) is
      * tried again when the player next applies it; one that cannot load at

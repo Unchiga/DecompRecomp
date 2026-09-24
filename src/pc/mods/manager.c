@@ -70,20 +70,27 @@ int Mods_Compatible(int mod, const int *enabled, char *error, size_t size)
     }
     return 1;
 }
-static int waits_for_restart(int mod, const int *enabled, int depth)
+/* Each mod is looked at once: a cycle (which Mods_Order reports), or a mod
+ * required along many paths, would otherwise be walked again and again. */
+static int waits_for_restart(int mod, const int *enabled, unsigned char *seen)
 {
     const JsonValue *list = member(mod, "requires"), *req;
-    if (depth > MODS_MAX)
-        return -1; /* a cycle, which Mods_Order reports */
+    if (seen[mod])
+        return -1;
+    seen[mod] = 1;
     for (req = Json_At(list, 0); req; req = Json_Next(req)) {
         int dep = find(require_id(req));
         if (dep >= 0 && enabled[dep] && !Mods_Active(dep) &&
-            (Mods_RequiresRestart(dep) || waits_for_restart(dep, enabled, depth + 1) >= 0))
+            (Mods_RequiresRestart(dep) || waits_for_restart(dep, enabled, seen) >= 0))
             return dep;
     }
     return -1;
 }
-int Mods_WaitsForRestart(int mod, const int *enabled) { return waits_for_restart(mod, enabled, 0); }
+int Mods_WaitsForRestart(int mod, const int *enabled)
+{
+    unsigned char seen[MODS_MAX] = {0};
+    return mod >= 0 && mod < MODS_MAX ? waits_for_restart(mod, enabled, seen) : -1;
+}
 int Mods_Order(const int *enabled, int *order, char *error, size_t size)
 {
     int done[MODS_MAX] = {0}, total = 0, wanted = 0, i;
@@ -137,29 +144,47 @@ int Mods_Validate(const int *enabled, char *error, size_t size)
         }
     return Mods_Order(enabled, order, error, size) >= 0;
 }
+/* The mods, applied last first: removing them in this order never leaves a
+ * mod running without one it was applied after (and may call into). */
+static int newest_first(int *out)
+{
+    int count = Mods_Count(), i, j;
+    for (i = 0; i < count; i++) {
+        for (j = i; j > 0 && Mods_Sequence(out[j - 1]) < Mods_Sequence(i); j--)
+            out[j] = out[j - 1];
+        out[j] = i;
+    }
+    return count;
+}
 int Mods_Apply(const int *enabled, char *error, size_t size)
 {
-    int old[MODS_MAX], order[MODS_MAX], i, n;
+    int old[MODS_MAX], stored[MODS_MAX], order[MODS_MAX], newest[MODS_MAX], i, n;
     if (!Mods_Validate(enabled, error, size))
         return 0;
+    /* Only what the player changed is written: a mod MEMORIES_MODS=0 or
+     * MEMORIES_MOD_<ID> turned on or off for this run keeps its choice. */
     for (i = 0; i < Mods_Count(); i++) {
         char key[160];
         old[i] = Mods_Enabled(i);
         snprintf(key, sizeof(key), "mod.%s", Mods_Id(i));
-        Settings_SetNamed(key, enabled[i]);
+        stored[i] = Settings_GetNamed(key, old[i]);
+        if (enabled[i] != old[i])
+            Settings_SetNamed(key, enabled[i]);
     }
     if (!Settings_Save()) {
         for (i = 0; i < Mods_Count(); i++) {
             char key[160];
             snprintf(key, sizeof(key), "mod.%s", Mods_Id(i));
-            Settings_SetNamed(key, old[i]);
+            if (enabled[i] != old[i])
+                Settings_SetNamed(key, stored[i]);
         }
         snprintf(error, size, "Could not save settings; changes cancelled");
         return 0;
     }
-    for (i = Mods_Count() - 1; i >= 0; i--)
-        if (!enabled[i])
-            Mods_SetEnabled(i, 0);
+    n = newest_first(newest);
+    for (i = 0; i < n; i++)
+        if (!enabled[newest[i]])
+            Mods_SetEnabled(newest[i], 0);
     n = Mods_Order(enabled, order, error, size);
     for (i = 0; i < n; i++) {
         int mod = order[i];
@@ -173,11 +198,17 @@ int Mods_Apply(const int *enabled, char *error, size_t size)
             /* Back to the old set the way a launch builds it: everything off
              * in reverse, then the old mods in dependency order. */
             char ignored[128];
-            for (int j = Mods_Count() - 1; j >= 0; j--)
-                Mods_SetEnabled(j, 0);
+            n = newest_first(newest);
+            for (int j = 0; j < n; j++)
+                Mods_SetEnabled(newest[j], 0);
             n = Mods_Order(old, order, ignored, sizeof(ignored));
             for (int j = 0; n >= 0 ? j < n : order[j] >= 0; j++)
                 Mods_SetEnabled(order[j], 1);
+            for (int j = 0; j < Mods_Count(); j++) {
+                char key[160];
+                snprintf(key, sizeof(key), "mod.%s", Mods_Id(j));
+                Settings_SetNamed(key, stored[j]);
+            }
             if (!Settings_Save())
                 snprintf(error, size,
                          "Mod failed and preferences could not be restored; check settings before restarting");

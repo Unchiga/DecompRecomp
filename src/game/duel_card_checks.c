@@ -6,6 +6,7 @@
 #include "duel_card_checks.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/cards/tables.h"
 #endif
 
 #define FUSION_TABLE_BYTES(table) ((u8 *)(table))
@@ -46,11 +47,18 @@ s32 Duel_CheckEquip(s32 arg0, s32 arg1)
 
 #ifdef MEMORIES_PC
 /* An equip answers with the monster it was asked about, so a copy stays
-   itself. */
+   itself. The mods' rules come before the disc's table (tables.h). */
 s32 Duel_CheckEquip(s32 arg0, s32 arg1)
 {
-    return Duel_CheckEquipRetail(Cards_BaseId(arg0), Cards_BaseId(arg1)) != 0
-        ? arg1 : 0;
+    MemoriesModEvent event = {MEMORIES_EVENT_EQUIP, MEMORIES_BEFORE, arg0, arg1, 0, 0, 0};
+    Mods_Dispatch(&event);
+    if (!event.handled) {
+        s32 ruled = Tables_Equip(event.a, event.b);
+        event.result = ruled >= 0 ? ruled
+            : Duel_CheckEquipRetail(Cards_BaseId(event.a), Cards_BaseId(event.b)) != 0;
+    }
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+    return event.result ? arg1 : 0;
 }
 #endif
 
@@ -109,8 +117,10 @@ s32 Duel_CheckFusion(s32 a, s32 b)
 {
     MemoriesModEvent event = {MEMORIES_EVENT_FUSION, MEMORIES_BEFORE, a, b, 0, 0, 0};
     Mods_Dispatch(&event);
-    if (!event.handled && !Cards_Fusion(event.a, event.b, &event.result))
-        event.result = Cards_Valid(event.a) && Cards_Valid(event.b) ? Duel_CheckFusionRetail(event.a, event.b) : 0;
+    if (!event.handled && !Tables_Fusion(event.a, event.b, &event.result) &&
+        !Cards_Fusion(event.a, event.b, &event.result))
+        event.result = Cards_Valid(event.a) && Cards_Valid(event.b)
+            ? Tables_FilterFusion(Duel_CheckFusionRetail(event.a, event.b)) : 0;
     if (event.result && !Cards_Valid(event.result)) event.result = 0;
     event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
     return event.result;

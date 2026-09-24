@@ -5,6 +5,9 @@
 #include "display_object_core.h"
 #include "duel_effect.h"
 #include "duel_effect_object_commands.h"
+#ifdef MEMORIES_PC
+#include "pc/text/text.h"
+#endif
 
 void func_800389C4(DuelEffectChannel *value)
 {
@@ -18,9 +21,14 @@ void func_800389D8(DuelEffectChannel *object)
 
     owner->streams[object->stream_58] += D_8009B34E * 2;
     value = TextStream_ReadU16LE(object);
+#ifdef MEMORIES_PC
+    owner->streams[object->stream_58] =
+        Text_Retarget(owner->streams[object->stream_58], value & 0xFFFF);
+#else
     owner->streams[object->stream_58] =
         (u8 *)(((u32)owner->streams[object->stream_58] & 0xFFFF0000) |
                (value & 0xFFFF));
+#endif
 }
 
 void func_80038A44(DuelEffectChannel *object)
@@ -30,9 +38,14 @@ void func_80038A44(DuelEffectChannel *object)
 
     owner->streams[object->stream_58] += D_8009B355 * 2;
     value = TextStream_ReadU16LE(object);
+#ifdef MEMORIES_PC
+    owner->streams[object->stream_58] =
+        Text_Retarget(owner->streams[object->stream_58], value & 0xFFFF);
+#else
     owner->streams[object->stream_58] =
         (u8 *)(((u32)owner->streams[object->stream_58] & 0xFFFF0000) |
                (value & 0xFFFF));
+#endif
 }
 
 void Text_UnlockDuelist(DuelEffectChannel *object)

@@ -48,13 +48,50 @@ static void say_error(char *error, size_t size, const char *text)
 static uint32_t le16(const unsigned char *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
 static uint32_t le32(const unsigned char *p) { return le16(p) | le16(p + 2) << 16; }
 
-int AudioReplace_Convert(const int16_t *samples, size_t frames, int channels, unsigned rate, AudioClip *clip)
+/* Where a channel plays: the bit numbers of WAVE_FORMAT_EXTENSIBLE's
+ * channel mask, which the decoders translate their own orders into. */
+enum {
+    FL, FR, FC, LFE, BL, BR, FLC, FRC, BC, SL, SR, TC, TFL, TFC, TFR, TBL, TBC, TBR,
+    SPEAKERS, UNPLACED = SPEAKERS /* past a layout's end: both sides, as a centre */
+};
+
+/* Each speaker's share of the left and right output, Q12: the front pair
+ * whole, a centre at -3 dB on both sides, surrounds, backs and heights at
+ * -3 dB on their own side, the low-frequency channel left out (a
+ * downmix's usual weights). */
+static const int16_t fold_gain[SPEAKERS + 1][2] = {
+    [FL] = {4096, 0},    [FR] = {0, 4096},    [FC] = {2896, 2896}, [LFE] = {0, 0},
+    [BL] = {2896, 0},    [BR] = {0, 2896},    [FLC] = {3784, 1567}, [FRC] = {1567, 3784},
+    [BC] = {2896, 2896}, [SL] = {2896, 0},    [SR] = {0, 2896},    [TC] = {2896, 2896},
+    [TFL] = {2896, 0},   [TFC] = {2896, 2896}, [TFR] = {0, 2896},  [TBL] = {2896, 0},
+    [TBC] = {2896, 2896}, [TBR] = {0, 2896},  [UNPLACED] = {2896, 2896},
+};
+
+int AudioReplace_Convert(const int16_t *samples, size_t frames, int channels, const unsigned char *speakers,
+                         unsigned rate, AudioClip *clip)
 {
     uint64_t out_frames;
     int16_t *out;
+    int32_t weight[2][32];
+    int64_t scale = GAIN_ONE;
     uint32_t i;
+    int c, side;
     memset(clip, 0, sizeof(*clip));
-    if (channels < 1 || !rate || !frames) return -1;
+    if (channels < 1 || channels > 32 || !rate || !frames) return -1;
+    /* Mono plays on both sides; stereo, and a wider source without speakers
+     * named, as if its first two channels were the front pair. Wider
+     * sources fold to the pair, scaled down so that every channel at full
+     * level together cannot clip. */
+    for (c = 0; c < channels; c++) {
+        int speaker = channels == 1 ? FC : speakers ? speakers[c] : c < 2 ? c : UNPLACED;
+        if (speaker > UNPLACED) speaker = UNPLACED;
+        for (side = 0; side < 2; side++) weight[side][c] = channels == 1 ? GAIN_ONE : fold_gain[speaker][side];
+    }
+    for (side = 0; side < 2; side++) {
+        int64_t sum = 0;
+        for (c = 0; c < channels; c++) sum += weight[side][c];
+        if (sum > scale) scale = sum;
+    }
     out_frames = ((uint64_t)frames * AUDIO_RATE + rate - 1) / rate;
     if (out_frames > AUDIO_CLIP_MAX_FRAMES) return -1;
     out = malloc((size_t)out_frames * 2 * sizeof(*out));
@@ -64,32 +101,66 @@ int AudioReplace_Convert(const int16_t *samples, size_t frames, int channels, un
         uint64_t position = (uint64_t)i * rate;
         size_t at = (size_t)(position / AUDIO_RATE), next;
         int64_t fraction = (int64_t)(position % AUDIO_RATE);
-        int side;
         if (at >= frames) at = frames - 1;
         next = at + 1 < frames ? at + 1 : at;
         for (side = 0; side < 2; side++) {
             int64_t a = 0, b = 0;
-            int count = 0, c;
-            if (channels == 1) {
-                a = samples[at];
-                b = samples[next];
-                count = 1;
-            } else {
-                /* Stereo is itself; wider sources fold even channels left, odd right. */
-                for (c = side; c < channels; c += 2) {
-                    a += samples[at * (size_t)channels + (size_t)c];
-                    b += samples[next * (size_t)channels + (size_t)c];
-                    count++;
-                }
+            for (c = 0; c < channels; c++) {
+                a += (int64_t)samples[at * (size_t)channels + (size_t)c] * weight[side][c];
+                b += (int64_t)samples[next * (size_t)channels + (size_t)c] * weight[side][c];
             }
-            a /= count;
-            b /= count;
+            a /= scale;
+            b /= scale;
             out[(size_t)i * 2 + (size_t)side] = (int16_t)(a + (b - a) * fraction / AUDIO_RATE);
         }
     }
     clip->frames = out;
     clip->count = (uint32_t)out_frames;
     return 0;
+}
+
+/* A WAV's speakers: the channel mask's, lowest bit first, when the file
+ * has one, else the layouts WAVE_FORMAT_EXTENSIBLE takes as the default
+ * for the count (L R C LFE, then backs, then sides). Channels past them
+ * are unplaced. */
+static void wav_speakers(int channels, uint32_t mask, unsigned char *speakers)
+{
+    static const unsigned char defaults[9][8] = {
+        [3] = {FL, FR, FC},
+        [4] = {FL, FR, BL, BR},
+        [5] = {FL, FR, FC, BL, BR},
+        [6] = {FL, FR, FC, LFE, BL, BR},
+        [7] = {FL, FR, FC, LFE, BC, SL, SR},
+        [8] = {FL, FR, FC, LFE, BL, BR, SL, SR},
+    };
+    int c, bit = 0;
+    for (c = 0; c < channels; c++) {
+        if (mask) {
+            while (bit < SPEAKERS && !(mask & (1u << bit))) bit++;
+            speakers[c] = bit < SPEAKERS ? (unsigned char)bit++ : UNPLACED;
+        } else {
+            speakers[c] = channels < 3 ? (unsigned char)c : channels <= 8 ? defaults[channels][c] : c < 8 ? defaults[8][c] : UNPLACED;
+        }
+    }
+}
+
+/* A Vorbis stream's speakers, in the order its specification fixes for one
+ * to eight channels (the centre between the front pair, the LFE last);
+ * past eight the order is the application's, so they are unplaced. */
+static void vorbis_speakers(int channels, unsigned char *speakers)
+{
+    static const unsigned char orders[9][8] = {
+        [1] = {FC},
+        [2] = {FL, FR},
+        [3] = {FL, FC, FR},
+        [4] = {FL, FR, BL, BR},
+        [5] = {FL, FC, FR, BL, BR},
+        [6] = {FL, FC, FR, BL, BR, LFE},
+        [7] = {FL, FC, FR, SL, SR, BC, LFE},
+        [8] = {FL, FC, FR, SL, SR, BL, BR, LFE},
+    };
+    int c;
+    for (c = 0; c < channels; c++) speakers[c] = channels <= 8 ? orders[channels][c] : UNPLACED;
 }
 
 /* One sample of a WAV data chunk as s16. */
@@ -123,6 +194,8 @@ static int decode_wav(const unsigned char *data, size_t size, AudioClip *clip, c
     size_t at = 12, data_at = 0, data_size = 0, frames, i;
     int format = 0, channels = 0, bits = 0, have_format = 0, bytes, block;
     unsigned rate = 0;
+    uint32_t mask = 0;
+    unsigned char speakers[32];
     int16_t *samples;
     int result;
     while (at + 8 <= size) {
@@ -134,7 +207,10 @@ static int decode_wav(const unsigned char *data, size_t size, AudioClip *clip, c
             channels = (int)le16(body + 2);
             rate = le32(body + 4);
             bits = (int)le16(body + 14);
-            if (format == 0xFFFE && length >= 26) format = (int)le16(body + 24); /* WAVE_FORMAT_EXTENSIBLE */
+            if (format == 0xFFFE && length >= 26) { /* WAVE_FORMAT_EXTENSIBLE */
+                mask = le32(body + 20);
+                format = (int)le16(body + 24);
+            }
             have_format = 1;
         } else if (!memcmp(data + at, "data", 4)) {
             data_at = at + 8;
@@ -178,24 +254,82 @@ static int decode_wav(const unsigned char *data, size_t size, AudioClip *clip, c
     for (i = 0; i < frames * (size_t)channels; i++) {
         samples[i] = wav_sample(data + data_at + i * (size_t)bytes, format, bits);
     }
-    result = AudioReplace_Convert(samples, frames, channels, rate, clip);
+    wav_speakers(channels, mask, speakers);
+    result = AudioReplace_Convert(samples, frames, channels, speakers, rate, clip);
     free(samples);
     if (result) say_error(error, error_size, "does not fit in memory");
     return result;
 }
 
+/* The stream's length is asked first, from its last page, so an overlong
+ * file is refused before it is decoded; one that does not say (or lies) is
+ * stopped where the limit falls. */
 static int decode_vorbis(const unsigned char *data, size_t size, AudioClip *clip, char *error, size_t error_size)
 {
-    int channels = 0, rate = 0, frames, result;
-    short *samples = NULL;
+    int channels, rate, status = 0, result;
+    unsigned length;
+    size_t frames = 0, room = 4096, limit;
+    short *samples, *more;
+    unsigned char speakers[32];
+    stb_vorbis *stream;
+    stb_vorbis_info info;
     if (size > 0x7fffffff) return -1;
-    frames = stb_vorbis_decode_memory(data, (int)size, &channels, &rate, &samples);
-    if (frames <= 0 || !samples || channels < 1 || rate <= 0) {
+    stream = stb_vorbis_open_memory(data, (int)size, &status, NULL);
+    if (!stream) {
+        say_error(error, error_size, "is not a playable Ogg Vorbis file");
+        return -1;
+    }
+    info = stb_vorbis_get_info(stream);
+    channels = info.channels;
+    rate = (int)info.sample_rate;
+    if (channels < 1 || channels > 32 || rate <= 0) {
+        stb_vorbis_close(stream);
+        say_error(error, error_size, "is not a playable Ogg Vorbis file");
+        return -1;
+    }
+    limit = (size_t)((uint64_t)AUDIO_CLIP_MAX_FRAMES * (unsigned)rate / AUDIO_RATE) + 1;
+    length = stb_vorbis_stream_length_in_samples(stream);
+    if (length == 0xffffffffu) length = 0; /* no last page to read it from */
+    if (length > limit) {
+        stb_vorbis_close(stream);
+        say_error(error, error_size, "is longer than 12 minutes");
+        return -1;
+    }
+    if (length) room = (size_t)length + 4096; /* a frame's worth past it: the last frame may overrun */
+    samples = malloc(room * (size_t)channels * sizeof(*samples));
+    for (;;) {
+        int got;
+        if (!samples) {
+            stb_vorbis_close(stream);
+            say_error(error, error_size, "does not fit in memory");
+            return -1;
+        }
+        if (room - frames < 4096) {
+            room *= 2;
+            more = realloc(samples, room * (size_t)channels * sizeof(*samples));
+            if (!more) free(samples);
+            samples = more;
+            continue;
+        }
+        got = stb_vorbis_get_frame_short_interleaved(stream, channels, samples + frames * (size_t)channels,
+                                                     (int)((room - frames) * (size_t)channels));
+        if (got <= 0) break;
+        frames += (size_t)got;
+        if (frames > limit) {
+            free(samples);
+            stb_vorbis_close(stream);
+            say_error(error, error_size, "is longer than 12 minutes");
+            return -1;
+        }
+    }
+    stb_vorbis_close(stream);
+    if (!frames) {
         free(samples);
         say_error(error, error_size, "is not a playable Ogg Vorbis file");
         return -1;
     }
-    result = AudioReplace_Convert(samples, (size_t)frames, channels, (unsigned)rate, clip);
+    vorbis_speakers(channels, speakers);
+    result = AudioReplace_Convert(samples, frames, channels, speakers, (unsigned)rate, clip);
     free(samples);
     if (result) say_error(error, error_size, "is too long or does not fit in memory");
     return result;

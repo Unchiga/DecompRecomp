@@ -19,6 +19,8 @@
 #include "text_stream_commands.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/text/glyphs.h"
+#include "pc/text/text.h"
 #endif
 
 /* Defined rather than declared: the assembler only resolves a small global
@@ -71,8 +73,10 @@ void TextBox_BuildStep(DuelEffectChannel *object)
                 D_801C0000[id]);
         }
 #ifdef MEMORIES_PC
-        /* The few strings that spell out how many cards there are. */
-        text = (u8 *)Cards_Text(text);
+        /* A translation's string, if a mod has one (text.h); then the few
+           strings that spell out how many cards there are. */
+        text = (u8 *)Cards_Text((u16)object->field_36,
+                                 Text_Resolve((u16)object->field_36, text));
 #endif
         object->text_00 = text;
         object->field_56 = 0;
@@ -138,7 +142,12 @@ next_opcode:
         return;
     }
     D_8009B35A = D_8009B33A;
+#ifdef MEMORIES_PC
+    /* Glyphs past the retail font's have words of their own (glyphs.h). */
+    func_80036C14(object, Glyphs_Word((s16)D_8009B33A) & 0x8FF0FFFF);
+#else
     func_80036C14(object, D_801D9000[(s16)D_8009B33A] & 0x8FF0FFFF);
+#endif
     object->field_60 = object->field_60 + 1;
     if (object->field_61 != 0 && object->field_60 >= object->field_61) {
         object->flags_34 = object->flags_34 | TEXT_BOX_FLAG_DONE;

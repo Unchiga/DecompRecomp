@@ -1,0 +1,9 @@
+{
+    "id": "example-translation",
+    "name": "Translation example",
+    "version": "1.0",
+    "author": "DecompRecomp",
+    "description": "A few strings in Spanish, to show a translation's form. A real one starts from tools/pc/text_listing.py extract.",
+    "enabled": false,
+    "text": "text.txt"
+}

@@ -17,7 +17,7 @@ typedef struct Entry {
     int words, rows, bpp, crop_left, crop_width, clut_entries;
     char *file;
     volatile int wanted; /* an upload needs this image: TexturePack_Service reads it */
-    uint16_t *pixels; /* resampled to words*per_word x rows, 15-bit | 0x8000, 0 = transparent; NULL until first use */
+    uint16_t *pixels; /* resampled to words*per_word x rows, shadow cells (texture_dump.h); NULL until first use */
     unsigned char *image; /* the PNG itself, RGBA, for the scaled picture */
     int image_width, image_height;
     int failed;
@@ -159,7 +159,8 @@ static int load_pixels(Entry *entry)
             }
             if (n && a / n >= 128) {
                 uint16_t colour = (uint16_t)(((r / n) >> 3) | (((g / n) >> 3) << 5) | (((b / n) >> 3) << 10));
-                entry->pixels[y * width + x] = (uint16_t)(colour | 0x8000);
+                /* Black stays opaque: 0x8000 alone is transparent. */
+                entry->pixels[y * width + x] = colour ? (uint16_t)(colour | 0x8000) : TEXTURE_SHADOW_BLACK;
             } else {
                 entry->pixels[y * width + x] = 0x8000; /* painted transparent: replaced, by nothing */
             }

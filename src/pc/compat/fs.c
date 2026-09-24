@@ -94,7 +94,15 @@ int Memories_Rename(const char *from, const char *to)
     int result;
     if (!a) return -1;
     b = Memories_Utf8ToWide(to);
-    result = b && MoveFileExW(a, b, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+    /* Write-through: on the disk when it returns. A file another program
+     * holds for a moment (a cloud sync or a virus scanner looking at
+     * Documents) refuses the replace; that is tried again for a second. */
+    for (int attempt = 0;; attempt++) {
+        result = b && MoveFileExW(a, b, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : -1;
+        if (!b || !result || attempt == 20) break;
+        if (GetLastError() != ERROR_ACCESS_DENIED && GetLastError() != ERROR_SHARING_VIOLATION) break;
+        Sleep(50);
+    }
     if (b && result) {
         switch (GetLastError()) {
         case ERROR_FILE_NOT_FOUND: case ERROR_PATH_NOT_FOUND: errno = ENOENT; break;

@@ -42,6 +42,16 @@ int Cards_ModelId(int id);
 int Cards_EffectId(int id);
 int Cards_Fusion(int a, int b, int *result);
 
+/* A card a manifest names: its id, a stable identity ("mod:entry:n"), or a
+ * retail card's name ("Blue-Eyes White Dragon"; case, spaces and punctuation
+ * do not matter). 0 for null or no value, -1 when it names no card. */
+struct JsonValue;
+int Cards_Reference(const struct JsonValue *value);
+int Cards_Named(const char *text);
+/* A monster type by name ("Winged Beast"), or -1; and the type of a card. */
+int Cards_TypeNamed(const char *text);
+int Cards_Type(int id);
+
 /* The retail card `id` is a copy of, or `id` itself; 0 for no card. */
 int Cards_BaseId(int id);
 /* Whether `id` names a card this run has. */
@@ -73,9 +83,10 @@ const unsigned char *Cards_DescriptionText(int id);
 void Cards_PatchArtRecord(int id, unsigned char *record);
 void Cards_PatchThumbnail(int id, unsigned char *block);
 
-/* The game's text at `text`, or the port's own version of it where the
- * retail string counts the disc's 722 cards (the Library's "<seen/722>"). */
-const unsigned char *Cards_Text(const unsigned char *text);
+/* The game's text for string `id`, found at `text` (a translation's or the
+ * disc's), or the port's own version of it where the string counts the
+ * disc's 722 cards (the Library's "<seen/722>", string F8). */
+const unsigned char *Cards_Text(int id, const unsigned char *text);
 
 /* A card the game rolled from a disc table of retail cards (a duel reward,
  * an opponent's deck): `id` or one of the copies of it that asked to take
@@ -86,11 +97,16 @@ const unsigned char *Cards_Text(const unsigned char *text);
 #define CARDS_USE_OPPONENT 1
 int Cards_PickVariant(int id, int use);
 
-/* The running save was just loaded (`state` is its SaveDataState), or is
- * about to be written with this sequence number: read or write what it holds
- * of the new cards. */
+/* The running save was just loaded (`state` is its SaveDataState), or was
+ * just written with this sequence number: read or write what it holds of the
+ * new cards, under the token Cards_SetSlotTokens gave last. */
 void Cards_SaveLoaded(const void *state);
 void Cards_SaveWritten(const void *state, unsigned sequence);
+/* The save slot tokens (save_slots.h): the save being played, and every
+ * token a slot holds now, whose sections are kept; and the two saves of a
+ * two-player screen. */
+void Cards_SetSlotTokens(unsigned playing, const unsigned *live, int count);
+void Cards_SetPairTokens(unsigned first, unsigned second);
 /* A two-player screen loaded both saves (0x801D1200 and 0x1000 on). */
 void Cards_PairLoaded(void);
 /* A trade: its copies of the two saves (+0x680) start as the saves are, and

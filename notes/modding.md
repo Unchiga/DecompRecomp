@@ -29,7 +29,8 @@ directory replaces one the release ships with the same `id`.
 
 ## The manifest
 
-Every mod has a `mod.json`:
+Every mod has a `mod.json` (UTF-8; a byte order mark, as some Windows
+editors write, is fine):
 
 ```json
 {
@@ -57,6 +58,8 @@ Every mod has a `mod.json`:
 | `textures` | a directory inside the mod holding a texture pack, below |
 | `cards` | cards the mod adds after the disc's 722, below |
 | `audio` | songs, XA clips and sound effects the mod replaces with WAV or Ogg files, below |
+| `fusions`, `equips`, `rituals`, `drops`, `decks` | changes to the duel's rule tables, below |
+| `text`, `font` | a translation of the game's text, and fonts for letters it has none of, below |
 
 `version`, `author` and `description` are displayed in the manager. Version
 bounds in `requires` are checked before activation. API 3 also supports
@@ -101,10 +104,18 @@ path (`"\\DATA\\CARD.MRG;1"`, as the game asks for it) or a raw sector
   allocation. Named replacements always require a restart, including when
   a manifest says `"restart": false`, because game and mod code cache file
   positions. The last replacement in startup load order wins, then patches
-  apply on top. Competing replacements are reported in the Mods window.
+  apply on top. Competing replacements are reported in the Mods window,
+  for named files and for raw sectors alike, and so are two mods patching
+  the same bytes (the later one's bytes are the ones read).
   Replacing a raw `lba` region needs a `sectors` count and must fit that
-  allocation; an oversized raw replacement is rejected. XA/STR files retain
-  their original allocation and raw streaming headers.
+  allocation; an oversized raw replacement is rejected.
+* The streamed files, `MASTER.XA` and `MOVIE.STR`, cannot be replaced or
+  patched, by name or by `lba`: their sectors hold 2304 bytes of sound
+  (MODE2 Form 2) where an override writes the 2048 of a data sector, so
+  each sector would keep the tail of its old sound after the new bytes. A
+  mod that tries says so in the Mods window and is not applied. Replace
+  the sounds with [`audio`](#audio-songs-voices-and-sounds-from-files)
+  instead; the movie's pictures cannot be replaced.
 * `patch` writes `bytes` (hexadecimal, spaces optional) at `at`, an offset
   into the file, or into the sector when the entry names an `lba`. A run that
   crosses a sector boundary is fine. This is the shape the community's
@@ -179,7 +190,16 @@ never the originals.
 A pack image does not need the extracted image's shape either: it is
 stretched to the texture's width and rows (the crop's width, below), so a
 4x image of a 102x96 card art is 408x384, and a wider or taller one is
-squeezed to fit rather than cropped.
+squeezed to fit rather than cropped. With the OpenGL renderer an image
+wider or taller than the driver's largest texture (`GL_MAX_TEXTURE_SIZE`,
+16384 or 32768 on most) is averaged down to that size, with a line on the
+console, rather than drawn black.
+
+A pixel with alpha below half is transparent; every other pixel is drawn,
+black included. At the console's resolution a replaced texel keeps the
+game's semi-transparency bit, as on the PS1, so opaque black is the word
+0x8000 where the game's texel has that bit and the darkest red, 0x0001,
+where it has not (0x0000 is the PS1's transparent colour).
 
 When two enabled packs replace the same image read the same way (the same
 archive offset, size, depth and palette), the one later in the mods' load
@@ -342,13 +362,20 @@ A sound effect the game starts every frame is logged every 60th time.
 ### Formats and limits
 
 * WAV: PCM 8, 16, 24 or 32-bit, or 32/64-bit float, including
-  `WAVE_FORMAT_EXTENSIBLE`; any sample rate and channel count. More than two
-  channels fold to stereo: even channels left, odd ones right.
+  `WAVE_FORMAT_EXTENSIBLE`; any sample rate and up to 32 channels.
+* More than two channels fold to stereo as a downmix does: the front pair
+  as they are, a centre on both sides and surround, back and height
+  channels on their own side, each at -3 dB, the LFE left out, and the sum
+  scaled so that nothing clips. The speakers are a WAV's channel mask when
+  it has one, else the usual order for the count (`L R C LFE Ls Rs`, then
+  the sides for 7.1), and Vorbis's own order for Ogg files (`L C R Ls Rs
+  LFE`). Channels past a known layout count as centres.
 * Ogg Vorbis, decoded by [stb_vorbis](../src/pc/third_party/README.md)
   (public domain). Opus, MP3 and FLAC are not read.
 * Files are decoded when the mod is applied, resampled to 44.1 kHz stereo
   (linearly) and kept in memory: about 10 MB a minute. A clip is at most 12
-  minutes and a file at most 256 MB. The 32-bit game has little room to
+  minutes (an Ogg file's length is read from its last page, so a longer one
+  is refused before it is decoded) and a file at most 256 MB. The 32-bit game has little room to
   spare, so prefer Ogg files for the mod and keep long songs few.
 * A file that will not decode is skipped, with the reason beside the mod in
   the Mods window (and on stderr); the rest of the mod still applies.
@@ -371,6 +398,39 @@ MEMORIES_INPUT="700:0008,706:0000" tmp/pc/game32/memories-pc
 
 `out.raw` is s16le stereo at 44.1 kHz. How it is done:
 [`src/pc/audio/replace.h`](../src/pc/audio/replace.h).
+## Rules: fusions, equips, rituals, drops and decks
+
+A mod may change what fuses into what, what an equip card may equip, what a
+ritual needs and makes, what each opponent drops and what its deck is dealt
+from, with no code and naming cards by name:
+
+```json
+"fusions": [ {"with": ["Kuriboh", "Mystical Elf"], "result": "Celtic Guardian"},
+             {"with": ["Baby Dragon", "Time Wizard"], "result": null} ],
+"equips":  [ {"card": "Legendary Sword", "add": ["Dragon"]} ],
+"drops":   { "Simon Muran": {"pow": {"Blue-eyes White Dragon": 20}} },
+"decks":   { "Heishin": {"Dark Magician": 60, "Kuriboh": 0} }
+```
+
+Weights are out of 2048, as the game's are, and the pools are always brought
+back to 2048. Several mods' edits of the same opponent add up rather than
+replace each other. [Gameplay tables](gameplay-tables.md) has every key, the
+opponents' names, and how the rules combine. Like cards, they need a restart.
+
+## Translations
+
+A mod may put the game's text in another language: dialogue, menus, card
+names and texts, types and duelists, accented letters included.
+`tools/pc/text_listing.py extract` writes the text out of the player's disc
+as an editable UTF-8 listing; the mod ships the translated file:
+
+```json
+{ "id": "spanish", "name": "Español", "text": "text.txt" }
+```
+
+[Translations](translation.md) describes the listing, its codes, the
+letters the port draws and how a font is added. Like cards, a translation
+needs a restart.
 
 ## Code mods
 
@@ -412,7 +472,7 @@ the player's settings file as `mod.<id>.<key>`, and read from
 `MEMORIES_MOD_<ID>_<KEY>` first when that is set; a key is letters, digits,
 `_` and `-`, and `order` is the manager's), `disc_file_start`/
 `disc_read`, `pad`, and from mod API 2 `now_us` (a clock) and `map_fixed`
-(memory at an address the mod chooses, as 3D Monsters' model arenas need).
+(memory at an address the mod chooses, as 3D Monsters' model arenas need). API 4 adds `hook`/`unhook`/`symbol`, below.
 A mod that uses an entry newer than API 1 should refuse to start when
 `host->api` is older.
 
@@ -421,6 +481,78 @@ save-state buffers. The [API 3 guide](mod-api-3.md) describes damage, reward,
 fusion, effect, AI, input and scene hooks, their ordering/cancellation rules,
 and stable card identities. The [manager](mods-window.md) exposes descriptions,
 settings, compatibility and staged batch changes.
+
+### Replacing or wrapping a game function (API 4)
+
+Every function of the game can be taken over by a mod, not only the ones
+with an event. `host->hook` names the game function directly and gives the
+replacement, which has the same signature:
+
+```c
+extern void DuelScene_UpdateResultRewards(void);   /* the duel's result screen */
+static void *original;   /* static: the host keeps it up to date */
+
+static void my_result_screen(void)
+{
+    /* ... before ... */
+    ((void (*)(void))original)();   /* the game's own, or the mod hooked before this one */
+    /* ... after: change or observe what it did ... */
+}
+
+int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
+{
+    if (from->api < 4) return 0;
+    host = from;
+    mod->api = 4;
+    return host->hook(host, (void *)DuelScene_UpdateResultRewards, (void *)my_result_screen, &original) != 0;
+}
+```
+
+While the mod is applied every call, from anywhere in the game, goes to the
+replacement; `original` leads to what it displaced, so calling it wraps the
+function and not calling it replaces it. Several mods may hook one
+function: the one applied last is called first, and each one's `original`
+leads to the one before. Removing a mod in the Mods window takes its hooks
+out at once, and a function nobody hooks is the game's again, byte for
+byte. `hook` returns 0 for anything that is not a game function (the port's
+own code, the C library, a function of another mod). `host->unhook` removes
+one hook, and `host->symbol("name")` looks a name up at run time, for a mod
+that can do without it.
+
+How it works: every game unit is compiled with
+`-fpatchable-function-entry=8,6`, which leaves six bytes of `nop` before
+each function and two at its entry. A hook turns the six into an indirect
+jump through a pointer the host keeps and the two into a short jump back to
+it; see [`src/pc/mods/hooks.c`](../src/pc/mods/hooks.c). The game runs the
+same with no mod hooking anything (the smoke screenshots are unchanged).
+
+### Sharing with other mods, drawing, saves (API 4)
+
+* **Sharing.** `host->provide(host, "name", pointer)` offers a function or
+  data to other mods; another mod gets it with
+  `host->find(host, "<providing mod's id>:name")`, NULL when no loaded mod
+  offers it. A mod that lists the provider under `requires` is initialized
+  after it, so `find` works in its `MemoriesModInit`.
+* **Drawing over the picture.** Set `mod->overlay` (and
+  `mod->overlay_signature`, a number that changes whenever what you draw
+  does; without it the overlay is drawn every frame). Inside it,
+  `host->overlay_size` gives the window's size in pixels and the scale the
+  port draws its own menus at, `host->draw_text` writes ASCII text (its `y`
+  is the line's middle), `host->text_width` measures it and `host->fill`
+  blends a rectangle in. It is drawn at the window's resolution over the
+  game picture, under the port's save menu, and only while the mod is
+  applied.
+* **Save slots.** The events `MEMORIES_EVENT_SLOT_SAVE` and
+  `MEMORIES_EVENT_SLOT_LOAD` (after only) say that the running game was
+  saved to, or loaded from, slot `a` (from 0); `b` is the slot's token and
+  `c` the save's sequence number. A token is drawn afresh at every save, so
+  a mod that keeps something per save names its file after it
+  (`open_data`), and each slot has its own.
+* **More of the C library**: `strcpy`, `strcat`, `strncat`, `atoi`, `labs`,
+  `strtod`, `bsearch`, `tan`, `asin`, `acos`, `atan`, `exp`, `log`, `log10`,
+  `tanf`, `expf`, `logf`, `<ctype.h>` (ASCII, in the header) and `rand`/
+  `srand`, which give the same numbers on Linux and Windows and leave the
+  game's own random numbers (and so its duels) alone.
 
 ### Building one
 

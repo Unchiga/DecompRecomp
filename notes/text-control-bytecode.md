@@ -29,7 +29,7 @@ weakening the dispatch contract back to `u8 *`.
 | `F9` | `u16 flag_command`; non-write form also has `u16 target` | `Text_HandleCampaignFlagCommand` | Writes a card/story flag, or conditionally replaces the current stream's low 16-bit offset |
 | `FA` | none | `Text_StartPageWait` | Enters text state 4 and yields for page-advance input |
 | `FB` | control byte, optional enabled-mask byte, or selected `u16` jump entry | `Text_HandleChoiceCommand` | Starts a choice layout or jumps through its selected target |
-| `FC` | `u16 offset` | `Text_PushStreamOffset` | Stores the offset in the next stream slot and increments stream depth |
+| `FC` | `u16 offset` | `Text_PushStreamOffset` | Pushes a stream at that offset in the current bank and increments stream depth |
 | `FD` | `u16 offset` | `Text_SetCursorOffset` | Replaces the current stream cursor's low 16-bit offset |
 | `FE` | none | `Text_NewLine` | Advances the line, resets horizontal position, handles page overflow, and notifies choice-line counting |
 | `FF` | none | `Text_EndStream` | Pops one stream; marks the text complete only when the depth becomes negative |
@@ -139,9 +139,11 @@ following 16-bit table; `DE 15` is target `0x15DE` for choice zero.
 
 ## Nested streams and completion
 
-FC reads a little-endian offset, writes it into the low half of the next
-stream slot while preserving that slot's high half, and increments the signed
-stream-depth byte. String 1350 contains `FC 5A 12`, which pushes offset
+FC reads a little-endian offset and writes the next stream slot as the
+current slot's high half with that offset below it
+(`streams[c + 1] = (streams[c] & 0xFFFF0000) | offset`), so the pushed stream
+is in the same 64 KB bank as the text that pushes it; then it increments the
+signed stream-depth byte. String 1350 contains `FC 5A 12`, which pushes offset
 `0x125A`.
 
 FD reads an offset and replaces the low half of the current stream cursor.
@@ -155,3 +157,15 @@ FF decrements stream depth:
 
 FF is therefore both a nested-stream return and the final terminator. Calling
 it simply “end” is accurate only for the outermost stream.
+
+## States that read operands
+
+F7 itself takes one byte, but four of the states it can set read operands
+of their own from the stream when they start
+(`duel_effect_state_callbacks.c`): state 5 (`func_8003767C`) a `u16`, and a
+byte and another `u16` when that first word has bit `0x8000`; state `0x0B`
+(`func_8003771C`) three `u16`s; states `0x0F` and `0x10` (`func_800379F8`, a
+pause, and `func_80037A58`, a screen shake) one `u16`, their length in
+frames. Decoding the text needs them: `tools/pc/text_listing.py` writes
+them as part of the `{state ...}` code ([translations](translation.md)).
+

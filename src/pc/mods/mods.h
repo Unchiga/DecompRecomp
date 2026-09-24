@@ -9,6 +9,7 @@
 
 #define MODS_MAX 256
 #include <stddef.h>
+#include <stdint.h>
 #include "mod_types.h"
 struct JsonValue;
 
@@ -50,6 +51,10 @@ void Mods_SetEnabled(int mod, int enabled);
 struct JsonValue;
 void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const struct JsonValue *cards, void *context),
                      void *context);
+/* The mods applied at startup, in the order they were loaded: where two
+ * of them set the same thing, the later one wins. */
+int Mods_LoadedCount(void);
+int Mods_Loaded(int index);
 /* One of a mod's settings (`mod.<id>.<key>`, or MEMORIES_MOD_<ID>_<KEY> for
  * the run), as a code mod's host->setting reads it. */
 int Mods_Setting(const char *id, const char *key, int fallback);
@@ -60,6 +65,15 @@ void Mods_Note(const char *id, const char *format, ...);
 /* Called once the game's frame is on its way to the GPU (libgpu's GsDrawOt),
  * which is where an extra pass can draw over the finished picture. */
 void Mods_DrawFrame(void);
+/* The applied mods' overlays (MemoriesMod.overlay), drawn with the port's
+ * menu text; the rectangle they covered, or zeros. Their signature changes
+ * whenever one of them would draw something else (`frame` for a mod that
+ * gives none). */
+struct MenuCanvas;
+void Mods_DrawOverlay(struct MenuCanvas *canvas, int scale,
+                      void (*text)(struct MenuCanvas *, int, int, const char *, uint32_t, int),
+                      int (*width)(const char *, int), int *x, int *y, int *w, int *h);
+unsigned Mods_OverlaySignature(unsigned frame);
 /* Drop everything cached from the running game: a resumed save state is
  * another game. */
 void Mods_Reset(void);

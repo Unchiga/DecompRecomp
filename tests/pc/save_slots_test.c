@@ -165,6 +165,10 @@ int main(void)
         remove(path);
     }
     remove(card);
+    snprintf(path, sizeof(path), "%s/saves/.cards-imported", directory);
+    remove(path);
+    snprintf(path, sizeof(path), "%s/saves/.cards-importing", directory);
+    remove(path);
     snprintf(path, sizeof(path), "%s/saves", directory);
     assert(!rmdir(path));
     assert(!rmdir(directory));

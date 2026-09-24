@@ -39,7 +39,19 @@ extern double __floatundidf(unsigned long long);
 extern float __floatundisf(unsigned long long);
 #endif
 
+/* rand as the C standard's own example has it, so a mod draws the same
+ * numbers on both systems (glibc's and the Windows runtime's differ). One
+ * sequence for all mods; the game's own random numbers are separate. */
+static unsigned long mod_seed = 1;
+static int mod_rand(void)
+{
+    mod_seed = mod_seed * 1103515245u + 12345u;
+    return (int)(mod_seed / 65536u % 32768u);
+}
+static void mod_srand(unsigned seed) { mod_seed = seed; }
+
 #define F(name) {#name, (Function)name}
+#define AS(name, function) {#name, (Function)function}
 
 /* Sorted by name (strcmp): Mods_Lookup searches it. */
 static const struct { const char *name; Function function; } functions[] = {
@@ -48,12 +60,14 @@ static const struct { const char *name; Function function; } functions[] = {
     F(__floatdidf), F(__floatdisf), F(__floatundidf), F(__floatundisf), F(__moddi3), F(__udivdi3),
     F(__udivmoddi4), F(__umoddi3),
 #endif
-    F(abs), F(atan2), F(atan2f), F(calloc), F(ceil), F(ceilf), F(cos), F(cosf), F(fabs), F(fabsf),
-    F(fclose), F(fgets), F(floor), F(floorf), F(fmod), F(fmodf), F(fread), F(free), F(fseek),
-    F(ftell), F(fwrite), F(malloc), F(memchr), F(memcmp), F(memcpy), F(memmove), F(memset), F(pow),
-    F(powf), F(qsort), F(realloc), F(sin), F(sinf), F(snprintf), F(sqrt), F(sqrtf), F(strchr),
-    F(strcmp), F(strlen), F(strncmp), F(strncpy), F(strrchr), F(strstr), F(strtol), F(strtoul),
-    F(vsnprintf),
+    F(abs), F(acos), F(asin), F(atan), F(atan2), F(atan2f), F(atoi), F(bsearch), F(calloc), F(ceil),
+    F(ceilf), F(cos), F(cosf), F(exp), F(expf), F(fabs), F(fabsf), F(fclose), F(fgets), F(floor),
+    F(floorf), F(fmod), F(fmodf), F(fread), F(free), F(fseek), F(ftell), F(fwrite), F(labs), F(log),
+    F(log10), F(logf), F(malloc), F(memchr), F(memcmp), F(memcpy), F(memmove), F(memset), F(pow),
+    F(powf), F(qsort), AS(rand, mod_rand), F(realloc), F(sin), F(sinf), F(snprintf), F(sqrt),
+    F(sqrtf), AS(srand, mod_srand), F(strcat), F(strchr), F(strcmp), F(strcpy), F(strlen),
+    F(strncat), F(strncmp), F(strncpy), F(strrchr), F(strstr), F(strtod), F(strtol), F(strtoul),
+    F(tan), F(tanf), F(vsnprintf),
 };
 
 Function Mods_LibcLookup(const char *name)

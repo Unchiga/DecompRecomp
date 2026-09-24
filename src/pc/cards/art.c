@@ -27,6 +27,7 @@
 #include "pc/compat/fs.h"
 #include "cards.h"
 #include "art.h"
+#include "pc/text/glyphs.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "pc/compat/font.h"
@@ -260,7 +261,7 @@ static int ink_of(int coverage)
     return coverage >= 150 ? 1 : coverage >= 96 ? 3 : coverage >= 40 ? 6 : 0;
 }
 
-int CardArt_TitleFromImage(const char *path, unsigned char *record, char *why, size_t why_size)
+int CardArt_TitleFromImage(const char *path, unsigned char *plate, char *why, size_t why_size)
 {
     int width, height, x, y;
     Rgb *source = load_png_as(path, &width, &height, 1), small[CARD_TITLE_WIDTH * CARD_TITLE_HEIGHT];
@@ -269,10 +270,10 @@ int CardArt_TitleFromImage(const char *path, unsigned char *record, char *why, s
         return 0;
     }
     resample(source, width, height, small, CARD_TITLE_WIDTH, CARD_TITLE_HEIGHT);
-    memset(record + CARD_TITLE_PIXELS, 0, CARD_TITLE_BYTES);
+    memset(plate, 0, CARD_TITLE_BYTES);
     for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
         for (x = 0; x < CARD_TITLE_WIDTH; x++) {
-            put_ink(record + CARD_TITLE_PIXELS, x, y, ink_of(small[y * CARD_TITLE_WIDTH + x].r));
+            put_ink(plate, x, y, ink_of(small[y * CARD_TITLE_WIDTH + x].r));
         }
     }
     free(source);
@@ -311,12 +312,12 @@ static const char *serif_file(void)
  * baseline under row 11, from column 3, each glyph on a whole pixel so stems
  * fill whole columns; a name wider than 90 pixels is squeezed into columns
  * 3 to 93, as the long retail names are. */
-int CardArt_TitleFromName(const char *name, unsigned char *record)
+int CardArt_TitleFromName(const char *name, unsigned char *plate)
 {
     enum { WIDE = 512, BASELINE = 11, LEFT = 3, ROOM = 90 };
     static unsigned char line[CARD_TITLE_HEIGHT][WIDE];
     int pen = LEFT, x, y, ink_low = WIDE, ink_high = -1, previous = 0;
-    const char *c;
+    const char *c = name;
     if (!face_tried) {
         const char *file = serif_file();
         face_tried = 1;
@@ -327,9 +328,12 @@ int CardArt_TitleFromName(const char *name, unsigned char *record)
     }
     if (!face) return 0;
     memset(line, 0, sizeof(line));
-    for (c = name; *c; c++) {
-        FT_UInt index = FT_Get_Char_Index(face, (FT_ULong)(unsigned char)*c);
+    while (*c) {
+        /* A character at a time, as the name's glyphs are (cards.c,
+         * encode_name): an accented letter is one glyph, not two. */
+        FT_UInt index = FT_Get_Char_Index(face, (FT_ULong)Glyphs_NextCharacter(&c));
         FT_Bitmap *bitmap;
+        if (!index) continue; /* a letter the face lacks is left out, not drawn as a box */
         if (previous && index && FT_HAS_KERNING(face)) {
             FT_Vector kern;
             if (!FT_Get_Kerning(face, previous, index, FT_KERNING_DEFAULT, &kern)) pen += (int)((kern.x + 32) >> 6);
@@ -352,11 +356,11 @@ int CardArt_TitleFromName(const char *name, unsigned char *record)
         pen += (int)((face->glyph->advance.x + 32) >> 6);
         if (pen >= WIDE) break;
     }
-    memset(record + CARD_TITLE_PIXELS, 0, CARD_TITLE_BYTES);
+    memset(plate, 0, CARD_TITLE_BYTES);
     if (ink_high < ink_low) return 1;
     if (ink_high - ink_low + 1 <= ROOM) {
         for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
-            for (x = 0; x < CARD_TITLE_WIDTH; x++) put_ink(record + CARD_TITLE_PIXELS, x, y, ink_of(line[y][x]));
+            for (x = 0; x < CARD_TITLE_WIDTH; x++) put_ink(plate, x, y, ink_of(line[y][x]));
         }
     } else {
         /* Squeezed with a linear filter, then brought back up to full ink:
@@ -377,7 +381,7 @@ int CardArt_TitleFromName(const char *name, unsigned char *record)
         }
         for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
             for (x = 0; x < ROOM; x++) {
-                put_ink(record + CARD_TITLE_PIXELS, LEFT + x, y, ink_of((int)(squeezed[y][x] * 255.0f / peak + 0.5f)));
+                put_ink(plate, LEFT + x, y, ink_of((int)(squeezed[y][x] * 255.0f / peak + 0.5f)));
             }
         }
     }

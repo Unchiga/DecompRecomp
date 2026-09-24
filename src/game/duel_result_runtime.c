@@ -47,6 +47,7 @@
 #include "../unmatched.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/cards/tables.h"
 #endif
 
 #define DUEL_RESULT_ORBIT_ANGLE_STEP 0x30
@@ -463,6 +464,21 @@ s32 Duel_SelectCardDrop(s32 pool_index)
     s32 sum = 0;
     s32 i;
 
+#ifdef MEMORIES_PC
+    {
+        /* A pool a mod edited (tables.h), over every card this run has. */
+        const u16 *edited = Tables_Pool(TABLES_POOL_POW + pool_index, table->weights);
+
+        if (edited != 0) {
+            for (i = 1; i <= gCard_nCount; i++) {
+                sum += edited[i];
+                if (sum >= threshold)
+                    return i <= CARD_COUNT ? Cards_PickVariant(i, CARDS_USE_DROP) : i;
+            }
+            return 0;
+        }
+    }
+#endif
     for (i = 0; i < CARD_COUNT; i++) {
         sum += table->weights[i];
         if (sum >= threshold)

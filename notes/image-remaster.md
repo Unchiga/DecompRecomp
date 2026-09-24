@@ -149,6 +149,17 @@ otherwise.
 16. **The build copies `mods/*` into `tmp/pc/game32/mods`**: an old pack
     left in `mods/` reappears in the game's Mods window after every build.
 
+17. **Black turned transparent at 1x.** The shadow marks a texel painted
+    transparent as 0x8000, and a black pixel came out as the same 0x8000;
+    the renderer took both for holes, so a pack that painted black showed
+    what lay underneath. Opaque black is its own cell value
+    (`TEXTURE_SHADOW_BLACK`, `texture_dump.h`). The 1:1 oracle still draws
+    0 pixels off on the main menu and in a duel.
+
+18. **A very wide image drew the whole GL picture black**: GL cannot make a
+    texture past `GL_MAX_TEXTURE_SIZE`. Such an image is now averaged down
+    to fit in `gl_picture.c` (`shrunk`), with a warning.
+
 ## Why it looked bad
 
 The engine drew what the pack said; the pack was the problem. With

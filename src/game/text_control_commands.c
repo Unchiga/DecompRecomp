@@ -12,6 +12,9 @@
 #include "campaign_scene_package.h"
 #include "text_control_commands.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/text/text.h"
+#endif
 
 #define TEXT_STREAM_OWNER_VIEW(object) ((TextStreamOwner *)(object))
 
@@ -40,7 +43,19 @@ void Text_DispatchSecondaryCommand(DuelEffectChannel *object)
     D_80090EAC[op](object);
 }
 
+#ifdef MEMORIES_PC
+/* The PC port's jumps go through Text_Retarget: a translation's text is
+   not in a retail bank, and jumps by its own targets (text.h). */
+void Text_SetCursorOffset(DuelEffectChannel *o)
+{
+    int v = TextStream_ReadU16LE(o);
+    u8 **p = &TEXT_STREAM_OWNER_VIEW(o)->streams[o->stream_58];
+
+    *p = Text_Retarget(*p, v & 0xFFFF);
+}
+#else
   void Text_SetCursorOffset(DuelEffectChannel *o){int v; u8 **p;v=TextStream_ReadU16LE(o);p=&TEXT_STREAM_OWNER_VIEW(o)->streams[o->stream_58];*p=(u8 *)(((u32)*p&0xFFFF0000)|(v&0xFFFF));}
+#endif
 
 void Text_HandleChoiceCommand(DuelEffectChannel *object)
 {
@@ -108,7 +123,11 @@ void Text_HandleCampaignFlagCommand(DuelEffectChannel *object)
             s32 *cursor = (s32 *)(
                 (u32)object + (u32)&((u8 **)0)[object->stream_58]);
 
+#ifdef MEMORIES_PC
+            *cursor = (s32)Text_Retarget((u8 *)*cursor, target);
+#else
             *cursor = (*cursor & 0xFFFF0000) | target;
+#endif
         }
     }
 }
@@ -121,8 +140,12 @@ void Text_PushStreamOffset(DuelEffectChannel *arg0)
 
     v = TextStream_ReadU16LE(arg0);
     c = arg0->stream_58;
+#ifdef MEMORIES_PC
+    owner->streams[c + 1] = Text_Retarget(owner->streams[c], v & 0xFFFF);
+#else
     owner->streams[c + 1] =
         (u8 *)(((u32)owner->streams[c] & 0xFFFF0000) | (v & 0xFFFF));
+#endif
     arg0->stream_58++;
 }
 

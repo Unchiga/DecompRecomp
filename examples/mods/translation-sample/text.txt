@@ -1,0 +1,32 @@
+# A few strings in Spanish (notes/translation.md). A whole translation is
+# the listing tools/pc/text_listing.py extract writes, translated.
+
+@bank dialog
+
+[000D]
+    ¡ELIGE A TU RIVAL!{end}
+
+@bank names
+
+[8001]
+Dragón Blanco Ojiazul{end}
+
+[8002]
+Elfa Mística{end}
+
+[8029]
+Guerrero Celta{end}
+
+@bank descriptions
+
+[D101]  # Blue-eyes White Dragon
+Una carta rarísima
+con un poder de
+ataque y defensa
+sin igual.{end}
+
+[D102]  # Mystical Elf
+Una elfa delicada
+que no tiene gran
+ataque, pero sí una
+defensa tremenda.{end}

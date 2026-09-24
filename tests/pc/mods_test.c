@@ -21,6 +21,8 @@
 
 #define CARD_LBA 5000
 #define CARD_SIZE 5000u
+#define XA_LBA 9000
+#define XA_SIZE (3u * 2048u)
 
 /* --- the port around the mod system ---------------------------------- */
 
@@ -39,9 +41,10 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out)
 int Memories_DiscSectorCount(void) { return 10000; }
 int Memories_DiscOriginalFileInfo(const char *path, int *lba, unsigned *size)
 {
-    if (strcmp(path, "\\DATA\\CARD.MRG;1")) return -1;
-    if (lba) *lba = CARD_LBA;
-    if (size) *size = CARD_SIZE;
+    int xa = !strcmp(path, "\\DATA\\MASTER.XA;1");
+    if (!xa && strcmp(path, "\\DATA\\CARD.MRG;1")) return -1;
+    if (lba) *lba = xa ? XA_LBA : CARD_LBA;
+    if (size) *size = xa ? XA_SIZE : CARD_SIZE;
     return 0;
 }
 int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size)
@@ -172,6 +175,32 @@ int main(void)
                "{ \"id\": \"camera\", \"name\": \"Camera\", \"library\": \"camera\","
                "  \"legacy_setting\": \"hand_camera\" }");
 
+    /* XA sectors hold 2304 bytes, not a data sector's 2048: "data" may not
+     * replace or patch them, by name or by sector. */
+    make_dir("mods/xa-named");
+    write_file("mods/xa-named/master.xa", replacement, sizeof(replacement));
+    write_text("mods/xa-named/mod.json",
+               "{ \"id\": \"xa-named\", \"enabled\": true,"
+               "  \"data\": [ { \"file\": \"\\\\DATA\\\\MASTER.XA;1\", \"replace\": \"master.xa\" } ] }");
+    make_dir("mods/xa-raw");
+    write_text("mods/xa-raw/mod.json",
+               "{ \"id\": \"xa-raw\", \"enabled\": true, \"restart\": false,"
+               "  \"data\": [ { \"lba\": 8999, \"patch\": [ { \"at\": \"0x7FF\", \"bytes\": \"0102\" } ] } ] }");
+    /* Two mods over the same raw sectors, and over the same bytes: the
+     * later one wins and the Mods window says so beside it. */
+    make_dir("mods/raw-a");
+    write_file("mods/raw-a/a.bin", replacement, 100);
+    write_text("mods/raw-a/mod.json",
+               "{ \"id\": \"raw-a\", \"enabled\": true, \"restart\": false,"
+               "  \"data\": [ { \"lba\": 7000, \"sectors\": 2, \"replace\": \"a.bin\" },"
+               "              { \"lba\": 7100, \"patch\": [ { \"at\": 4, \"bytes\": \"AAAA\" } ] } ] }");
+    make_dir("mods/raw-b");
+    write_file("mods/raw-b/b.bin", replacement + 1, 100);
+    write_text("mods/raw-b/mod.json",
+               "{ \"id\": \"raw-b\", \"enabled\": true, \"restart\": false,"
+               "  \"data\": [ { \"lba\": 7001, \"sectors\": 1, \"replace\": \"b.bin\" },"
+               "              { \"lba\": 7100, \"patch\": [ { \"at\": 5, \"bytes\": \"BB\" } ] } ] }");
+
     /* Replacement sounds, which apply without a restart. */
     make_dir("mods/sounds");
     write_text("mods/sounds/mod.json",
@@ -192,7 +221,17 @@ int main(void)
     assert(patcher >= 0 && replacer >= 0 && broken >= 0 && camera >= 0);
     assert(find("not-a-mod") < 0);          /* no manifest, no mod */
     sounds = find("sounds");
-    assert(Mods_Count() == 5);
+    assert(Mods_Count() == 9);
+    assert(!Mods_Active(find("xa-named")) && strstr(Mods_Status(find("xa-named")), "MASTER.XA") &&
+           strstr(Mods_Status(find("xa-named")), "\"audio\""));
+    assert(!Mods_Active(find("xa-raw")) && strstr(Mods_Status(find("xa-raw")), "MASTER.XA"));
+    assert(Mods_Active(find("raw-a")) && !strstr(Mods_Status(find("raw-a")), "wins"));
+    assert(Mods_Active(find("raw-b")) && strstr(Mods_Status(find("raw-b")), "same sectors as raw-a") &&
+           strstr(Mods_Status(find("raw-b")), "same bytes as raw-a"));
+    memset(sector, 0xEE, sizeof(sector));
+    assert(Mods_DiscSector(7001, sector) && sector[0] == replacement[1]);
+    assert(Mods_DiscSector(7100, sector) && sector[4] == 0xAA && sector[5] == 0xBB);
+    assert(!Mods_DiscSector(XA_LBA - 1, sector));
     /* An audio mod is live: applied now, its skipped files noted beside it. */
     assert(sounds >= 0 && Mods_Active(sounds) && !Mods_RequiresRestart(sounds));
     assert(audio_loads == 1 && audio_mod == sounds && strstr(Mods_Status(sounds), "gone.wav"));

@@ -510,12 +510,14 @@ static inline __attribute__((always_inline)) uint16_t texel(int u, int v)
     if (shadow_on == 1) {
         /* A replaced texel: the pack's colour, 0 for one painted transparent.
          * The texel's own semi-transparency bit stays: a pack replaces the
-         * colour, not how the game draws it. (2: the primitive reads the
-         * words with another palette than the shadow's image; the scaled
-         * picture has that image, VRAM stays.) */
+         * colour, not how the game draws it. Black is 0x8000 with that bit
+         * and the darkest non-zero colour without it (texture_dump.h).
+         * (2: the primitive reads the words with another palette than the
+         * shadow's image; the scaled picture has that image, VRAM stays.) */
         uint16_t cell = gpu.depth == 0 ? *TextureDump_Cell(gpu.page_x + u / 4, y, u & 3)
                         : gpu.depth == 1 ? *TextureDump_Cell(gpu.page_x + u / 2, y, (u & 1) * 2)
                                          : *TextureDump_Cell(gpu.page_x + u, y, 0);
+        if (cell == TEXTURE_SHADOW_BLACK) return (word & 0x8000) ? 0x8000 : 0x0001;
         if (cell) return (cell & 0x7fff) ? (uint16_t)((cell & 0x7fff) | (word & 0x8000)) : 0;
     }
     return word;

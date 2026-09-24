@@ -2,11 +2,13 @@
 #include "text_constants.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/text/text.h"
 #endif
 
 #ifdef MEMORIES_PC
-/* The PC port's Text_LookupString follows: the few strings that spell out
-   how many cards there are are its own (cards.h). */
+/* The PC port's Text_LookupString follows: a translation's strings
+   (text.h), and the few strings that spell out how many cards there are
+   (cards.h). */
 static u32 Text_LookupStringRetail(s32 arg0, s32 arg1)
 #else
 u32 Text_LookupString(s32 arg0, s32 arg1)
@@ -27,6 +29,6 @@ u32 Text_LookupString(s32 arg0, s32 arg1)
 #ifdef MEMORIES_PC
 u32 Text_LookupString(s32 arg0, s32 arg1)
 {
-    return (u32)Cards_Text((const u8 *)Text_LookupStringRetail(arg0, arg1));
+    return (u32)Cards_Text(arg1, Text_Resolve(arg1, (const u8 *)Text_LookupStringRetail(arg0, arg1)));
 }
 #endif

@@ -17,6 +17,9 @@ char *strchr(const char *text, int value);
 char *strrchr(const char *text, int value);
 char *strstr(const char *text, const char *wanted);
 char *strncpy(char *to, const char *from, size_t size);
+char *strcpy(char *to, const char *from);
+char *strcat(char *to, const char *from);
+char *strncat(char *to, const char *from, size_t size);
 
 #define memcpy(to, from, size) __builtin_memcpy(to, from, size)
 #define memmove(to, from, size) __builtin_memmove(to, from, size)

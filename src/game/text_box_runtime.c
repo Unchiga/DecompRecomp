@@ -43,18 +43,45 @@ void TextBox_SetPos(DuelEffectChannel *record, s32 x, s32 y)
     }
 }
 
+#ifdef MEMORIES_PC
+/* Both build a menu's text in one go, with no frame between steps for the
+   player to press anything. A page that waits for a button (state 4: a
+   {page}, or text taller than the box) would wait here forever. The
+   console's own menus never do; a translation's may, and there the rest of
+   the text is left out, as what is past a box's last line would be. */
+static s32 TextBox_BuildAtOnceStep(DuelEffectChannel *object)
+{
+    TextBox_BuildStep(object);
+    if ((object->state_51 & DUEL_EFFECT_STATE_INDEX_MASK) == 4) {
+        object->state_51 = 0;
+        object->flags_34 |= TEXT_BOX_FLAG_DONE;
+    }
+    return (object->flags_34 & TEXT_BOX_FLAG_DONE) != 0;
+}
+#endif
+
 void func_80039A14(DuelEffectChannel *object)
 {
     object->flags_34 |= TEXT_BOX_FLAG_BUILD_REQUESTED;
+#ifdef MEMORIES_PC
+    while (!TextBox_BuildAtOnceStep(object)) {
+    }
+#else
     do {
         TextBox_BuildStep(object);
     } while (!(object->flags_34 & TEXT_BOX_FLAG_DONE));
+#endif
 }
 
 void func_80039A60(DuelEffectChannel *object)
 {
     object->flags_34 |= 0xA00;
+#ifdef MEMORIES_PC
+    while (!TextBox_BuildAtOnceStep(object)) {
+    }
+#else
     do {
         TextBox_BuildStep(object);
     } while (!(object->flags_34 & TEXT_BOX_FLAG_DONE));
+#endif
 }

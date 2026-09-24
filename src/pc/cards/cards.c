@@ -9,10 +9,13 @@
 #define _POSIX_C_SOURCE 200809L
 #include "cards.h"
 #include "art.h"
+#include "tables.h"
+#include "pc/text/glyphs.h"
 #include "pc/mods/mods.h"
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
 #include "pc/debug/log.h"
+#include "pc/render/texture_dump.h"
 #include "pc/rng.h"
 #include "pc/compat/posix.h"
 #include "game/card_constants.h"
@@ -64,8 +67,7 @@ int Cards_ModelId(int id) { return Cards_Valid(id) && model_ids[id] ? model_ids[
 int Cards_EffectId(int id) { return Cards_Valid(id) && effect_ids[id] ? effect_ids[id] : Cards_BaseId(id); }
 static int card_reference(const JsonValue *value)
 {
-    const char *name = Json_String(value, "");
-    return strchr(name, ':') ? Cards_FindIdentity(name) : (int)Json_Number(value, 0);
+    return Cards_Reference(value);   /* -1 matches no card, and makes none */
 }
 int Cards_Fusion(int a, int b, int *result)
 {
@@ -167,12 +169,25 @@ static void retail_name(int id, char *out, size_t size)
     out[n] = '\0';
 }
 
+/* A glyph code as the text holds it: one byte, or F1-F5 and a byte for the
+ * port's own glyphs. Returns the bytes written. */
+static size_t put_glyph(unsigned char *out, int code)
+{
+    if (code >= 0xF0) {
+        out[0] = (unsigned char)(0xF0 + (code >> 8));
+        out[1] = (unsigned char)code;
+        return 2;
+    }
+    out[0] = (unsigned char)code;
+    return 1;
+}
+
 /* "{n}" is the card's number within its entry, "{id}" its card id. */
 static unsigned char *encode_name(const char *mod, const char *pattern, int n, int id)
 {
     char text[128];
     unsigned char *glyphs;
-    size_t length = 0, i;
+    size_t length = 0;
     const char *p;
     for (p = pattern; *p && length + 8 < sizeof(text); p++) {
         if (!strncmp(p, "{n}", 3)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", n); p += 2; }
@@ -180,15 +195,28 @@ static unsigned char *encode_name(const char *mod, const char *pattern, int n, i
         else text[length++] = *p;
     }
     text[length] = '\0';
-    glyphs = malloc(length + 1);
+    glyphs = malloc(length * 2 + 1);
     if (!glyphs) return NULL;
-    for (i = 0, length = 0; text[i]; i++) {
-        int code = glyph_of((unsigned char)text[i]);
-        if (code < 0) {
-            Mods_Note(mod, "card %d: the game has no letter '%c'; left out of its name", id, text[i]);
-            continue;
+    {   /* UTF-8: accented letters and the like are glyphs of the port's (glyphs.h). */
+        const char *at = text;
+        int bad = 0;
+        length = 0;
+        while (*at) {
+            const char *letter = at;
+            uint32_t character = Glyphs_NextCharacter(&at);
+            int code;
+            if (character == GLYPHS_NOT_UTF8) {
+                if (!bad++) Mods_Note(mod, "card %d: its name is not UTF-8; save the file as UTF-8. Left out", id);
+                continue;
+            }
+            code = Glyphs_Code(character);
+            if (code < 0) {
+                Mods_Note(mod, "card %d: the game has no letter \"%.*s\"; left out of its name", id,
+                          (int)(at - letter), letter);
+                continue;
+            }
+            length += put_glyph(glyphs + length, code);
         }
-        glyphs[length++] = (unsigned char)code;   /* every letter above is below 0xF0 */
     }
     glyphs[length] = 0xFF;
     return glyphs;
@@ -214,19 +242,31 @@ static unsigned char *encode_description(const char *mod, const char *text, int 
         }
         if (*word == ' ') { word++; continue; }
         while (*end && *end != ' ' && *end != '\n') end++;
-        letters = (int)(end - word);
+        letters = 0;   /* characters, not bytes */
+        {
+            const char *at;
+            for (at = word; at < end; at++) letters += ((unsigned char)*at & 0xC0) != 0x80;
+        }
         if (column && column + 1 + letters > TEXT_LINE_LETTERS) {
             glyphs[n++] = 0xFE; lines++; column = 0;
         } else if (column) {
             glyphs[n++] = 0; column++;   /* glyph 0 is the space */
         }
-        for (; word < end; word++) {
-            int code = glyph_of((unsigned char)*word);
-            if (code < 0) {
-                if (!warned++) Mods_Note(mod, "card %d: the game has no letter '%c'; left out of its text", id, *word);
+        while (word < end) {
+            const char *letter = word;
+            uint32_t character = Glyphs_NextCharacter(&word);
+            int code;
+            if (character == GLYPHS_NOT_UTF8) {
+                if (!warned++) Mods_Note(mod, "card %d: its text is not UTF-8; save the file as UTF-8. Left out", id);
                 continue;
             }
-            glyphs[n++] = (unsigned char)code;
+            code = Glyphs_Code(character);
+            if (code < 0) {
+                if (!warned++) Mods_Note(mod, "card %d: the game has no letter \"%.*s\"; left out of its text", id,
+                                         (int)(word - letter), letter);
+                continue;
+            }
+            n += put_glyph(glyphs + n, code);
             column++;
         }
     }
@@ -235,30 +275,54 @@ static unsigned char *encode_description(const char *mod, const char *text, int 
     return glyphs;
 }
 
-/* The Library's heading, "<" then the seen count (F8 03: four address bytes
- * and a width byte, 0x80 for zero padding) then "/722>". */
-#define LIBRARY_HEADING 0x801B121Du
-static unsigned char library_heading[32];
+/* The Library's heading, string F8: "<" then the seen count (F8 03: four
+ * address bytes and a width byte, 0x80 for zero padding) then "/722>".
+ * With more cards than the disc's, the "722" is their number and the count
+ * as wide as it. The string is keyed by its id, not its address, so a
+ * translation's heading is rewritten the same way: whatever else it says
+ * stays, and a heading that jumps (whose operands only mean something where
+ * they are) is left as it is. */
+#define LIBRARY_HEADING_ID 0xF8
+static unsigned char library_heading[64];
+static const unsigned char *library_source;
 
-static void build_texts(void)
+static const unsigned char *heading(const unsigned char *text)
 {
-    static const unsigned char retail[] = {84, 0xF8, 0x03, 0x08, 0x56, 0x1D, 0x80, 0x83, 68, 69, 58, 58, 81, 0xFF};
+    const unsigned char *at;
     char digits[16];
     int width, i, n = 0;
-    if (memcmp((const void *)(uintptr_t)LIBRARY_HEADING, retail, sizeof(retail)) != 0) return;
+    if (text == library_source) return library_heading;
+    for (at = text; *at != 0xFF; at++) {
+        if (*at >= 0xF9 && *at <= 0xFD) return text;
+    }
     width = snprintf(digits, sizeof(digits), "%d", gCard_nCount);
-    memcpy(library_heading, retail, 7);
-    n = 7;
-    library_heading[n++] = (unsigned char)(0x80 | (width < 3 ? 3 : width));
-    library_heading[n++] = (unsigned char)glyph_of('/');
-    for (i = 0; i < width; i++) library_heading[n++] = (unsigned char)glyph_of(digits[i]);
-    library_heading[n++] = (unsigned char)glyph_of('>');
+    at = text;
+    while (*at != 0xFF) {
+        if ((size_t)n + 16 >= sizeof(library_heading)) return text;
+        if (at[0] == 0xF8 && at[1] == 0x03 && !memchr(at + 2, 0xFF, 5)) {
+            int wide = at[6] & 0x0F;
+            memcpy(library_heading + n, at, 6);
+            library_heading[n + 6] = (unsigned char)((at[6] & 0xF0) | (wide > width ? wide : width));
+            n += 7;
+            at += 7;
+        } else if (at[0] == glyph_of('7') && at[1] == glyph_of('2') && at[2] == glyph_of('2')) {
+            for (i = 0; i < width; i++) library_heading[n++] = (unsigned char)glyph_of(digits[i]);
+            at += 3;
+        } else if (at[0] >= 0xF0 && at[0] <= 0xF5) {   /* an added glyph's two bytes */
+            library_heading[n++] = *at++;
+            if (*at != 0xFF) library_heading[n++] = *at++;
+        } else {
+            library_heading[n++] = *at++;
+        }
+    }
     library_heading[n] = 0xFF;
+    library_source = text;
+    return library_heading;
 }
 
-const unsigned char *Cards_Text(const unsigned char *text)
+const unsigned char *Cards_Text(int id, const unsigned char *text)
 {
-    if ((uintptr_t)text == LIBRARY_HEADING && library_heading[0]) return library_heading;
+    if (id == LIBRARY_HEADING_ID && gCard_nCount > CARD_COUNT && text) return heading(text);
     return text;
 }
 
@@ -295,15 +359,72 @@ static int choice(const JsonValue *value, const char *const *choices, int count)
     return (int)Json_Number(value, -1);
 }
 
+/* Letters and digits only, lowercased: "Blue-Eyes White Dragon" finds the
+ * disc's "Blue-eyes White Dragon". */
+static int same_letters(const char *a, const char *b)
+{
+    for (;;) {
+        while (*a && !isalnum((unsigned char)*a)) a++;
+        while (*b && !isalnum((unsigned char)*b)) b++;
+        if (!*a || !*b) return !*a && !*b;
+        if (tolower((unsigned char)*a++) != tolower((unsigned char)*b++)) return 0;
+    }
+}
+
+/* The retail names, decoded once: a manifest may name hundreds of cards. */
+static char (*retail_names)[48];
+
 static int retail_by_name(const char *text)
 {
-    char name[128];
     int id;
+    if (!retail_names) {
+        retail_names = calloc(CARD_ID_END, sizeof(*retail_names));
+        if (!retail_names) return 0;
+        for (id = 1; id <= CARD_COUNT; id++) retail_name(id, retail_names[id], sizeof(retail_names[id]));
+    }
     for (id = 1; id <= CARD_COUNT; id++) {
-        retail_name(id, name, sizeof(name));
-        if (same_words(text, name)) return id;
+        if (same_words(text, retail_names[id])) return id;
+    }
+    for (id = 1; id <= CARD_COUNT; id++) {
+        if (same_letters(text, retail_names[id])) return id;
     }
     return 0;
+}
+
+int Cards_Reference(const JsonValue *value)
+{
+    const char *text;
+    int id;
+    if (!value || Json_TypeOf(value) == JSON_NULL) return 0;
+    if (Json_TypeOf(value) == JSON_NUMBER) {
+        id = (int)Json_Number(value, 0);
+        return Cards_Valid(id) ? id : -1;
+    }
+    text = Json_String(value, NULL);
+    return text ? Cards_Named(text) : -1;
+}
+
+int Cards_Named(const char *text)
+{
+    int id;
+    if (!text || !*text) return -1;
+    if (strchr(text, ':')) return (id = Cards_FindIdentity(text)) ? id : -1;
+    if (strspn(text, "0123456789") == strlen(text)) return Cards_Valid(id = atoi(text)) ? id : -1;
+    return (id = retail_by_name(text)) ? id : -1;
+}
+
+int Cards_TypeNamed(const char *text)
+{
+    int type;
+    for (type = 0; text && type < (int)(sizeof(type_names) / sizeof(type_names[0])); type++) {
+        if (same_letters(text, type_names[type])) return type;
+    }
+    return -1;
+}
+
+int Cards_Type(int id)
+{
+    return Cards_Valid(id) ? (int)(((unsigned)gDuel_adwCardStats[id - 1] >> 26) & 0x1F) : -1;
 }
 
 typedef struct {
@@ -323,7 +444,7 @@ static void add_entry(const char *mod, const char *directory, int index, const J
     const char *name = Json_String(Json_Member(entry, "name"), NULL);
     const char *setting = Json_String(Json_Member(entry, "count_setting"), NULL);
     const char *description = Json_String(Json_Member(entry, "description"), NULL);
-    unsigned char *record = NULL, *title = NULL;
+    unsigned char *record = NULL, *title = NULL, *named_plate = NULL;
     int parts = 0;
     int base = 0, count, n, value;
     unsigned stats;
@@ -395,7 +516,7 @@ static void add_entry(const char *mod, const char *directory, int index, const J
                 continue;
             }
             if (k == 2) {
-                if (!title) title = calloc(1, CARD_ART_RECORD);
+                if (!title) title = calloc(1, CARD_TITLE_BYTES);
                 ok = title && CardArt_TitleFromImage(path, title, why, sizeof(why));
             } else {
                 if (!record) record = calloc(1, CARD_ART_RECORD);
@@ -434,13 +555,14 @@ static void add_entry(const char *mod, const char *directory, int index, const J
         art_records[id] = parts ? record : NULL;
         art_parts[id] = (unsigned char)parts;
         if (title) {
-            plates[id] = title + CARD_TITLE_PIXELS;
-        } else if (name && *name) {
-            /* The name as it will read, "{n}" and all, on the card's plate. */
-            unsigned char *plate = calloc(1, CARD_ART_RECORD);
+            plates[id] = title;
+        } else if (name && *name && (!named_plate || strstr(name, "{n}") || strstr(name, "{id}"))) {
+            /* The name as it will read, "{n}" and all, on the card's plate:
+             * one plate for the entry's cards unless the name numbers them. */
             char text[128];
             size_t length = 0;
             const char *p;
+            named_plate = calloc(1, CARD_TITLE_BYTES);
             for (p = name; *p && length + 8 < sizeof(text); p++) {
                 if (!strncmp(p, "{n}", 3)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", n); p += 2; }
                 else if (!strncmp(p, "{id}", 4)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", id); p += 3; }
@@ -449,10 +571,10 @@ static void add_entry(const char *mod, const char *directory, int index, const J
             text[length] = '\0';
             /* Without a serif font the plate is left blank: better no name
              * on the card than its base's. */
-            if (plate) {
-                CardArt_TitleFromName(text, plate);
-                plates[id] = plate + CARD_TITLE_PIXELS;
-            }
+            if (named_plate) CardArt_TitleFromName(text, named_plate);
+            plates[id] = named_plate;
+        } else if (name && *name) {
+            plates[id] = named_plate;
         }
         context->use[id] = (unsigned char)((Json_Bool(Json_Member(entry, "drops"), 1) ? 1 : 0) |
                                            (Json_Bool(Json_Member(entry, "opponents"), 0) ? 2 : 0));
@@ -518,10 +640,12 @@ void Cards_Build(void)
         }
     }
     free(context);
-    if (gCard_nCount > CARD_COUNT) build_texts();
     if (gCard_nCount > CARD_COUNT) {
         fprintf(stderr, "memories-pc: %d cards (%d added by mods)\n", gCard_nCount, gCard_nCount - CARD_COUNT);
     }
+    /* The mods' fusions, equips, rituals, drops and decks name cards, the
+     * new ones included. */
+    Tables_Build();
 }
 
 /* --- what the game asks -------------------------------------------- */
@@ -577,20 +701,34 @@ const unsigned char *Cards_DescriptionText(int id)
     return Cards_Valid(id) ? descriptions[id] : NULL;
 }
 
+/* The bytes written over the base's are no longer the disc's: a texture
+ * pack must not find the base card's picture in them (texture_dump.h),
+ * even in the words that happen to match it. */
+static void patch(unsigned char *to, const unsigned char *from, size_t bytes)
+{
+    memcpy(to, from, bytes);
+    TextureDump_Written(to, (unsigned)bytes);
+}
+
 void Cards_PatchArtRecord(int id, unsigned char *record)
 {
     if (!Cards_Valid(id)) return;
-    if (art_parts[id] & ART_PICTURE) memcpy(record, art_records[id], CARD_TITLE_PIXELS);
+    if (art_parts[id] & ART_PICTURE) patch(record, art_records[id], CARD_TITLE_PIXELS);
+    /* The plate is not reported: it sits in the middle of the sector that
+     * also ends the base's palette, and a write inside a delivery drops all
+     * of it (texture_dump.c, forget), so a copy with only a name of its own
+     * would lose the base's pack picture. The words of a plate that match
+     * the base's are the same inks, so its pack picture there is no harm. */
     if (plates[id]) memcpy(record + CARD_TITLE_PIXELS, plates[id], CARD_TITLE_BYTES);
     if (art_parts[id] & ART_THUMBNAIL) {
-        memcpy(record + CARD_THUMB_PIXELS, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
+        patch(record + CARD_THUMB_PIXELS, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
     }
 }
 
 void Cards_PatchThumbnail(int id, unsigned char *block)
 {
     if (Cards_Valid(id) && (art_parts[id] & ART_THUMBNAIL)) {
-        memcpy(block, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
+        patch(block, art_records[id] + CARD_THUMB_PIXELS, CARD_THUMB_BLOCK);
     }
 }
 
@@ -607,17 +745,76 @@ int Cards_PickVariant(int id, int use)
 
 /* --- beside the save -------------------------------------------------- */
 
-/* cards/<duelist code>.txt in the user directory: a section per save
- * sequence, the newest KEPT_SAVES of them,
+/* cards/<duelist code>.txt in the user directory: a section per save,
  *
- *     save <sequence>
+ *     save <sequence> <token>
  *     chest2 <identity> <count>
  *     seen2 <identity>
  *     deck2 <slot> <old-id> <base> <identity>
  *     end
  *
+ * The token is the save slot's (save_slots.h), drawn afresh at each save, so
+ * two slots holding the same duelist at the same sequence -- one game saved
+ * twice, then played on from the older -- each find their own. A section
+ * whose token a slot still holds is kept; of the rest, the newest
+ * KEPT_SAVES. Sections from before tokens have none and are found by
+ * sequence alone.
+ *
  * Stable identities remap to this run's ids. Legacy numeric sections require
  * explicit migration with the original mods and order; preserve them until then. */
+
+/* The tokens of the save being played, of the two saves a two-player
+ * screen loaded, and of every slot (save_cards.c sets them). */
+static unsigned play_token, pair_tokens[2], live_tokens[32];
+static int live_count;
+
+void Cards_SetSlotTokens(unsigned playing, const unsigned *live, int count)
+{
+    play_token = playing;
+    live_count = count < 0 ? 0 : count > 32 ? 32 : count;
+    if (live_count) memcpy(live_tokens, live, (size_t)live_count * sizeof(*live));
+}
+
+void Cards_SetPairTokens(unsigned first, unsigned second)
+{
+    pair_tokens[0] = first;
+    pair_tokens[1] = second;
+}
+
+static int live(unsigned token)
+{
+    for (int i = 0; token && i < live_count; i++) if (live_tokens[i] == token) return 1;
+    return 0;
+}
+
+/* A section's first line: its sequence and token (0 for none). */
+static int section_header(const char *line, unsigned *sequence, unsigned *token)
+{
+    int got = sscanf(line, "save %u %x", sequence, token);
+    if (got == 1) *token = 0;
+    return got >= 1;
+}
+
+/* Which section a save of `sequence` and `token` reads: its own, else the
+ * newest no later than it (what the player had when they last played with
+ * the mod). 0 when there is none. */
+static int choose_section(FILE *file, unsigned sequence, unsigned token, unsigned *chosen, unsigned *chosen_token)
+{
+    char line[512];
+    int have = 0, exact = 0;
+    rewind(file);
+    while (fgets(line, sizeof(line), file)) {
+        unsigned value, tag;
+        if (!section_header(line, &value, &tag) || value > sequence || exact) continue;
+        if (token && value == sequence && tag == token) {
+            *chosen = value; *chosen_token = tag; have = exact = 1;
+        } else if (!have || value > *chosen) {
+            *chosen = value; *chosen_token = tag; have = 1;
+        }
+    }
+    rewind(file);
+    return have;
+}
 
 static int state_word(const void *state, int offset)
 {
@@ -644,28 +841,25 @@ typedef struct {
  * given). A save made while no card mod was applied has no section of its
  * own; it has what the newest earlier one held, which is what the player
  * had when they last played with the mod. Returns the sequence read, or -1. */
-static long read_section(int code, unsigned sequence, unsigned char *chest, unsigned char *seen, DeckNotes *deck)
+static long read_section(int code, unsigned sequence, unsigned token, unsigned char *chest, unsigned char *seen,
+                         DeckNotes *deck)
 {
     char path[1024], line[512];
     FILE *file;
-    long chosen = -1;
-    int inside = 0, legacy_warning = 0;
+    unsigned chosen = 0, chosen_token = 0;
+    int inside = 0, legacy_warning = 0, have;
     int migrate = getenv("MEMORIES_MIGRATE_CARD_IDS") && !strcmp(getenv("MEMORIES_MIGRATE_CARD_IDS"), "1");
     if (deck) deck->count = 0;
     if (sidecar_path(path, sizeof(path), code)) return -1;
     file = fopen(path, "r");
     if (!file) return -1;
-    while (fgets(line, sizeof(line), file)) {
-        unsigned value;
-        if (sscanf(line, "save %u", &value) == 1 && value <= sequence && (long)value > chosen) chosen = value;
-    }
-    rewind(file);
-    while (chosen >= 0 && fgets(line, sizeof(line), file)) {
-        unsigned value;
+    have = choose_section(file, sequence, token, &chosen, &chosen_token);
+    while (have && fgets(line, sizeof(line), file)) {
+        unsigned value, tag;
         int id, count, slot, base;
         char identity[192];
-        if (sscanf(line, "save %u", &value) == 1) {
-            inside = (long)value == chosen;
+        if (section_header(line, &value, &tag)) {
+            inside = value == chosen && tag == chosen_token;
         } else if (!inside) {
             continue;
         } else if (sscanf(line, "chest2 %191s %d", identity, &count) == 2) {
@@ -699,7 +893,7 @@ static long read_section(int code, unsigned sequence, unsigned char *chest, unsi
         }
     }
     fclose(file);
-    return chosen;
+    return have ? (long)chosen : -1;
 }
 
 /* A deck holding a card this run does not have (the mod that added it is
@@ -727,11 +921,11 @@ static void repair_deck(unsigned short *cards, const DeckNotes *notes)
     }
 }
 
-static void write_section(int code, unsigned sequence, const unsigned char *chest, const unsigned char *seen,
-                          const unsigned short *deck)
+static void write_section(int code, unsigned sequence, unsigned token, const unsigned char *chest,
+                          const unsigned char *seen, const unsigned short *deck)
 {
     char path[1024], temporary[1040], line[512];
-    unsigned kept[KEPT_SAVES];
+    unsigned kept[KEPT_SAVES], kept_tokens[KEPT_SAVES];
     int kept_count = 0, i, id, keep = 0, any = 0, migrate = 0;
     FILE *in, *out;
     for (id = CARD_ID_END; id <= gCard_nCount; id++) {
@@ -768,17 +962,19 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
             }
         }
     }
-    /* The newest sections other than this one stay. */
+    /* Every section a slot still holds stays, and the newest of the others;
+     * this save's own is written again below. */
     if (in) {
         while (fgets(line, sizeof(line), in)) {
-            unsigned value;
-            if (sscanf(line, "save %u", &value) != 1 || value == sequence) continue;
+            unsigned value, tag;
+            if (!section_header(line, &value, &tag) || (value == sequence && tag == token) || live(tag)) continue;
             if (kept_count < KEPT_SAVES - 1) {
-                kept[kept_count++] = value;
+                kept[kept_count] = value;
+                kept_tokens[kept_count++] = tag;
             } else {
                 int oldest = 0;
                 for (i = 1; i < kept_count; i++) if (kept[i] < kept[oldest]) oldest = i;
-                if (value > kept[oldest]) kept[oldest] = value;
+                if (value > kept[oldest]) { kept[oldest] = value; kept_tokens[oldest] = tag; }
             }
         }
         rewind(in);
@@ -799,10 +995,10 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
     }
     fprintf(out, "# The cards mods added, as the saves of duelist %08X hold them.\n", (unsigned)code);
     while (in && fgets(line, sizeof(line), in)) {
-        unsigned value;
-        if (sscanf(line, "save %u", &value) == 1) {
-            keep = 0;
-            for (i = 0; i < kept_count; i++) keep |= kept[i] == value;
+        unsigned value, tag;
+        if (section_header(line, &value, &tag)) {
+            keep = !(value == sequence && tag == token) && live(tag);
+            for (i = 0; i < kept_count; i++) keep |= kept[i] == value && kept_tokens[i] == tag;
         }
         if (keep) {
             int old_id, old_count, old_slot, old_base;
@@ -816,20 +1012,16 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
             else if (strncmp(line, "chest ", 6) && strncmp(line, "seen ", 5) && strncmp(line, "deck ", 5)) fputs(line, out);
         }
     }
-    fprintf(out, "save %u\n", sequence);
+    if (token) fprintf(out, "save %u %08x\n", sequence, token);
+    else fprintf(out, "save %u\n", sequence);
     /* Carry ownership of temporarily missing mods into the new section.
      * Identity-based records cannot collide with another mod's live IDs. */
     if (in) {
-        unsigned newest = 0; int have = 0, selected_section = 0;
-        rewind(in);
-        while (fgets(line, sizeof(line), in)) {
-            unsigned value;
-            if (sscanf(line, "save %u", &value) == 1 && value <= sequence && (!have || value > newest)) { newest = value; have = 1; }
-        }
-        rewind(in);
+        unsigned newest = 0, newest_token = 0; int have, selected_section = 0;
+        have = choose_section(in, sequence, token, &newest, &newest_token);
         while (have && fgets(line, sizeof(line), in)) {
-            unsigned value; char identity[192];
-            if (sscanf(line, "save %u", &value) == 1) selected_section = value == newest;
+            unsigned value, tag; char identity[192];
+            if (section_header(line, &value, &tag)) selected_section = value == newest && tag == newest_token;
             else if (!strncmp(line, "end", 3)) selected_section = 0;
             else if (selected_section && (sscanf(line, "chest2 %191s", identity) == 1 || sscanf(line, "seen2 %191s", identity) == 1) &&
                      !Cards_FindIdentity(identity)) fputs(line, out);
@@ -869,7 +1061,7 @@ void Cards_SaveLoaded(const void *state)
     clear_extra();
     gCard_nExtraOwner = code;
     /* Read even without a card mod: the deck may need its slots back. */
-    read = read_section(code, sequence, gCard_abExtraChest, gCard_abExtraSeen, &deck);
+    read = read_section(code, sequence, play_token, gCard_abExtraChest, gCard_abExtraSeen, &deck);
     repair_deck((unsigned short *)state, &deck);
     if (read >= 0) say("loaded duelist %08X save %u (from the section of save %ld)", (unsigned)code, sequence, read);
 }
@@ -878,7 +1070,7 @@ void Cards_SaveWritten(const void *state, unsigned sequence)
 {
     int code = state_word(state, SAVE_DUELIST_CODE);
     if (gCard_nCount <= CARD_COUNT) return;   /* no card mod: the file is left as it is */
-    write_section(code, sequence, gCard_abExtraChest, gCard_abExtraSeen, (const unsigned short *)state);
+    write_section(code, sequence, play_token, gCard_abExtraChest, gCard_abExtraSeen, (const unsigned short *)state);
 }
 
 void Cards_PairLoaded(void)
@@ -889,7 +1081,7 @@ void Cards_PairLoaded(void)
         DeckNotes deck;
         memset(gCard_abPairChest[slot], 0, CARD_TABLE_ID_END);
         read_section(state_word(state, SAVE_DUELIST_CODE), (unsigned)state_word(state, SAVE_SEQUENCE),
-                     gCard_abPairChest[slot], NULL, &deck);
+                     pair_tokens[slot], gCard_abPairChest[slot], NULL, &deck);
         repair_deck((unsigned short *)state, &deck);
     }
 }
@@ -912,8 +1104,8 @@ void Cards_PairCommit(void)
         /* A trade writes the trunk, not the sequence number or what the
          * Library has seen: the same section, with the new trunk. */
         memset(seen, 0, sizeof(seen));
-        read_section(code, sequence, chest, seen, NULL);
-        write_section(code, sequence, gCard_abPairChest[slot], seen, (const unsigned short *)state);
+        read_section(code, sequence, pair_tokens[slot], chest, seen, NULL);
+        write_section(code, sequence, pair_tokens[slot], gCard_abPairChest[slot], seen, (const unsigned short *)state);
     }
 }
 

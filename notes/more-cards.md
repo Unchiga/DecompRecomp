@@ -42,8 +42,8 @@ The release ships no card mod; the checks below were made with test mods
 | `copy` | the base: a retail card id (1-722) or its name as the game spells it (`"Kuriboh"`, any case) |
 | `count` | how many cards this entry adds (default 1) |
 | `count_setting` | read `count` from one of the mod's settings instead, so `MEMORIES_MOD_<ID>_COUNT=5000` or `mod.<id>.count=5000` in the settings file changes it without editing the manifest |
-| `name` | the cards' own name; `{n}` is the card's number within the entry and `{id}` its card id. Without one a card has its base's name. Letters, digits, spaces and ``!"#$%&'()*+,-./:<>?`` are what the game's font has |
-| `description` | the card's own text, wrapped as the retail texts are (lines of up to twenty letters, broken at spaces; `\n` breaks a line where it stands). Eight lines is the most any retail text has. Without one a card has its base's text |
+| `name` | the cards' own name; `{n}` is the card's number within the entry and `{id}` its card id. Without one a card has its base's name. Letters, digits, spaces and ``!"#$%&'()*+,-./:<>?`` are what the game's font has; accented letters and others the port adds ([translations](translation.md)) work too |
+| `description` | the card's own text (UTF-8: accented letters work, [translations](translation.md)), wrapped as the retail texts are (lines of up to twenty letters, broken at spaces; `\n` breaks a line where it stands). Eight lines is the most any retail text has. Without one a card has its base's text |
 | `art` | a PNG in the mod (a path relative to its directory): the card's picture and, made from the same image, the small one the hand and field show. Any size: the middle of it at the card's shape is taken and scaled to 102x96 and 40x32, and its colours reduced to the 255 and 63 each has. 102x96 or a multiple looks best |
 | `thumbnail` | a PNG for the small picture alone, when the scaled-down `art` does not read well at 40x32 |
 | `title` | a PNG for the name plate at the top of the card's picture (96x14; dark ink on white, or on a transparent background). Without one, a card with its own name gets a plate with that name set in Times at the retail plates' size (Times New Roman on Windows, fontconfig's match for `Times` elsewhere, Liberation Serif on most Linux systems), or a blank plate when there is none |
@@ -174,13 +174,23 @@ project measured against window captures (its `psx_card_packs.c`,
 regular at 13 pixels, the baseline under row 11, whole-pixel advances,
 coverage in hard steps (150 and up ink 1, 96 an edge at 3, 40 a halo at 6),
 and a name wider than 90 pixels squeezed into columns 3 to 93 and brought
-back up to full ink. Card text goes in beside the name, at the text
+back up to full ink. The name is read as UTF-8, as its glyphs are, so an
+accented letter is one character on the plate too; one the font lacks is
+left out. An entry's cards share one plate unless the name has `{n}` or
+`{id}` in it. A patched picture and thumbnail are reported written
+(`TextureDump_Written`), so a texture pack's picture of the base card does
+not show through on the copy in words that happen to match it; the plate
+is not, since that write would drop the delivery of the sector that also
+ends the base's palette. Card text goes in beside the name, at the text
 engine's insert command (`duel_effect_command.c`, op 0x40).
 
 **What spells out 722.** The Library's heading string (`"<seen/722>"`,
 0x801B121D, text 0xF8) is replaced by the port's own for the real total, in a
-box wide enough for it: nine 16-pixel letters fill the console's, and a
-heading that wraps waits for a page press. Three-digit card numbers
+box wide enough for it. It is found by its id, so a translation's heading is
+rewritten the same way: its "722" becomes the total and its count's width
+grows to match (`Cards_Text`). Nine 16-pixel letters fill the console's
+box, and a heading that wraps would wait for a page press (the port now
+leaves out what does not fit). Three-digit card numbers
 (`F8 03` with width 3, Build Deck's list, the trade offers) grow to four or
 five digits in the same room. Build Deck's list and the trade screen's scroll
 end at the live count (`maximum = 715` was 722 - 7).
@@ -202,7 +212,9 @@ rows of 200 (`CARD_GRID_SECTION_ROW_COUNT`).
   duel's records and 0x7FFF-masked beside their flags.
 * A card defaults to its base's 3D model and effect, with independent `model`
   and `effect` borrowing available. Declarative recipes and code hooks extend
-  fusion behavior; equip and ritual tables still use the base.
+  fusion behavior; equips and rituals use the base's entries unless a mod's
+  `equips` or `rituals` rules name the copy ([gameplay tables](gameplay-tables.md)).
+  A ritual is still asked for by the retail ritual card whose effect it is.
 * The generated name plate is set in a system font, not the retail plates'
   own lettering; a `title` PNG replaces it.
 * Copies of Exodia's pieces do not complete Exodia, and Build Deck's one-copy
