@@ -284,7 +284,11 @@ static int stashed_status, have_stashed;
 static uint64_t now_ms(void)
 {
 #ifdef _WIN32
-    return GetTickCount64();
+    /* Not the tick count, which runs on while the computer sleeps: waking
+     * would look like a freeze. */
+    ULONGLONG interrupt_time;
+    QueryUnbiasedInterruptTime(&interrupt_time);
+    return (uint64_t)interrupt_time / 10000u;
 #else
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1008,6 +1012,11 @@ static void finish(int status)
 {
     char what[256], path[640], message[1200];
     int crashed;
+    /* Frames may have come again after a freeze report in the moment
+     * before the game ended, between two looks. */
+    if (watch.hang_reported && !watch.recovered && __atomic_load_n(&shared->heartbeat, __ATOMIC_SEQ_CST) != watch.beat) {
+        check();
+    }
     describe_end(status, what, sizeof(what), &crashed);
     if (!what[0]) {
         note_session("the game ended normally");
@@ -1174,7 +1183,11 @@ static int run_monitor(int *status)
                 SetEnvironmentVariableA("MEMORIES_LOAD_STATE", NULL);
                 shared->restart = 0;
                 /* The first game's pipe end is gone with it: a new pipe. */
-                if (reader) WaitForSingleObject(reader, 1000);
+                if (reader) {
+                    WaitForSingleObject(reader, 1000);
+                    CloseHandle(reader);
+                    reader = NULL;
+                }
                 CloseHandle(console_read);
                 if (!CreatePipe(&console_read, &again_write, &attributes, 0)) break;
                 SetHandleInformation(console_read, HANDLE_FLAG_INHERIT, 0);
