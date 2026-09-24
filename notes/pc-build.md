@@ -764,6 +764,42 @@ frame that took longer to compute got more ticks, so more disc sectors, and the
 Linux and Windows builds dealt different hands in the first duel. It is also
 fast: frame 1100 in about 3 s on Linux.
 
+### AI thinking time
+
+The opponent's interpreter (`AiScript_Run`) yields to the next frame once
+`VSync(1)` reports 240 lines. On the console a heavy decision therefore spans
+several frames. Natively it rarely spans more than one, and in a deterministic
+run the 1 ms step per `VSync(1)` makes the interpreter yield after about 17
+commands. The decision would change only if other code drew from `rand()` in
+those frames, between two of the AI's own draws.
+
+`MEMORIES_AI_TRACE=<file>` logs every frame, every `VSync(1)` made by
+`AiScript_Run` (the command's script offset and the opponent id) and the
+caller of every `rand()`. `MEMORIES_AI_YIELD=N` makes every Nth of those
+queries report a full frame, so the interpreter yields there as a slow machine
+would. `python3 tools/pc/ai_trace_check.py <traces> --listing <dir>` groups
+the trace into decisions and lists the `rand()` callers. It also lists the
+ones that drew while a decision was in progress. With `--listing` (the output
+of upstream's
+`ai_script_disasm.py`, from
+[krystalgamer/memories-decomp#6006](https://github.com/krystalgamer/memories-decomp/pull/6006)),
+it checks every logged offset against the disassembly.
+
+Measured on 2026-09-24: 16 deterministic sessions of 60,000 frames of the
+`duel-hand-camera` case, driven by random button presses. They covered 943
+decisions against Simon Muran and Teana and 156,234 commands. Four sessions
+left the interpreter alone. Nine forced a yield after every command (up to
+281 frames per decision), three of them with the code mods off. Three forced
+one after every eighth command. Results:
+
+- No code but the AI's own `AiScript_JumpRandom` drew from `rand()` while a
+  decision was in progress. The AI's rolls are the same consecutive draws
+  whatever the frame count, so a faster machine does not change them.
+- The other duel-time callers (`DuelScene_UpdateBattle`'s shake, the result
+  screen, the shuffle) run between decisions, for a fixed number of frames.
+- Every logged offset is an instruction start of the disassembly: 489 of the
+  hand script's 1314 and 296 of the field script's 795 were reached.
+
 ### Save states
 
 F1, F2 and F4 pick those slots (shown in the window title), while slot 3 is

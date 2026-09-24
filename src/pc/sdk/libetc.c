@@ -3,6 +3,7 @@
  * The VBlank "interrupt" is the platform's 60 Hz signal; everything reachable
  * from it must stay async-signal-safe (no stdio, no allocation, no Xlib). */
 #include "pc/platform/platform.h"
+#include "pc/platform/ai_trace.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/sdk/disc.h"
 #include "pc/sdk/display.h"
@@ -227,6 +228,7 @@ int Memories_VSync(int mode)
         static struct timespec since;
         static unsigned frames, game_us, present_us, late, game_max, present_max;
         static unsigned ticks_then, vblanks_then, shown_then;
+        AiTrace_Frame(Memories_PresentedFrames());
         clock_gettime(CLOCK_MONOTONIC, &t0);
         Memories_PresentDisplay();
         clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -300,6 +302,7 @@ int Memories_VSync(int mode)
         exit(0);
     }
     clock_gettime(CLOCK_MONOTONIC, &service_left);
+    if (mode == 1) return AiTrace_VSync1((int)(elapsed * 263u), __builtin_return_address(0));
     return (int)(elapsed * 263u);
 }
 
