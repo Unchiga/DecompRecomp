@@ -84,11 +84,20 @@ static void add_unit(int mod, const char *path, const char *name)
         Mods_Note(Mods_Id(mod), "\"text\": cannot read %s", name);
         return;
     }
-    unit = TextListing_Compile(text, length, bases, Glyphs_Code, report, &reporting);
+    unit = TextListing_Compile(text, length, bases, units, unit_count, Glyphs_Code, report, &reporting);
     free(text);
     if (!unit) {
-        Mods_Note(Mods_Id(mod), "\"text\": %s could not be read", name);
+        /* The compiler has said why, when it knows (a UTF-16 file). */
+        if (!reporting.notes) Mods_Note(Mods_Id(mod), "\"text\": %s could not be read", name);
         return;
+    }
+    if (unit->not_utf8_lines) {
+        /* Last, so it is what the Mods window shows: the likeliest reason
+         * the whole translation looks wrong. */
+        LOG(LOG_MODS, "text: %s: %s: %d lines are not UTF-8, from line %d", Mods_Id(mod), name, unit->not_utf8_lines,
+            unit->first_not_utf8_line);
+        Mods_Note(Mods_Id(mod), "%s is not UTF-8 (%d lines, from line %d): save it as UTF-8", name,
+                  unit->not_utf8_lines, unit->first_not_utf8_line);
     }
     bigger = realloc(units, (size_t)(unit_count + 1) * sizeof(*units));
     if (!overrides) overrides = calloc(0x10000, sizeof(*overrides));

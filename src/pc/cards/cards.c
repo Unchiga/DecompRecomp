@@ -199,10 +199,17 @@ static unsigned char *encode_name(const char *mod, const char *pattern, int n, i
     if (!glyphs) return NULL;
     {   /* UTF-8: accented letters and the like are glyphs of the port's (glyphs.h). */
         const char *at = text;
+        int bad = 0;
         length = 0;
         while (*at) {
             const char *letter = at;
-            int code = Glyphs_Code(Glyphs_NextCharacter(&at));
+            uint32_t character = Glyphs_NextCharacter(&at);
+            int code;
+            if (character == GLYPHS_NOT_UTF8) {
+                if (!bad++) Mods_Note(mod, "card %d: its name is not UTF-8; save the file as UTF-8. Left out", id);
+                continue;
+            }
+            code = Glyphs_Code(character);
             if (code < 0) {
                 Mods_Note(mod, "card %d: the game has no letter \"%.*s\"; left out of its name", id,
                           (int)(at - letter), letter);
@@ -247,7 +254,13 @@ static unsigned char *encode_description(const char *mod, const char *text, int 
         }
         while (word < end) {
             const char *letter = word;
-            int code = Glyphs_Code(Glyphs_NextCharacter(&word));
+            uint32_t character = Glyphs_NextCharacter(&word);
+            int code;
+            if (character == GLYPHS_NOT_UTF8) {
+                if (!warned++) Mods_Note(mod, "card %d: its text is not UTF-8; save the file as UTF-8. Left out", id);
+                continue;
+            }
+            code = Glyphs_Code(character);
             if (code < 0) {
                 if (!warned++) Mods_Note(mod, "card %d: the game has no letter \"%.*s\"; left out of its text", id,
                                          (int)(word - letter), letter);
@@ -262,30 +275,54 @@ static unsigned char *encode_description(const char *mod, const char *text, int 
     return glyphs;
 }
 
-/* The Library's heading, "<" then the seen count (F8 03: four address bytes
- * and a width byte, 0x80 for zero padding) then "/722>". */
-#define LIBRARY_HEADING 0x801B121Du
-static unsigned char library_heading[32];
+/* The Library's heading, string F8: "<" then the seen count (F8 03: four
+ * address bytes and a width byte, 0x80 for zero padding) then "/722>".
+ * With more cards than the disc's, the "722" is their number and the count
+ * as wide as it. The string is keyed by its id, not its address, so a
+ * translation's heading is rewritten the same way: whatever else it says
+ * stays, and a heading that jumps (whose operands only mean something where
+ * they are) is left as it is. */
+#define LIBRARY_HEADING_ID 0xF8
+static unsigned char library_heading[64];
+static const unsigned char *library_source;
 
-static void build_texts(void)
+static const unsigned char *heading(const unsigned char *text)
 {
-    static const unsigned char retail[] = {84, 0xF8, 0x03, 0x08, 0x56, 0x1D, 0x80, 0x83, 68, 69, 58, 58, 81, 0xFF};
+    const unsigned char *at;
     char digits[16];
     int width, i, n = 0;
-    if (memcmp((const void *)(uintptr_t)LIBRARY_HEADING, retail, sizeof(retail)) != 0) return;
+    if (text == library_source) return library_heading;
+    for (at = text; *at != 0xFF; at++) {
+        if (*at >= 0xF9 && *at <= 0xFD) return text;
+    }
     width = snprintf(digits, sizeof(digits), "%d", gCard_nCount);
-    memcpy(library_heading, retail, 7);
-    n = 7;
-    library_heading[n++] = (unsigned char)(0x80 | (width < 3 ? 3 : width));
-    library_heading[n++] = (unsigned char)glyph_of('/');
-    for (i = 0; i < width; i++) library_heading[n++] = (unsigned char)glyph_of(digits[i]);
-    library_heading[n++] = (unsigned char)glyph_of('>');
+    at = text;
+    while (*at != 0xFF) {
+        if ((size_t)n + 16 >= sizeof(library_heading)) return text;
+        if (at[0] == 0xF8 && at[1] == 0x03 && !memchr(at + 2, 0xFF, 5)) {
+            int wide = at[6] & 0x0F;
+            memcpy(library_heading + n, at, 6);
+            library_heading[n + 6] = (unsigned char)((at[6] & 0xF0) | (wide > width ? wide : width));
+            n += 7;
+            at += 7;
+        } else if (at[0] == glyph_of('7') && at[1] == glyph_of('2') && at[2] == glyph_of('2')) {
+            for (i = 0; i < width; i++) library_heading[n++] = (unsigned char)glyph_of(digits[i]);
+            at += 3;
+        } else if (at[0] >= 0xF0 && at[0] <= 0xF5) {   /* an added glyph's two bytes */
+            library_heading[n++] = *at++;
+            if (*at != 0xFF) library_heading[n++] = *at++;
+        } else {
+            library_heading[n++] = *at++;
+        }
+    }
     library_heading[n] = 0xFF;
+    library_source = text;
+    return library_heading;
 }
 
-const unsigned char *Cards_Text(const unsigned char *text)
+const unsigned char *Cards_Text(int id, const unsigned char *text)
 {
-    if ((uintptr_t)text == LIBRARY_HEADING && library_heading[0]) return library_heading;
+    if (id == LIBRARY_HEADING_ID && gCard_nCount > CARD_COUNT && text) return heading(text);
     return text;
 }
 
@@ -603,7 +640,6 @@ void Cards_Build(void)
         }
     }
     free(context);
-    if (gCard_nCount > CARD_COUNT) build_texts();
     if (gCard_nCount > CARD_COUNT) {
         fprintf(stderr, "memories-pc: %d cards (%d added by mods)\n", gCard_nCount, gCard_nCount - CARD_COUNT);
     }

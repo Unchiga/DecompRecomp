@@ -186,8 +186,11 @@ engine's insert command (`duel_effect_command.c`, op 0x40).
 
 **What spells out 722.** The Library's heading string (`"<seen/722>"`,
 0x801B121D, text 0xF8) is replaced by the port's own for the real total, in a
-box wide enough for it: nine 16-pixel letters fill the console's, and a
-heading that wraps waits for a page press. Three-digit card numbers
+box wide enough for it. It is found by its id, so a translation's heading is
+rewritten the same way: its "722" becomes the total and its count's width
+grows to match (`Cards_Text`). Nine 16-pixel letters fill the console's
+box, and a heading that wraps would wait for a page press (the port now
+leaves out what does not fit). Three-digit card numbers
 (`F8 03` with width 3, Build Deck's list, the trade offers) grow to four or
 five digits in the same room. Build Deck's list and the trade screen's scroll
 end at the live count (`maximum = 715` was 722 - 7).

@@ -45,6 +45,9 @@ typedef struct {
     TextReport report;
     void *context;
     int line, failed;
+    int letters, page_warned;        /* on the item's page, and said so */
+    int cont;                        /* the item's last line ran on: {cont} */
+    int bad_lines, bad_line, first_bad_line;   /* lines that are not UTF-8 */
 } Compiler;
 
 static void say(Compiler *c, const char *format, ...)
@@ -155,9 +158,9 @@ static int code(Compiler *c, int bank, char *text)
 #define IS(name) (!strcmp(words[0], name))
     if (IS("nl")) { emit(c, 0xFE); return 0; }
     if (IS("end")) { emit(c, 0xFF); return 1; }
-    if (IS("page")) { emit(c, 0xFA); return 0; }
+    if (IS("page")) { emit(c, 0xFA); c->letters = 0; return 0; }
     if (IS("sp")) { emit(c, 0x00); return 0; }
-    if (IS("cont")) return 0;
+    if (IS("cont")) { c->cont = 1; return 0; }
     if (IS("buffer")) return -1;
     if (IS("g") && count == 2) {
         unsigned value;
@@ -248,12 +251,34 @@ static int line_text(Compiler *c, int bank, const char *text, size_t length, int
             }
         } else {
             const char *letter = at;
-            int glyph_code = c->encode(Glyphs_NextCharacter(&at));
+            uint32_t character = Glyphs_NextCharacter(&at);
+            int glyph_code;
+            if (character == GLYPHS_NOT_UTF8) {
+                /* Most likely the whole file is in another encoding (an
+                 * editor's Windows-1252): said once, where it starts; the
+                 * unit counts the lines (not_utf8_lines). */
+                if (c->bad_line != c->line) {
+                    if (!c->bad_lines) {
+                        say(c, "not UTF-8 (byte %02X); save the file as UTF-8. Left out", (unsigned char)*letter);
+                        c->first_bad_line = c->line;
+                    }
+                    c->bad_lines++;
+                    c->bad_line = c->line;
+                }
+                continue;
+            }
+            glyph_code = c->encode(character);
             if (glyph_code < 0) {
                 say(c, "no letter for \"%.*s\"; left out", (int)(at - letter), letter);
                 continue;
             }
             glyph(c, glyph_code);
+            /* A space is no entry of the box's; anything else is one. */
+            if (glyph_code && ++c->letters > TEXT_PAGE_LETTERS && !c->page_warned) {
+                say(c, "more than %d letters on one page; no text box shows more (most menus, %d)", TEXT_PAGE_LETTERS,
+                    TEXT_MENU_LETTERS);
+                c->page_warned = 1;
+            }
         }
     }
     return 0;
@@ -285,18 +310,38 @@ static const char *labels(Compiler *c, int bank, const char *text, const char *e
     return text;
 }
 
+/* Where an earlier unit defines label `name` of `bank`: the latest's. */
+static unsigned char *earlier_label(TextUnit *const *earlier, int earlier_count, int bank, unsigned name)
+{
+    int i, j;
+    for (i = earlier_count - 1; i >= 0; i--) {
+        const TextUnit *unit = earlier[i];
+        for (j = 0; unit && j < unit->label_count; j++) {
+            if (unit->labels[j].bank == bank && unit->labels[j].name == name) return unit->data + unit->labels[j].offset;
+        }
+    }
+    return NULL;
+}
+
 TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t bases[TEXT_BANK_COUNT],
+                              TextUnit *const *earlier, int earlier_count,
                               TextGlyphEncoder encode, TextReport report, void *context)
 {
     Compiler c;
     TextUnit *unit;
     const char *at = text, *end = text + length;
-    int bank = -1, inside = 0, pending = 0, buffer = 0, first_string = 0, i;
+    int bank = -1, inside = 0, pending = 0, buffer = 0, first_string = 0, ran_on = 0, i;
+    size_t item_start = 0;
     memset(&c, 0, sizeof(c));
     c.encode = encode;
     c.report = report;
     c.context = context;
     if (length >= 3 && !memcmp(text, "\xEF\xBB\xBF", 3)) at += 3;   /* a byte-order mark */
+    if (length >= 2 && (!memcmp(text, "\xFF\xFE", 2) || !memcmp(text, "\xFE\xFF", 2))) {
+        c.line = 1;
+        say(&c, "the file is UTF-16; save it as UTF-8");   /* what Notepad calls "Unicode" */
+        return NULL;
+    }
     while (at < end && !c.failed) {
         const char *line = at, *stop = memchr(at, '\n', (size_t)(end - at));
         size_t size;
@@ -310,12 +355,18 @@ TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t ba
         if (inside && starts) {
             /* The line break before an item is the listing's, not the game's. */
             if (buffer) c.string_count = first_string;
+            /* The retail listing marks every such run {cont}; without it, an
+             * {end} was most likely forgotten, and the blank lines and
+             * comments before this item are the string's text. */
+            if (!c.cont && !buffer && c.size != item_start) say(&c, "the text before this runs on into it: no {end}");
+            ran_on = !buffer && c.size != item_start;
             inside = 0;
         }
         if (!inside) {
             const char *rest = line, *line_end = line + size;
             if (size >= 6 && !strncmp(line, "@bank ", 6)) {
                 bank = -1;
+                ran_on = 0;
                 for (i = 0; i < TEXT_BANK_COUNT; i++) {
                     if (size - 6 == strlen(bank_names[i]) && !strncmp(line + 6, bank_names[i], size - 6)) bank = i;
                 }
@@ -330,6 +381,13 @@ TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t ba
             first_string = c.string_count;
             buffer = 0;
             pending = 0;
+            if (!ran_on) {   /* else the page goes on */
+                c.letters = 0;
+                c.page_warned = 0;
+            }
+            ran_on = 0;
+            c.cont = 0;
+            item_start = c.size;
             if (line[0] == '[') {
                 const char *close = memchr(line, ']', size);
                 const char *word = line + 1;
@@ -365,6 +423,7 @@ TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t ba
             /* Text may follow the labels on their line; the line break
              * after it is the game's, as after any line of text. */
             if (rest < line_end) {
+                c.cont = 0;
                 if (line_text(&c, bank, rest, (size_t)(line_end - rest), &buffer)) {
                     inside = 0;
                     continue;
@@ -375,6 +434,7 @@ TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t ba
         }
         if (pending) emit(&c, 0xFE);
         pending = 0;
+        c.cont = 0;
         if (line_text(&c, bank, line, size, &buffer)) {
             if (buffer) c.string_count = first_string;
             inside = 0;
@@ -416,6 +476,9 @@ TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t ba
                     break;
                 }
             }
+            /* A file or mod read before this one may define it: a
+             * translation split over files, or a mod on top of another. */
+            if (!where) where = earlier_label(earlier, earlier_count, fixup->bank, fixup->value);
         }
         /* Undefined, or a plain offset: the retail text at that offset. */
         if (!where) where = (unsigned char *)(uintptr_t)(bases[fixup->bank] + fixup->value);
@@ -424,6 +487,21 @@ TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t ba
         c.data[fixup->position + 1] = (unsigned char)(i >> 8);
     }
     unit->target_count = c.fixup_count;
+    unit->labels = calloc((size_t)(c.label_count ? c.label_count : 1), sizeof(*unit->labels));
+    if (!unit->labels) {
+        free(c.labels);
+        free(c.fixups);
+        TextListing_Free(unit);
+        return NULL;
+    }
+    for (i = 0; i < c.label_count; i++) {
+        unit->labels[i].bank = (uint16_t)c.labels[i].bank;
+        unit->labels[i].name = (uint16_t)c.labels[i].name;
+        unit->labels[i].offset = (uint32_t)c.labels[i].position;
+    }
+    unit->label_count = c.label_count;
+    unit->not_utf8_lines = c.bad_lines;
+    unit->first_not_utf8_line = c.first_bad_line;
     free(c.labels);
     free(c.fixups);
     return unit;
@@ -435,5 +513,6 @@ void TextListing_Free(TextUnit *unit)
     free(unit->data);
     free(unit->targets);
     free(unit->strings);
+    free(unit->labels);
     free(unit);
 }

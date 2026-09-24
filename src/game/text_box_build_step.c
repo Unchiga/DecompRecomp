@@ -75,7 +75,8 @@ void TextBox_BuildStep(DuelEffectChannel *object)
 #ifdef MEMORIES_PC
         /* A translation's string, if a mod has one (text.h); then the few
            strings that spell out how many cards there are. */
-        text = (u8 *)Cards_Text(Text_Resolve((u16)object->field_36, text));
+        text = (u8 *)Cards_Text((u16)object->field_36,
+                                 Text_Resolve((u16)object->field_36, text));
 #endif
         object->text_00 = text;
         object->field_56 = 0;

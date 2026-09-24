@@ -83,9 +83,10 @@ const unsigned char *Cards_DescriptionText(int id);
 void Cards_PatchArtRecord(int id, unsigned char *record);
 void Cards_PatchThumbnail(int id, unsigned char *block);
 
-/* The game's text at `text`, or the port's own version of it where the
- * retail string counts the disc's 722 cards (the Library's "<seen/722>"). */
-const unsigned char *Cards_Text(const unsigned char *text);
+/* The game's text for string `id`, found at `text` (a translation's or the
+ * disc's), or the port's own version of it where the string counts the
+ * disc's 722 cards (the Library's "<seen/722>", string F8). */
+const unsigned char *Cards_Text(int id, const unsigned char *text);
 
 /* A card the game rolled from a disc table of retail cards (a duel reward,
  * an opponent's deck): `id` or one of the copies of it that asked to take

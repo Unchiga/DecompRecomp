@@ -29,6 +29,6 @@ u32 Text_LookupString(s32 arg0, s32 arg1)
 #ifdef MEMORIES_PC
 u32 Text_LookupString(s32 arg0, s32 arg1)
 {
-    return (u32)Cards_Text(Text_Resolve(arg1, (const u8 *)Text_LookupStringRetail(arg0, arg1)));
+    return (u32)Cards_Text(arg1, Text_Resolve(arg1, (const u8 *)Text_LookupStringRetail(arg0, arg1)));
 }
 #endif

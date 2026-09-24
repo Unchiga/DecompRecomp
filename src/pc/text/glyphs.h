@@ -46,7 +46,10 @@ int Glyphs_Cell(uint32_t sjis, int large, int font_page, int *tpage, int *u, int
 /* A font file (a mod's) to set characters in before the system's. */
 void Glyphs_AddFont(const char *path);
 
-/* UTF-8: the next character of `*text`, advancing it; 0xFFFD for a bad byte. */
+/* UTF-8: the next character of `*text`, advancing it; GLYPHS_NOT_UTF8,
+ * past the bad bytes, where the text is not UTF-8 (a file saved as
+ * Windows-1252, say), for the caller to say so. */
+#define GLYPHS_NOT_UTF8 0xFFFFFFFFu
 uint32_t Glyphs_NextCharacter(const char **text);
 
 #endif

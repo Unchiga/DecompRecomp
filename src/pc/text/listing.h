@@ -22,12 +22,21 @@ typedef struct {
 } TextString;
 
 typedef struct {
+    uint16_t bank;
+    uint16_t name;         /* LXXXX: XXXX */
+    uint32_t offset;       /* into data */
+} TextLabel;
+
+typedef struct {
     unsigned char *data;
     size_t size;
     unsigned char **targets;   /* by operand */
     int target_count;
     TextString *strings;
     int string_count;
+    TextLabel *labels;         /* for the listings compiled after this one */
+    int label_count;
+    int not_utf8_lines, first_not_utf8_line;   /* left out, for the mod's status */
 } TextUnit;
 
 /* The glyph code for a character (-1 for none), and what to say about a
@@ -35,11 +44,25 @@ typedef struct {
 typedef int (*TextGlyphEncoder)(uint32_t character);
 typedef void (*TextReport)(void *context, int line, const char *message);
 
-/* `bases` are the retail banks' addresses (the dialogue, descriptions and
- * names banks), for targets the listing leaves undefined. NULL if nothing
- * could be compiled; problems with single lines are reported and skipped. */
+/* A label the listing jumps to but does not define is looked for in the
+ * `earlier` units (the files and mods read before it; the latest that
+ * defines it wins), and failing that is the retail text at that offset of
+ * its bank: `bases` are the retail banks' addresses (the dialogue,
+ * descriptions and names banks). NULL if nothing could be compiled;
+ * problems with single lines are reported and skipped. */
 TextUnit *TextListing_Compile(const char *text, size_t length, const uint32_t bases[TEXT_BANK_COUNT],
+                              TextUnit *const *earlier, int earlier_count,
                               TextGlyphEncoder encode, TextReport report, void *context);
+
+/* The most letters one page of a text box has room for: its channel's slice
+ * of the game's glyph entries (255, 160, 160 and 45 of them), less the one
+ * that ends the list. Which channel a string is shown on is the game's
+ * choice, not the string's: the dialogue box and a few menus have the 255,
+ * most menus 160 (and a retail menu string has 224 letters), so the
+ * compiler can only warn past the largest. The game leaves out what does
+ * not fit (DuelEffect_AppendEntry). */
+#define TEXT_PAGE_LETTERS 254
+#define TEXT_MENU_LETTERS 159
 void TextListing_Free(TextUnit *unit);
 
 /* The bank a string id belongs in, or -1 for an id no bank has. */

@@ -43,6 +43,21 @@ void DuelEffect_AppendEntry(DuelEffectChannel *p, s32 a)
     s32 c;
 
     q = p->entry_end_20;
+#ifdef MEMORIES_PC
+    /* The channel's slice of D_800EB288 (range_count_5E entries from
+       range_start_5C: 255, 160, 160 and 45) holds the page's entries and the
+       one after the last, whose cleared flags end the list. The console's
+       own text always fits; a translation's page may not, and the entries
+       past the slice are the next channel's, and past the last channel's
+       whatever follows the table. What does not fit is left out. */
+    if (p->range_count_5E != 0 &&
+        q >= &D_800EB288[p->range_start_5C + p->range_count_5E - 1]) {
+        return;
+    }
+    if (q >= &D_800EB288[DUEL_EFFECT_ENTRY_COUNT - 1]) {
+        return;
+    }
+#endif
     q->field_12 = p->index_57 + 1;
     q->field_13 = 1;
     q->field_15 = 0;

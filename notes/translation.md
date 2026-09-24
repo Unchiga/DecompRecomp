@@ -34,7 +34,13 @@ a [texture pack](modding.md) repaints those.
    ```
 
    `text` may be a list of files; they are read in order, and a later
-   string with the same id replaces an earlier one. So may `font` (below).
+   string with the same id replaces an earlier one. A jump to a place a
+   file does not define lands in the latest file read before it (this
+   mod's or an earlier mod's) that does. So may `font` (below).
+
+   Save the files as UTF-8. A file in another encoding (Windows-1252, or
+   what Notepad calls "Unicode") is reported, with the line where it goes
+   wrong, rather than read as boxes.
 
 4. Put the mod's folder in `mods` in the user directory, apply it in
    **Game > Mods** and restart. What the game could not read, and letters it
@@ -42,7 +48,7 @@ a [texture pack](modding.md) repaints those.
    `MEMORIES_TRACE=mods`; everything else is used.
 
 A translation may be partial: strings it leaves out stay as they are, and a
-jump to a place the file does not have lands in the game's own text. The
+jump to a place no file has lands in the game's own text. The
 listing itself must not be shared as it comes out of the tool: it is the
 game's text. Share your translated file.
 
@@ -74,10 +80,16 @@ wind of your activities...
 * A line break is a line break in the game's text box. The text box does
   not wrap by itself: break the lines where they fit. Card texts have
   lines of 20 letters and room for 8 lines.
+* A text box has room for so many letters at once: 254 in the dialogue
+  box and some menus, 159 in most menus. What is past that on a page is
+  left out, and a page with more than 254 is reported. A menu writes its
+  text in one go: what is past its box's last line, or past a `{page}`, is
+  left out too (the console would wait for a button there forever).
 * A string ends at `{end}`, or at a code that jumps away (`{jump}`,
   `{choose}`, `{f8 17}`, `{f8 18}`, `{f8 28}`). What follows it up to the
   next `[ID]` or `{:L...}` is ignored, so blank lines and `# comments` can
-  go there.
+  go there. A string that reaches the next item without one is reported:
+  its blank lines and comments would be text.
 * `{:LXXXX}` on a line of its own is a place something jumps to: a
   choice's answer, a branch, a shared ending. Its text belongs with it; keep
   the line. The listing names each after its place in the game's own text.
@@ -147,7 +159,20 @@ is anywhere and any size, so its jumps are indices into a table of its own
 places, and the five jump handlers (`{jump}`, `{call}`, `{if}`, `{choose}`,
 `{f8 17/18}`) ask `Text_Retarget`. A place the listing does not define is
 the retail address, which is how `{call L125A}` still reaches the name the
-game writes there.
+game writes there. Each compiled file keeps its places, so a later file's
+jump to one it does not define lands in the latest earlier file that does,
+before it falls back to the retail text.
+
+The game keeps a text box's letters in a slice of the entry table
+`D_800EB288` (620 entries: 255, 160, 160 and 45 for the four text
+channels). The console's text always fits; the port's
+`DuelEffect_AppendEntry` stops adding letters when the channel's slice is
+full, rather than writing into the next channel's (or past the table), and
+`func_80039A14`/`func_80039A60`, which build a menu's text in one go, stop
+at a page that waits for a button (state 4) instead of looping forever.
+The Library's heading (string `F8`, "<seen/722>") is rewritten for the
+number of cards there are, by its id, whether the text is the disc's or a
+translation's (`Cards_Text`).
 
 Glyph codes above the retail ones (`0x100` on, written `F1`-`F5` and a low
 byte, which the game already reads as a glyph) have words of their own
