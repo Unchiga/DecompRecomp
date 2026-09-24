@@ -53,6 +53,8 @@ if sys.platform == "win32":
     _glob = glob.glob
     glob.glob = lambda *args, **kwargs: [path.replace(os.sep, "/") for path in _glob(*args, **kwargs)]
 CFLAGS = ["-m32", "-std=gnu11", "-fpermissive", "-w", "-O0", "-g", "-fno-strict-aliasing",
+          # Room for a mod to hook any game function (src/pc/mods/hooks.c).
+          "-fpatchable-function-entry=8,6",
           "-fwrapv", "-fcommon", "-fno-pie", "-fno-stack-protector", "-DMEMORIES_PC",
           "-D_LANGUAGE_C", "-DLANGUAGE_C", "-Isrc"]
 if WINDOWS:

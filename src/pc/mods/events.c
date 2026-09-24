@@ -3,6 +3,7 @@
 #include "events.h"
 #include "../../types.h"
 #include "mods.h"
+#include "hooks.h"
 #include <string.h>
 
 typedef struct {
@@ -64,6 +65,7 @@ void Mods_ClearHooks(int owner)
     for (i = count - 1; i >= 0; i--)
         if (hooks[i].owner == owner)
             Mods_Unsubscribe(owner, hooks[i].token);
+    Hooks_Clear(owner);
     memset(&states[owner], 0, sizeof(states[owner]));
 }
 int Mods_RegisterState(int owner, void *data, size_t size, unsigned version)

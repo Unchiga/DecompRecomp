@@ -30,6 +30,7 @@
 #include "object_loader.h"
 #include "json.h"
 #include "events.h"
+#include "hooks.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include "pc/platform/platform.h"
@@ -358,8 +359,18 @@ static void host_unsubscribe(const MemoriesModHost *host, int token)
 static int host_register_state(const MemoriesModHost *host, void *data, size_t size, unsigned version)
 { return owner(host) ? Mods_RegisterState((int)(owner(host) - mods), data, size, version) : 0; }
 
+static int host_hook(const MemoriesModHost *host, void *function, void *replacement, void **original)
+{ return owner(host) ? Hooks_Add((int)(owner(host) - mods), function, replacement, original) : 0; }
+static void host_unhook(const MemoriesModHost *host, int token)
+{ if (owner(host)) Hooks_Remove((int)(owner(host) - mods), token); }
+static void *host_symbol(const MemoriesModHost *host, const char *name)
+{ return owner(host) && name ? Mods_Lookup(name) : NULL; }
+
 static void fill_host(Mod *mod)
 {
+    mod->host.hook = host_hook;
+    mod->host.unhook = host_unhook;
+    mod->host.symbol = host_symbol;
     mod->host.subscribe = host_subscribe;
     mod->host.unsubscribe = host_unsubscribe;
     mod->host.register_state = host_register_state;
@@ -1251,7 +1262,16 @@ static int load_texture_packs(int with, int without, char *problems, size_t size
     return loaded;
 }
 
+static void activate_once(int index, int on);
+
+/* Function hooks follow what is applied, however activation ended. */
 static void activate(int index, int on)
+{
+    activate_once(index, on);
+    Hooks_Relink();
+}
+
+static void activate_once(int index, int on)
 {
     Mod *mod = &mods[index];
     if (on == mod->active) return;

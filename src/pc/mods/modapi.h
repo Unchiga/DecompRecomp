@@ -34,7 +34,8 @@
  * before it calls an entry the host may not have.
  *   1  the first
  *   2  now_us, map_fixed; setting() reads MEMORIES_MOD_<ID>_<KEY> first
- *   3  managed events, registered state and stable card lookup */
+ *   3  managed events, registered state and stable card lookup
+ *   4  hook/unhook any game function; symbol looks a name up at run time */
 #include "mod_types.h"
 
 typedef struct MemoriesModHost MemoriesModHost;
@@ -115,6 +116,25 @@ struct MemoriesModHost {
     int (*register_state)(const MemoriesModHost *, void *data, size_t size, unsigned version);
     /* Resolve a stable "mod-id:card-key" identity after card tables build. */
     int (*card_id)(const MemoriesModHost *, const char *identity);
+
+    /* --- API 4 ---
+     * Replace one of the game's functions (anything in src/game, named
+     * directly: `host->hook(host, Duel_DrawFieldCards, my_draw, &original)`)
+     * with `replacement`, which has the same signature. While the mod is
+     * applied every call goes to `replacement`; `*original`, when given, is
+     * kept pointing at what it displaced -- the game's function, or another
+     * mod's replacement made earlier -- so a hook that calls it wraps the
+     * function rather than replacing it. `original` must point at storage
+     * that lives as long as the mod (a static variable, not a local): the
+     * host rewrites it whenever other mods are applied or removed, so read
+     * it at each call. Removing the mod
+     * takes its hooks out of the way at once. A token, or 0 when `function`
+     * is not a game function (port code and the C library cannot be hooked). */
+    int (*hook)(const MemoriesModHost *, void *function, void *replacement, void **original);
+    void (*unhook)(const MemoriesModHost *, int token);
+    /* The address of a game or port name, as the loader binds a mod's
+     * undefined names, or NULL: for a name a mod can do without. */
+    void *(*symbol)(const MemoriesModHost *, const char *name);
 };
 
 /* The symbol a mod's object defines, and its type. */
