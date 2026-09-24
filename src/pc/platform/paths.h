@@ -5,7 +5,7 @@
  *  - the program directory, which holds the executable and the mods shipped
  *    with the release; nothing is ever written there;
  *  - the user directory, which holds everything the player owns: settings,
- *    controls, memory cards, save states, screenshots, their own mods and
+ *    controls, save slots, save states, screenshots, their own mods and
  *    whatever a mod stores. On Windows that is
  *    Documents\My Games\YFM Re-Decomp; elsewhere $XDG_DATA_HOME/YFM Re-Decomp
  *    (~/.local/share/YFM Re-Decomp). MEMORIES_USER_DIR names another.

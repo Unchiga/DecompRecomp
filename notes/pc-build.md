@@ -285,7 +285,8 @@ under it:
 |---|---|
 | `settings.txt` | the settings (`MEMORIES_SETTINGS` names another file) |
 | `controls.txt` | the control bindings (`MEMORIES_CONTROLS`) |
-| `memcard1.mcd`, `memcard2.mcd` | the memory cards (`MEMORIES_MEMCARD1/2`) |
+| `saves/slot01.sav` ... `slot10.sav` | the game saves, one per slot (see "Saves" below) |
+| `memcard1.mcd`, `memcard2.mcd` | memory cards of older builds, only read now (`MEMORIES_MEMCARD1/2`) |
 | `states/slot1.state` ... | save states (`MEMORIES_STATE_DIR`) |
 | `screenshots/` | F12 and **File > Screenshot** (`MEMORIES_SCREENSHOT_DIR`) |
 | `mods/` | mods the player installed (`notes/modding.md`) |
@@ -812,8 +813,52 @@ bit-identical. How (details in `src/pc/guest/state.h`):
   addresses moved each). A new native static that the game depends on still
   needs a field in its subsystem's `*_State`.
 
+### Saves
+
+The port does not use memory cards for saving. Every load and save the game
+asks for goes through `MemCardDialog_Request` / `MemCardDialog_Poll`
+(`src/game/mem_card_dialog_runtime.c`); under `MEMORIES_PC` those hand the
+request to the save slot menu (`src/pc/saves/save_menu.c`) instead of the
+card dialog. The menu is drawn in the overlay (`debug/hud.c` calls
+`SaveMenu_Draw`), is driven by the game pad (Cross picks, Circle backs out,
+Up/Down move, Left/Right in the overwrite prompt), and returns the outcome
+the card dialog would have (1 done, 2 failed, 3 cancelled), so every caller
+is unchanged. What it covers:
+
+| Dialog step | Caller | Slot menu |
+|---|---|---|
+| `0` load | title LOAD | pick a slot with a save; empty and damaged slots cannot be picked |
+| `1` load, unprompted | 2P DUEL and TRADE, once per player | "Player 1/2: choose a save"; player 2 cannot pick player 1's slot |
+| `2` save | SAVE in the main menu, the campaign's save prompt, the completion save after the credits | pick any slot; an occupied one asks "Overwrite it?", defaulting to Overwrite when it holds the same duelist and to Cancel otherwise |
+| `4` trade write-back | TRADE | no menu: writes both traded saves back to the slots they were loaded from, after checking the duelist code as the card dialog did |
+
+The side effects the card dialog kept on success are kept too:
+`gSaveDataSequence` goes up after a save and `D_8009B3D4` is cleared after a
+save or a prompted load.
+
+A slot file (`src/pc/saves/save_slots.c`) is exactly the 8 KiB block the
+game writes to a card: the 0x200-byte "SC" header with icon and title, the
+0x680-byte state and its duplicate, zeros after. A slot can therefore be put
+back onto a card image with any memory card manager. A slot is written to
+`slotNN.sav.partial` and renamed over the old file, so a failed write keeps
+the previous save. When the first copy fails `SaveData_ValidateIntegrity`
+the duplicate is used; when both fail the slot shows as damaged. The menu
+lists the player name, starchips, cards owned (chest plus deck), wins and
+losses, and the file's modification time.
+
+The first time the `saves` folder is created, the game's save
+(`BASLUS-01411-YUGIOH`) on `memcard1.mcd` and `memcard2.mcd` is copied into
+slots 1 and 2. The card images are only read. `pc_save_slots` tests the slot
+files and the import. The menu's own state is a save-state chunk
+(`save-menu`), so a state taken with the menu open resumes in it.
+
+Checked on Linux and under Wine: LOAD on the title imports the card's save
+and loads it, SAVE writes an empty slot at once and asks before overwriting
+slot 1, and an overwrite replaces the file on the Windows build.
+
 ### Memory cards
 
+Nothing on the normal paths reaches LIBMCRD any more (see "Saves" above).
 `sdk/libmcrd.c` implements LIBMCRD over standard 128 KiB raw card images
 (`.mcd`/`.mcr`, the format emulators use, so saves can be exchanged with them).
 Slot 1 is `memcard1.mcd` in the user directory, created formatted when

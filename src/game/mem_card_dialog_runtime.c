@@ -19,6 +19,11 @@
 #include "mem_card_dialog_load_save.h"
 #include "mem_card_dialog_steps.h"
 #include "mem_card_dialog_runtime.h"
+#ifdef MEMORIES_PC
+#include "input.h"
+#include "sound.h"
+#include "pc/saves/save_menu.h"
+#endif
 
 /* The empty callback, trade write-back operation, and modal runtime that
    drive the operation table. MemCardDialog_Update dispatches the save and
@@ -340,8 +345,47 @@ b25:
     MemCardStop();
 }
 
+#ifdef MEMORIES_PC
+/* The port has no memory cards. A load or save goes to the save slot files
+   through the slot menu (src/pc/saves/save_menu.h), which returns the
+   outcome the card dialog would have; the side effects of a finished load
+   or save that MemCardDialog_UpdateLoad and _UpdateSave keep are kept here. */
+static int MemCardDialog_CheckSlot(unsigned char *state)
+{
+    return SaveData_ValidateIntegrity(state) != 0;
+}
+
+static int MemCardDialog_PollSlots(void)
+{
+    int sound;
+    int outcome = SaveMenu_Poll(
+        gInput_wPad1Pressed | (gInput_wPad1Repeat & PAD_DIRECTION_MASK),
+        D_8009B3F9, &sound);
+
+    if (sound != SAVE_MENU_SOUND_NONE) {
+        SD_SEPlayFull(sound);
+    }
+    if (outcome == 0) {
+        return 0;
+    }
+    D_8009B3EF = outcome;
+    if (outcome == 1 && D_8009B3DE == SAVE_MENU_SAVE) {
+        D_8009B3D4 = 0;
+        gSaveDataSequence = (s32)((u32)gSaveDataSequence + 1);
+    } else if (outcome == 1 && D_8009B3DE == SAVE_MENU_LOAD) {
+        D_8009B3D4 = 0;
+    }
+    return outcome;
+}
+#endif
+
 int MemCardDialog_Poll(void)
 {
+#ifdef MEMORIES_PC
+    if (SaveMenu_Active()) {
+        return MemCardDialog_PollSlots();
+    }
+#endif
     MemCardDialog_Update();
     if (gMemCard_wDialogFlags != 0) {
         return 0;
@@ -365,5 +409,13 @@ void MemCardDialog_Request(u8 *buf, s32 size, u8 *name, s32 step)
     D_8009B3DC =
         (size + MEM_CARD_BLOCK_SIZE - 1) / MEM_CARD_BLOCK_SIZE;
     gMemCard_pPrimaryTransferCursor = buf;
+#ifdef MEMORIES_PC
+    if (SaveMenu_Begin(step, buf, gMemCard_pSecondaryTransferCursor, size,
+                       (const char *)name, MemCardDialog_CheckSlot)) {
+        D_8009B3DE = step;
+        D_8009B3EF = 2;
+        return;
+    }
+#endif
     MemCardDialog_Start(step);
 }
