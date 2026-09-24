@@ -84,6 +84,15 @@ int main(void)
     make_dir("mods/invalid-schema");
     write_text("mods/invalid-schema/mod.json",
                "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
+    /* A mod that requires itself, over and over, and a cycle of requires:
+     * looking for what they wait on must finish at once. */
+    make_dir("mods/self");
+    write_text("mods/self/mod.json", "{\"id\":\"self\",\"requires\":[\"self\",\"self\",\"self\",\"loop-b\",\"self\"]}");
+    make_dir("mods/loop-b");
+    write_text("mods/loop-b/mod.json", "{\"id\":\"loop-b\",\"requires\":[\"self\",\"self\",\"loop-b\",\"self\"]}");
+    /* Saved by a Windows editor, with a byte order mark. */
+    make_dir("mods/bom");
+    write_text("mods/bom/mod.json", "\xEF\xBB\xBF{\"id\":\"bom\",\"name\":\"Marked\"}");
     snprintf(path, sizeof(path), "%s/mods", root);
     assert(!setenv("MEMORIES_MODS_DIR", path, 1));
     snprintf(path, sizeof(path), "%s/settings.txt", root);
@@ -190,8 +199,20 @@ int main(void)
     assert(!Mods_OptionSet(a, 0, 99));
     assert(Mods_OptionSet(a, 0, 7));
     assert(Mods_OptionValue(a, 0) == 7);
+    {
+        int self = find("self"), bom = find("bom"), wanted[MODS_MAX] = {0};
+        assert(bom >= 0 && !Mods_Failed(bom) && !strcmp(Mods_Name(bom), "Marked"));
+        wanted[self] = wanted[find("loop-b")] = 1;
+        assert(Mods_WaitsForRestart(self, wanted) == -1);
+    }
+    /* Applying writes only the mods the player changed: one whose stored
+     * choice differs from this run's (an environment override) keeps it. */
+    Settings_SetNamed("mod.pack-a", 1);
+    assert(!Mods_Enabled(find("pack-a")));
     assert(Mods_Apply(enabled, error, sizeof(error)));
     assert(Mods_Active(a) && Mods_Active(b));
+    assert(Settings_GetNamed("mod.pack-a", -1) == 1 && Settings_GetNamed("mod.a", 0) == 1);
+    Settings_SetNamed("mod.pack-a", 0);
     assert(Mods_ProfileSave("Test profile"));
     enabled[a] = enabled[b] = 0;
     assert(Mods_ProfileRead("Test profile", enabled));

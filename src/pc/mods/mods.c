@@ -999,7 +999,7 @@ static int load_library(Mod *mod)
 static const char *const manifest_keys[] = {
     "id", "name", "version", "author", "description", "library", "enabled", "restart", "legacy_setting",
     "data", "textures", "cards", "audio", "min_api", "game", "requires", "after", "conflicts", "priority",
-    "settings",
+    "settings", "fusions", "equips", "rituals", "drops", "decks", "text", "font",
 };
 
 /* How many letters to add, remove or change to turn one word into the
@@ -1415,7 +1415,17 @@ void Mods_Load(void)
     /* After the first load (a settings reload) a mod that wants a restart is
      * only recorded, as Mods_SetEnabled does, and a live one that requires
      * it waits for the same restart. */
-    for (i = mod_count - 1; i >= 0; i--) if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
+    {   /* Applied last, removed first (as Mods_Apply does). */
+        int newest[MODS_MAX], j;
+        for (i = 0; i < mod_count; i++) {
+            for (j = i; j > 0 && mods[newest[j - 1]].sequence < mods[i].sequence; j--) newest[j] = newest[j - 1];
+            newest[j] = i;
+        }
+        for (j = 0; j < mod_count; j++) {
+            i = newest[j];
+            if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
+        }
+    }
     for (i = 0; i < count; i++) {
         int current = order[i], j, active[MODS_MAX];
         if (!enabled[current] || (first && mods[current].failed)) continue;
@@ -1492,8 +1502,10 @@ void Mods_SetEnabled(int mod, int enabled)
     char key[256];
     if (!at(mod)) return;
     enabled = enabled != 0;
-    if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
+    /* Unchanged, nothing is written: the choice stored stays, even when an
+     * environment variable overrides it for this run. */
     if (mods[mod].enabled == enabled) return;
+    if (setting_key(key, sizeof(key), mods[mod].id, NULL)) Settings_SetNamed(key, enabled);
     mods[mod].enabled = enabled;
     /* A mod that could not go in place (a replacement file missing, say) is
      * tried again when the player next applies it; one that cannot load at

@@ -117,14 +117,17 @@ def libc_names():
 def library_name(directory):
     """The object's file name, relative to the mod's directory, by the game's
     own rule (read_manifest in src/pc/mods/mods.c): "library" as written
-    when it has a '.' anywhere in it, else with ".o" added; the directory's
-    name when there is no "library"."""
+    when it has a '.' anywhere in it, else with ".o" added. The game loads
+    no code for a mod without "library", so neither is one built."""
     manifest = os.path.join(directory, "mod.json")
-    name = None
-    if os.path.exists(manifest):
-        with open(manifest, encoding="utf-8") as handle:
-            name = json.load(handle).get("library")
-    name = name or os.path.basename(os.path.normpath(directory))
+    if not os.path.exists(manifest):
+        sys.exit(f"{directory}: no mod.json (notes/modding.md)")
+    # utf-8-sig: a manifest saved with a byte order mark, as the game allows.
+    with open(manifest, encoding="utf-8-sig") as handle:
+        name = json.load(handle).get("library")
+    if not name:
+        sys.exit(f'{manifest}: the mod has C sources but no "library": the game would load none of its code. '
+                 f'Add "library": "{os.path.basename(os.path.normpath(directory))}"')
     return name if "." in name else name + ".o"
 
 

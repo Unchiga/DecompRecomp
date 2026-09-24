@@ -246,6 +246,8 @@ JsonDocument *Json_Parse(const char *text, char *error, size_t error_size)
     memcpy(document->text, text, strlen(text) + 1);
     parser.document = document;
     parser.at = document->text;
+    /* Windows editors often save UTF-8 with a byte order mark first. */
+    if (!strncmp(parser.at, "\xEF\xBB\xBF", 3)) parser.at += 3;
     parser.error = error;
     parser.error_size = error_size;
     parser.depth = 0;

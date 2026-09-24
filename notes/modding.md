@@ -29,7 +29,8 @@ directory replaces one the release ships with the same `id`.
 
 ## The manifest
 
-Every mod has a `mod.json`:
+Every mod has a `mod.json` (UTF-8; a byte order mark, as some Windows
+editors write, is fine):
 
 ```json
 {
@@ -447,7 +448,7 @@ the player's settings file as `mod.<id>.<key>`, and read from
 `MEMORIES_MOD_<ID>_<KEY>` first when that is set; a key is letters, digits,
 `_` and `-`, and `order` is the manager's), `disc_file_start`/
 `disc_read`, `pad`, and from mod API 2 `now_us` (a clock) and `map_fixed`
-(memory at an address the mod chooses, as 3D Monsters' model arenas need).
+(memory at an address the mod chooses, as 3D Monsters' model arenas need). API 4 adds `hook`/`unhook`/`symbol`, below.
 A mod that uses an entry newer than API 1 should refuse to start when
 `host->api` is older.
 
@@ -456,6 +457,50 @@ save-state buffers. The [API 3 guide](mod-api-3.md) describes damage, reward,
 fusion, effect, AI, input and scene hooks, their ordering/cancellation rules,
 and stable card identities. The [manager](mods-window.md) exposes descriptions,
 settings, compatibility and staged batch changes.
+
+### Replacing or wrapping a game function (API 4)
+
+Every function of the game can be taken over by a mod, not only the ones
+with an event. `host->hook` names the game function directly and gives the
+replacement, which has the same signature:
+
+```c
+extern void DuelScene_UpdateResultRewards(void);   /* the duel's result screen */
+static void *original;   /* static: the host keeps it up to date */
+
+static void my_result_screen(void)
+{
+    /* ... before ... */
+    ((void (*)(void))original)();   /* the game's own, or the mod hooked before this one */
+    /* ... after: change or observe what it did ... */
+}
+
+int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
+{
+    if (from->api < 4) return 0;
+    host = from;
+    mod->api = 4;
+    return host->hook(host, (void *)DuelScene_UpdateResultRewards, (void *)my_result_screen, &original) != 0;
+}
+```
+
+While the mod is applied every call, from anywhere in the game, goes to the
+replacement; `original` leads to what it displaced, so calling it wraps the
+function and not calling it replaces it. Several mods may hook one
+function: the one applied last is called first, and each one's `original`
+leads to the one before. Removing a mod in the Mods window takes its hooks
+out at once, and a function nobody hooks is the game's again, byte for
+byte. `hook` returns 0 for anything that is not a game function (the port's
+own code, the C library, a function of another mod). `host->unhook` removes
+one hook, and `host->symbol("name")` looks a name up at run time, for a mod
+that can do without it.
+
+How it works: every game unit is compiled with
+`-fpatchable-function-entry=8,6`, which leaves six bytes of `nop` before
+each function and two at its entry. A hook turns the six into an indirect
+jump through a pointer the host keeps and the two into a short jump back to
+it; see [`src/pc/mods/hooks.c`](../src/pc/mods/hooks.c). The game runs the
+same with no mod hooking anything (the smoke screenshots are unchanged).
 
 ### Building one
 
