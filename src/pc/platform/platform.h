@@ -12,6 +12,8 @@ int Platform_Open(const char *title);
 void Platform_ShowError(const char *title, const char *message);
 void Platform_OpenMods(void);
 void Platform_OpenControls(void);
+/* Show a folder in the system's file manager; 0 on success. */
+int Platform_OpenFolder(const char *path);
 /* Re-exec with the original arguments; returns only on failure. */
 int Platform_RestartGame(void);
 /* Show a VRAM rectangle (15-bit, or packed 24-bit RGB bytes) and pump events. */

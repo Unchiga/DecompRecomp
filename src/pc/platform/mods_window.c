@@ -26,7 +26,7 @@ typedef struct {
     int x, y, w, h;
 } Rect;
 typedef struct {
-    Rect search, filter, list, detail, toggle, tabs[3], apply, close, profile, save, load, order[2], defaults;
+    Rect search, filter, list, detail, toggle, tabs[3], apply, close, profile, save, load, order[2], defaults, folder;
 } Layout;
 static int width, height, unit, selected, scroll, detail_scroll, tab, filter, focus, pending;
 static int wanted[MODS_MAX], ranks[MODS_MAX], *values[MODS_MAX], counts[MODS_MAX];
@@ -58,6 +58,7 @@ static void layout(Layout *l)
         l->tabs[i] = rect(l->detail.x + i * l->detail.w / 3, top + 120 * unit, l->detail.w / 3, 32 * unit);
     l->apply = rect(width - p - 150 * unit, height - 48 * unit, 150 * unit, 30 * unit);
     l->close = rect(width - p - 252 * unit, height - 48 * unit, 94 * unit, 30 * unit);
+    l->folder = rect(width - p - 418 * unit, height - 48 * unit, 158 * unit, 30 * unit);
     l->order[0] = rect(l->detail.x + l->detail.w - 88 * unit, top + 74 * unit, 30 * unit, 30 * unit);
     l->order[1] = rect(l->detail.x + l->detail.w - 48 * unit, top + 74 * unit, 30 * unit, 30 * unit);
     l->defaults = rect(l->detail.x + 16 * unit, top + 164 * unit, l->detail.w - 32 * unit, 28 * unit);
@@ -399,8 +400,9 @@ void ModsWindow_Draw(MenuCanvas *c)
     fill(c, rect(0, height - 72 * unit, width, 1), EDGE);
     text(c, 20 * unit, height - 59 * unit, width - 40 * unit,
          *status ? status : "Changes are staged. Apply once when you are ready.", pending ? WARN : DIM);
-    text(c, 20 * unit, height - 32 * unit, width - 320 * unit,
+    text(c, 20 * unit, height - 32 * unit, l.folder.x - 28 * unit,
          "Arrow keys: select / toggle   Tab: search   Mouse wheel: scroll", DIM);
+    button(c, l.folder, "Open mods folder", 0);
     button(c, l.close, pending ? "Cancel" : "Close", 0);
     button(c, l.apply,
            pending == 2   ? "Discard changes"
@@ -658,6 +660,14 @@ int ModsWindow_Event(const MenuEvent *e)
             if (pending == 2)
                 return 1;
             apply();
+        } else if (!pending && inside(l.folder, e->x, e->y)) {
+            char path[1024];
+            if (Mods_InstallDirectory(path, sizeof(path)))
+                snprintf(status, sizeof(status), "Could not create the mods folder.");
+            else if (Platform_OpenFolder(path))
+                snprintf(status, sizeof(status), "Could not open %.400s", path);
+            else
+                snprintf(status, sizeof(status), "Opened %.400s. New mods appear after a restart.", path);
         } else if (!pending) {
             focus = inside(l.search, e->x, e->y) ? 1 : inside(l.profile, e->x, e->y) ? 2 : 0;
             if (inside(l.filter, e->x, e->y)) {

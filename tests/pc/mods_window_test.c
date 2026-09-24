@@ -15,6 +15,12 @@ void Menu_DrawTextScaled(MenuCanvas *c, int x, int y, const char *s, uint32_t co
     (void)color;
     (void)scale;
 }
+static char opened[1024];
+int Platform_OpenFolder(const char *path)
+{
+    snprintf(opened, sizeof(opened), "%s", path);
+    return 0;
+}
 int Platform_RestartGame(void)
 {
     restarts++;
@@ -111,6 +117,9 @@ int main(void)
         motion.type = MENU_EVENT_MOTION;
         assert(!ModsWindow_Redraws(&motion)); /* plain pointer motion draws nothing */
     }
+    ModsWindow_Init();
+    click(550, 600); /* Open mods folder: the folder new mods are installed in */
+    assert(!strcmp(opened, getenv("MEMORIES_MODS_DIR")));
     ModsWindow_Init();
     ModsWindow_Resize(720, 480);
     ModsWindow_Size(&w, &h);
