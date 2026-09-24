@@ -11,14 +11,13 @@ static void unexpected_state(int owner, void *data, size_t size, unsigned versio
     (void)context;
     assert(0);
 }
-int main(int argc, char **argv)
+/* A fixture object, copied into a mod directory. */
+static void install(const char *from, const char *to)
 {
-    char path[1024];
     FILE *file;
     long length;
     void *object;
-    assert(argc == 2);
-    file = fopen(argv[1], "rb");
+    file = fopen(from, "rb");
     assert(file);
     fseek(file, 0, SEEK_END);
     length = ftell(file);
@@ -27,13 +26,23 @@ int main(int argc, char **argv)
     assert(object);
     assert(fread(object, 1, (size_t)length, file) == (size_t)length);
     fclose(file);
+    write_file(to, object, (size_t)length);
+    free(object);
+}
+int main(int argc, char **argv)
+{
+    char path[1024];
+    int no_api;
+    assert(argc == 3);
     scratch_template(root, sizeof(root), "memories-lifecycle");
     assert(mkdtemp(root));
     make_dir("mods");
     make_dir("mods/reject");
-    write_file("mods/reject/reject.o", object, (size_t)length);
-    free(object);
+    install(argv[1], "mods/reject/reject.o");
     write_text("mods/reject/mod.json", "{\"id\":\"reject\",\"library\":\"reject\",\"enabled\":true}");
+    make_dir("mods/zz-no-api");
+    install(argv[2], "mods/zz-no-api/no-api.o");
+    write_text("mods/zz-no-api/mod.json", "{\"id\":\"no-api\",\"library\":\"no-api\",\"enabled\":true}");
     snprintf(path, sizeof(path), "%s/mods", root);
     setenv("MEMORIES_MODS_DIR", path, 1);
     snprintf(path, sizeof(path), "%s/settings.txt", root);
@@ -42,6 +51,10 @@ int main(int argc, char **argv)
     Mods_Load();
     assert(find("reject") == 0);
     assert(Mods_Failed(0) && !Mods_Active(0));
+    /* A mod that leaves mod->api at 0 is refused with that reason. */
+    no_api = find("no-api");
+    assert(no_api == 1 && Mods_Failed(no_api) && !Mods_Active(no_api));
+    assert(strstr(Mods_Status(no_api), "did not set mod->api"));
     Mods_DrawFrame();
     Mods_Reset();
     Mods_Notify(MEMORIES_EVENT_DAMAGE, 0, 100, 0);

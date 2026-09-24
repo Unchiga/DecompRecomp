@@ -395,6 +395,7 @@ static void drop_overrides(int mod)
 {
     int i, kept = 0;
     overrides_live = 0;   /* the drive model stops looking before anything goes */
+    __asm__ volatile("" ::: "memory");
     for (i = 0; i < region_count; i++) {
         if (regions[i].mod != mod) { regions[kept++] = regions[i]; continue; }
         if (regions[i].image) unmap_file(regions[i].image, regions[i].mapped);
@@ -724,8 +725,10 @@ static int load_library(Mod *mod)
         note(mod, "refused to start");
         return 0;
     }
-    if (mod->hooks.api > MEMORIES_MOD_API) {
-        note(mod, "was built for mod API %u; this game has %u", mod->hooks.api, MEMORIES_MOD_API);
+    if (!mod->hooks.api || mod->hooks.api > MEMORIES_MOD_API) {
+        /* 0 is a mod that never said which table it filled in. */
+        if (!mod->hooks.api) note(mod, "MemoriesModInit did not set mod->api");
+        else note(mod, "was built for mod API %u; this game has %u", mod->hooks.api, MEMORIES_MOD_API);
         memset(&mod->hooks, 0, sizeof(mod->hooks));
         Mods_ClearHooks((int)(mod - mods));
         return 0;
