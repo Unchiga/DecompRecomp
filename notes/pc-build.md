@@ -171,7 +171,10 @@ settings file), `MEMORIES_HEADLESS=1`,
 `MEMORIES_WINDOW_SHOT=N` (save the window as shown at frame N, as the
 screenshot key does, into `MEMORIES_SCREENSHOT_DIR` or the user folder),
 `MEMORIES_SCALE_AT=N:S` (change the internal resolution to S at frame N, as
-the View menu would),
+the View menu would), `MEMORIES_MODE_AT=N:M[,N:M...]` (from frame N on, the
+next main mode a screen publishes becomes M, `main_modes.h`; M 0 is the
+game's debug menu, reached with the options case's input; see
+`notes/image-remaster.md`),
 `MEMORIES_INPUT="700:0008,706:0000"` (scripted pad bits from a frame on;
 `MEMORIES_INPUT2` the same for the second pad, which then counts as
 connected: two-player trades and duels),

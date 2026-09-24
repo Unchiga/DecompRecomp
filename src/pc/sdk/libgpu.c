@@ -240,7 +240,29 @@ void Memories_PresentDisplay(void)
          * from a scripted run). */
         const char *shot = getenv("MEMORIES_WINDOW_SHOT");
         const char *rescale = getenv("MEMORIES_SCALE_AT"); /* "<frame>:<scale>": the View menu's change, scripted */
+        /* "<frame>:<mode>[,<frame>:<mode>...]": from that frame on, the next
+         * mode a screen publishes (a menu choice, a screen's exit) becomes
+         * <mode> instead (main_modes.h; 0 is the game's own debug menu), so
+         * a scripted run reaches any screen. Main_Loop starts a mode whose
+         * byte lacks 0x80; a present comes before its check. */
+        const char *mode_at = getenv("MEMORIES_MODE_AT");
+        static int mode_step, mode_seen = -1;
         if (shot && frames_presented == atoi(shot)) Platform_Screenshot(1);
+        if (mode_at) {
+            extern unsigned char D_8009B26C; /* main_mode_state.h: the active mode */
+            const char *at = mode_at;
+            int i, published = D_8009B26C != mode_seen && !(D_8009B26C & 0x80);
+            mode_seen = D_8009B26C;
+            for (i = 0; i < mode_step && at; i++) at = strchr(at, ',') ? strchr(at, ',') + 1 : NULL;
+            if (at && *at && strchr(at, ':') && frames_presented >= (unsigned)atoi(at) && published) {
+                int mode = atoi(strchr(at, ':') + 1);
+                fprintf(stderr, "memories-pc: frame %u: mode %d published, running %d\n", (unsigned)frames_presented,
+                        D_8009B26C & 0x1f, mode);
+                D_8009B26C = (unsigned char)mode;
+                mode_seen = mode;
+                mode_step++;
+            }
+        }
         if (rescale && frames_presented == atoi(rescale) && strchr(rescale, ':')) {
             Memories_SetInternalScale(atoi(strchr(rescale, ':') + 1));
         }
