@@ -491,8 +491,12 @@ fix from inside the game short of drawing its own pointer.
 
 ### Cooperative clock
 
-`MEMORIES_CLOCK=cooperative` (opt-in; the interrupt clock stays the
-default) runs the game with no interrupt at all. The console's interrupt
+The cooperative clock is the default (since 2026-09-24, after a 29-minute
+session played on Windows with it and no problem). It runs the game with no
+interrupt at all. `MEMORIES_CLOCK=interrupt` brings back the old clock, a
+timer that interrupts the game as the console's VBlank would. The sampling
+profiler takes its samples from that timer, so `MEMORIES_PROFILE` without
+`MEMORIES_CLOCK` chooses it too, and the log says so. The console's interrupt
 work (the VBlank callback, the sequencer's root counter, disc delivery,
 MDEC, memory card) is run on the main thread where the game calls in to
 wait or to read the time: every `VSync`, `Platform_WaitVBlank` (which wakes

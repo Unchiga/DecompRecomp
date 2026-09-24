@@ -68,12 +68,14 @@ static void deliver_vblank(void)
     if (vblank_handler) vblank_handler();
 }
 
-/* MEMORIES_CLOCK=cooperative: no interrupt. The clock's time is taken, and
+/* The cooperative clock, the default: no interrupt. The clock's time is taken, and
  * the ticks and VBlanks it owes are run, where the game calls in to wait or
  * to read the time (VSync, Platform_WaitVBlank, Platform_PollTime), so the
  * game's interrupt code never runs in the middle of anything. Every loop the
  * game polls the clock in passes through one of those (notes/pc-build.md,
- * "Cooperative clock"). */
+ * "Cooperative clock"). MEMORIES_CLOCK=interrupt brings back the timer that
+ * interrupts the game, as the console's VBlank would; the sampling profiler
+ * (MEMORIES_PROFILE) samples from that timer, so it chooses it too. */
 static int cooperative;
 
 static void advance(uint64_t real_now, uintptr_t eip)
@@ -200,9 +202,13 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
     }
     Profile_Init();
     {
-        const char *clock = getenv("MEMORIES_CLOCK");
-        cooperative = clock && strcmp(clock, "cooperative") == 0;
-        if (cooperative) fprintf(stderr, "memories-pc: cooperative clock (no interrupt)\n");
+        const char *clock = getenv("MEMORIES_CLOCK"), *profile = getenv("MEMORIES_PROFILE");
+        if (clock && *clock) cooperative = strcmp(clock, "interrupt") != 0;
+        else cooperative = !(profile && *profile);
+        if (!cooperative) {
+            fprintf(stderr, "memories-pc: interrupt clock%s\n",
+                    clock && *clock ? " (MEMORIES_CLOCK=interrupt)" : ", which MEMORIES_PROFILE samples from");
+        }
     }
 #ifdef _WIN32
     Win32_SetStallReporter(Crash_ReportHang, watchdog_seconds);
