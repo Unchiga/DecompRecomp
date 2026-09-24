@@ -6,6 +6,7 @@
 #include "pc/compat/libgs_ot.h"
 #include "pc/guest/image.h"
 #include "pc/platform/platform.h"
+#include "pc/platform/credits.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/sdk/display.h"
 #include <stdio.h>
@@ -234,6 +235,7 @@ void Memories_PresentDisplay(void)
     TexturePack_Service();
     frames_presented++;
     Platform_Frame((unsigned)frames_presented);
+    Credits_Frame();
     {
         /* MEMORIES_WINDOW_SHOT=<frame>: the window as shown at that frame,
          * as the screenshot key would save it (checking the window itself
