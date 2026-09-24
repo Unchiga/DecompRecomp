@@ -403,24 +403,32 @@ way the retail game leaves a campaign loss. `Main_RunGameOver` fades the
 music and the screen out, asks for the title menu (`D_8009B268 = 1`,
 `D_8009B26D = 0`, mode 8), and longjmps to the point `Main_Init` set up after
 the boot sequence. From there it resets the frontend runtime, loads the
-main-menu package and runs the title again. `title_jump.c` does the same
-after `DebugMenu_Exit`'s `DisplayObject_Reset` and `func_80035A64`, with the
+main-menu package and runs the title again. The platform's `title_jump.c`
+dispatches that sequence through `src/pc/overrides/title_jump.c`, after
+`DebugMenu_Exit`'s `DisplayObject_Reset` and `func_80035A64`, with the
 disc left idle first. That way, no transfer the old screen asked for lands on
 the title's package. While the save slot menu is open, the request waits
 for it to close, so the menu is never left drawn over the title.
 
-The request is only taken between two mode runners. `Main_Loop` is replaced
-by an identical copy in `src/pc/overrides/main_loop.c`, which polls after
-each frame. That is the one point where no runner is half way through a
-step, and where no nested frame loop is on the stack (a fade, a disc wait).
+The request is only taken between two mode runners. A `MEMORIES_PC` hook in
+`Main_Loop` polls after each frame. That is the one point where no runner is
+half way through a step, and where no nested frame loop is on the stack
+(a fade, a disc wait).
 The item is off while the title's own loop (`Main_RunFrontendLoop`) runs,
-before `Main_Loop` starts and after each jump. There the title is already
-the destination, and a request made there would otherwise wait for the next
-screen. Progress not saved is lost, as with a reset.
+before `Main_Loop` starts and after every return, including a normal game
+over or debug-menu exit. It is also disabled during the jump's disc wait and
+fade, so another click cannot reset the following game. At the title, a
+request would otherwise wait for the next screen. Progress not saved is
+lost, as with a reset.
+
+Save states carry the item's enabled state and discard pending UI requests
+on load. `pc_title_jump` tests title entry, save-menu deferral, repeated
+requests during a jump and state restoration.
 
 `MEMORIES_TITLE_AT=N[,N...]` makes the request at presented frames N, for
-checks. Checked headless: the jump works from a campaign duel, and so do two
-jumps, each followed by New Game played to the duel again. It also works from
+checks. Requests scheduled while the item is disabled are consumed and
+ignored at that frame. Checked headless: the jump works from a campaign duel,
+and so do two jumps, each followed by New Game played to the duel again. It also works from
 eleven screens reached with `MEMORIES_MODE_AT` from the options case: debug
 menu, campaign, Library, map, Free Duel, Build Deck, name entry, Password,
 Options, game over and Trade. After each one, the title and then the main

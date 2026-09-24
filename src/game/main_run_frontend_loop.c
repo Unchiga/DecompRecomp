@@ -14,12 +14,19 @@
 #include "text_box_lifecycle.h"
 #include "sound.h"
 #include "main_frame.h"
+#ifdef MEMORIES_PC
+#include "pc/platform/title_jump.h"
+#endif
 
 s32 Main_RunFrontendLoop(void) {
     s32 r;
     u32 f;
     s32 g;
 
+#ifdef MEMORIES_PC
+    /* Every entry, including retail game-over/debug-menu longjmps. */
+    TitleJump_SetActive(0);
+#endif
     Fade_WaitInitIn();
 
     for (;;) {

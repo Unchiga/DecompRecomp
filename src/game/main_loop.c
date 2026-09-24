@@ -9,12 +9,18 @@
 #include "main_reset_frontend_runtime.h"
 #include "../unmatched.h"
 #include "main_mode_state.h"
+#ifdef MEMORIES_PC
+#include "pc/platform/title_jump.h"
+#endif
 
 void Main_Loop(void) {
     Main_PrepareFrontendLoop();
     for (;;) {
         u8 v;
         Main_AdvanceFrame();
+#ifdef MEMORIES_PC
+        TitleJump_Poll();
+#endif
         v = D_8009B26C;
         if ((v & 0x80) == 0) {
             D_8009B26C = v | 0x80;
