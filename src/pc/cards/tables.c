@@ -223,8 +223,16 @@ int Tables_Fusion(int a, int b, int *result)
     rule = find_fusion(a, b);
     base_a = Cards_BaseId(a);
     base_b = Cards_BaseId(b);
-    /* A copy fuses as its base, as it does in the disc's table. */
-    if (!rule && (base_a != a || base_b != b)) rule = find_fusion(base_a, base_b);
+    /* A copy fuses as its base, as it does in the disc's table; a rule
+     * naming a copy itself is surer, so one that names both cards as they
+     * are comes first, then one that names one of them (a copy with its
+     * partner's base; of two such, the later), then the bases' own. */
+    if (!rule) {
+        const FusionRule *one = base_b != b ? find_fusion(a, base_b) : NULL;
+        const FusionRule *other = base_a != a ? find_fusion(base_a, b) : NULL;
+        rule = one && (!other || one->order > other->order) ? one : other;
+    }
+    if (!rule && base_a != a && base_b != b) rule = find_fusion(base_a, base_b);
     if (!rule) return 0;
     *result = rule->result;
     return 1;

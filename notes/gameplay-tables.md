@@ -63,7 +63,9 @@ Anywhere a rule names a card it may use:
 
 A rule for a retail card also holds for the copies of it a mod adds, as the
 disc's table does; a rule that names a copy itself is surer, and comes
-first. Mods' rules are asked before the recipes of an added card's own
+first: a rule for the two cards as they are, then one naming one of them
+as it is and the other's base (the later of two such), then the bases'
+rule. Mods' rules are asked before the recipes of an added card's own
 `fusions` list, which come before the disc's table. The AI fuses by the
 same rules as the player.
 
@@ -88,6 +90,9 @@ dragon but one. What no entry mentions, the disc's table decides.
 disc's ritual cards; `tributes` names the three monsters it takes, and
 `result` what it summons. `"result": null` takes the ritual away. A tribute
 may be a copy a mod added; a retail tribute is also met by a copy of it.
+Every tribute takes a monster that is exactly it before any takes a copy,
+so a recipe naming both a retail monster and a copy of it is met whatever
+order they stand in on the field.
 
 ## Drops and decks
 

@@ -115,6 +115,26 @@ int main(void)
     assert(fusion(CARD_COUNT + 10, 11) == 12);
     assert(Tables_FilterFusion(50) == 0 && Tables_FilterFusion(51) == 51);
 
+    /* A rule naming a copy is surer than its base's: both cards as they
+     * are, then a copy with its partner's base (the later of two such),
+     * then the bases. 732 is a copy of 10, 733 of 11, 739 of 17, 740 of 18. */
+    add("c", "{\"fusions\": ["
+             "{\"with\": [732, 11], \"result\": 60},"
+             "{\"with\": [10, 733], \"result\": 61},"
+             "{\"with\": [17, 18], \"result\": 62},"
+             "{\"with\": [732, 18], \"result\": 63},"
+             "{\"with\": [17, 740], \"result\": 64}]}");
+    assert(fusion(732, 11) == 60 && fusion(11, 732) == 60);   /* the copy's own rule, not 10 + 11's */
+    assert(fusion(10, 733) == 61);
+    assert(fusion(732, 733) == 61);                           /* 10 + 733 is later than 732 + 11 */
+    add("d", "{\"fusions\": [{\"with\": [732, 11], \"result\": 65}]}");
+    assert(fusion(733, 732) == 65);                           /* now 732 + 11 is */
+    add("e", "{\"fusions\": [{\"with\": [732, 733], \"result\": 66}]}");
+    assert(fusion(733, 732) == 66);                           /* both named as they are: surest */
+    assert(fusion(739, 740) == 64);                           /* 17 + 740 */
+    assert(fusion(739, 18) == 62);                            /* only the bases' */
+    assert(fusion(732, 740) == 63);                           /* 732 + 18 */
+
     /* Equips: every dragon, less one; a replaced list; a copy of the equip. */
     add("a", "{\"equips\": [{\"card\": \"Legendary Sword\", \"add\": [\"Dragon\", 5], \"remove\": [13]},"
              "{\"card\": \"Kuriboh\", \"add\": [1]}]}");
