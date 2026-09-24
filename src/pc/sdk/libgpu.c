@@ -305,7 +305,7 @@ void DrawOTag(u32 *list)
     if (result != MEMORIES_GPU_OK) {
         char detail[160];
         snprintf(detail, sizeof(detail), "DrawOTag(%p): %s", (void *)list, Memories_GpuResultName(result));
-        Crash_ReportSoft("DrawOTag", detail);
+        Crash_ReportFatal("DrawOTag", detail);
         exit(70);
     }
     pending_words = count;

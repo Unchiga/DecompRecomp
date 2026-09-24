@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "pc/debug/log.h"
+#include "pc/debug/monitor.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,8 @@
 
 unsigned Memories_PresentedFrames(void) { return 12; }
 unsigned Platform_VBlankCount(void) { return 34; }
+static MonitorShared block;
+MonitorShared *Monitor_Shared(void) { return &block; }
 
 int main(void)
 {

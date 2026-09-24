@@ -16,6 +16,7 @@
 #define _WIN32_WINNT 0x0A00 /* GetCurrentThreadStackLimits, high-resolution timers */
 #include "win32.h"
 #include "pc/debug/crash.h"
+#include "pc/debug/monitor.h"
 #include "pc/compat/signal.h"
 #include <stdio.h>
 #include <string.h>
@@ -157,7 +158,8 @@ static DWORD WINAPI run_clock(void *unused)
                 GetThreadContext(main_thread, &context);
                 ResumeThread(main_thread);
                 stall_report(&context);
-                write_dump("hang", NULL, main_id);
+                /* The monitor's dump, taken from outside, is the better one. */
+                if (!Monitor_Active()) write_dump("hang", NULL, main_id);
             }
         }
         if (SuspendThread(main_thread) == (DWORD)-1) continue;
@@ -334,6 +336,12 @@ int Win32_Restart(void)
     PROCESS_INFORMATION process;
     wchar_t path[MAX_PATH];
     DWORD length = GetModuleFileNameW(NULL, path, MAX_PATH);
+    if (Monitor_Active()) {
+        /* The monitor starts the game again once this one has exited. */
+        Monitor_Shared()->restart = 1;
+        fflush(NULL);
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
     if (!length || length >= MAX_PATH) return -1;
     SetEnvironmentVariableW(L"MEMORIES_LOAD_STATE", NULL);
     memset(&startup, 0, sizeof(startup));
@@ -417,14 +425,20 @@ typedef struct {
     DWORD thread;
 } OverflowReport;
 
+static uintptr_t guard_page;
+
+void Win32_GuardStack(uintptr_t low, unsigned room)
+{
+    DWORD old;
+    guard_page = low + room;
+    if (!VirtualProtect((void *)guard_page, 4096, PAGE_READWRITE | PAGE_GUARD, &old)) guard_page = 0;
+}
+
 static DWORD WINAPI report_overflow(void *argument)
 {
     const OverflowReport *job = argument;
     const CONTEXT *context = job->pointers->ContextRecord;
-    if (crash_report) {
-        crash_report(job->pointers->ExceptionRecord->ExceptionCode, job->fault, context->Eip, context->Esp,
-                     context->Ebp);
-    }
+    if (crash_report) crash_report(EXCEPTION_STACK_OVERFLOW, job->fault, context->Eip, context->Esp, context->Ebp);
     write_dump("crash", job->pointers, job->thread);
     return 0;
 }
@@ -437,8 +451,15 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
     const EXCEPTION_RECORD *record = pointers->ExceptionRecord;
     const CONTEXT *context = pointers->ContextRecord;
     uintptr_t fault = 0, address;
+    int overflow = record->ExceptionCode == EXCEPTION_STACK_OVERFLOW;
     Win32_UndoInterruptedFault(pointers->ContextRecord);
     switch (record->ExceptionCode) {
+    case STATUS_GUARD_PAGE_VIOLATION:
+        /* The game stack's guard (Win32_GuardStack): it has run out. */
+        fault = record->NumberParameters >= 2 ? record->ExceptionInformation[1] : 0;
+        if (!guard_page || fault < guard_page || fault >= guard_page + 4096) return EXCEPTION_CONTINUE_SEARCH;
+        overflow = 1;
+        break;
     case EXCEPTION_ACCESS_VIOLATION:
     case EXCEPTION_IN_PAGE_ERROR:
         fault = record->NumberParameters >= 2 ? record->ExceptionInformation[1] : 0;
@@ -469,7 +490,7 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
             return EXCEPTION_CONTINUE_SEARCH;
         }
     }
-    if (record->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
+    if (overflow) {
         static OverflowReport job;
         HANDLE reporter;
         job.pointers = pointers;
@@ -477,11 +498,13 @@ static LONG CALLBACK on_exception(EXCEPTION_POINTERS *pointers)
         job.thread = GetCurrentThreadId();
         reporter = CreateThread(NULL, 0, report_overflow, &job, 0, NULL);
         if (reporter) WaitForSingleObject(reporter, 30000);
-        TerminateProcess(GetCurrentProcess(), 3);
+        TerminateProcess(GetCurrentProcess(), EXCEPTION_STACK_OVERFLOW);
     }
     if (crash_report) crash_report(record->ExceptionCode, fault, context->Eip, context->Esp, context->Ebp);
     write_dump("crash", pointers, GetCurrentThreadId());
-    TerminateProcess(GetCurrentProcess(), 3);
+    /* The exception's code for the exit status, as Windows gives it when
+     * nothing handles one: the monitor and play.bat read it. */
+    TerminateProcess(GetCurrentProcess(), record->ExceptionCode);
     return EXCEPTION_CONTINUE_SEARCH;
 }
 

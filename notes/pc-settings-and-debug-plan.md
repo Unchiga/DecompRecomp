@@ -631,7 +631,7 @@ print a sorted summary at exit (`atexit` in `image.c`); add
 `MEMORIES_STUB_BREAK=name` which raises `SIGTRAP` when that stub is reached,
 for use under gdb.
 
-Acceptance: `MEMORIES_CRASH_TEST=1` (an env check in `Platform_Frame` that
+Acceptance: `MEMORIES_CRASH_TEST=1` (now `src/pc/debug/crash_test.c`, which has more kinds; an env check that
 dereferences a null pointer at frame 60) produces a report naming
 `Platform_Frame` and the game function that called `VSync`, and the file
 exists.
@@ -658,7 +658,7 @@ stderr and to `tmp/pc/hang-<pid>.txt`, prefixed `memories-pc: no VSync for 5 s`.
 
 Acceptance: profile of 30 s at the title screen names `SoftGpu_Gp0` /
 rasterizer functions and `Spu_Mix` near the top; a deliberate infinite loop
-behind `MEMORIES_HANG_TEST=1` in `Platform_Frame` yields the hang report.
+behind `MEMORIES_HANG_TEST=1` (now `src/pc/debug/crash_test.c`) yields the hang report.
 
 ### Task 4.5: assertion and invariant checks (cheap, always on)
 

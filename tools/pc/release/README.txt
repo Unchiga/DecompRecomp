@@ -90,4 +90,5 @@ Problems
 
 If the game crashes or stops responding, it writes a report to the
 "reports" folder in your user folder (crash-*.txt, hang-*.txt, and on
-Windows a .dmp file). Please include them when you report a problem.
+Windows a .dmp file) and shows where. Please include them, and
+last-session.log from the same folder, when you report a problem.

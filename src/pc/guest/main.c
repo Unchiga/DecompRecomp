@@ -4,6 +4,10 @@
 #include "pc/debug/log.h"
 #include "pc/debug/symbols.h"
 #include "pc/debug/crash.h"
+#include "pc/debug/monitor.h"
+#include "pc/debug/crash_test.h"
+#include "pc/platform/settings.h"
+#include "pc/mods/mods.h"
 #include "pc/mods/exports.h"
 #include "pc/platform/game_files.h"
 #include "pc/cards/cards.h"
@@ -72,6 +76,29 @@ static int load_game(const char *named)
     return result;
 }
 
+/* The settings and the applied mods, for crash reports (monitor.h); again
+ * whenever a setting changes. */
+static void note_settings(SettingId changed, int value)
+{
+    char text[900];
+    size_t used = 0;
+    int id;
+    (void)changed;
+    (void)value;
+    text[0] = '\0';
+    for (id = 0; id < SET_COUNT && used < sizeof(text); id++) {
+        used += (size_t)snprintf(text + used, sizeof(text) - used, "%s%s=%d", id ? " " : "", Settings_Key((SettingId)id),
+                                 Settings_Get((SettingId)id));
+    }
+    Monitor_Fact("settings", "%s", text);
+    used = 0;
+    text[0] = '\0';
+    for (id = 0; id < Mods_Count() && used < sizeof(text); id++) {
+        if (Mods_Enabled(id)) used += (size_t)snprintf(text + used, sizeof(text) - used, "%s%s", used ? " " : "", Mods_Id(id));
+    }
+    Monitor_Fact("mods", "%s", used ? text : "none");
+}
+
 /* GCC's MIPS `main` prologue hook; nothing to construct natively. */
 void Psx___main(void)
 {
@@ -87,9 +114,16 @@ int main(int argc, char **argv)
 #ifdef _WIN32
     _set_fmode(_O_BINARY); /* disc images and states: no newline translation */
 #endif
+    {
+        /* This process may become the crash monitor, with the game its child. */
+        int status;
+        if (Monitor_Main(argc, argv, &status)) return status;
+    }
     Log_Init();
     Symbols_Load();
     Crash_Init();
+    Monitor_NoteSystem();
+    CrashTest_Init();
     /* Guest globals are linked at fixed addresses: map before touching any. */
     if (Memories_GuestMap() != 0 || load_game(exe) != 0 || Memories_ModulesInit() != 0) {
         return 1;
@@ -100,7 +134,11 @@ int main(int argc, char **argv)
     /* The mods are applied by now (Platform_Open reads the settings), and
      * the executable is in place: the cards they add come after its own. */
     Cards_Build();
+    note_settings(SET_COUNT, 0);
+    Settings_Observe(note_settings);
+#ifndef _WIN32 /* the Windows runtime has no line buffering, and takes no size 0 */
     setvbuf(stdout, NULL, _IOLBF, 0);
+#endif
     /* The game runs on a stack at a fixed address; see state.h. */
     return Memories_StateRunGame(Main_Init);
 }

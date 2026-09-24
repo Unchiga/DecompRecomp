@@ -65,7 +65,7 @@ static void say(const char *format, ...)
 {
     char message[512];
     va_list arguments;
-    if (!Log_Enabled(LOG_MODS)) return;
+    if (!Log_Wanted(LOG_MODS)) return;
     va_start(arguments, format);
     vsnprintf(message, sizeof(message), format, arguments);
     va_end(arguments);

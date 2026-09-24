@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "crash.h"
 #include "log.h"
+#include "monitor.h"
 #include "symbols.h"
 #include "pc/guest/state.h"
 #include "pc/platform/platform.h"
@@ -11,6 +12,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -104,7 +106,7 @@ static void walk(uintptr_t eip, uintptr_t ebp)
 
 char Crash_ReportDir[512] = "tmp/pc";
 
-static void choose_report_dir(void)
+void Crash_ChooseReportDir(void)
 {
     struct stat info;
     if (!stat("tmp/pc", &info) && S_ISDIR(info.st_mode)) return;   /* running from a checkout */
@@ -115,17 +117,40 @@ static void choose_report_dir(void)
 
 static void open_report(void)
 {
+    MonitorShared *shared = Monitor_Shared();
     char path[640];
     snprintf(path, sizeof(path), "%s/crash-%ld.txt", Crash_ReportDir, (long)getpid());
     report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (report_fd >= 0) {
+        memcpy(shared->report_path, path, sizeof(shared->report_path));
+        shared->reported = 1;
+    }
+}
+
+/* What the game knew: the system and its last log lines. With a monitor
+ * those come in its section of the same file, with more of the log. */
+static void context(void)
+{
+    const char *tail_lines[32];
+    int count, i;
+    if (Monitor_Active()) {
+        static const char note[] = "(the system, the log and the console output follow in the monitor's section)\n";
+        output(note, sizeof(note) - 1);
+        return;
+    }
+    output(Monitor_Shared()->facts, strnlen(Monitor_Shared()->facts, sizeof(Monitor_Shared()->facts)));
+    count = Log_Tail(32, tail_lines);
+    if (count) output("log tail:\n", 10);
+    for (i = 0; i < count; i++) {
+        output(tail_lines[i], strnlen(tail_lines[i], MONITOR_LINE_SIZE));
+        if (!strchr(tail_lines[i], '\n')) output("\n", 1);
+    }
 }
 
 /* `what` names the kind of number: a signal, or a Windows exception code. */
 static void report_fatal(const char *what, unsigned long number, uintptr_t fault, uintptr_t eip, uintptr_t esp,
                          uintptr_t ebp)
 {
-    const char *tail_lines[32];
-    int count, i;
     char text[128];
     open_report();
     snprintf(text, sizeof(text), strcmp(what, "signal") ? "fatal %s 0x%08lx" : "fatal %s %lu", what, number);
@@ -135,13 +160,9 @@ static void report_fatal(const char *what, unsigned long number, uintptr_t fault
     line("frame=%lu vblank=%lu clock=%ld%%\n", Memories_PresentedFrames(), Platform_VBlankCount(),
          (uintptr_t)(long)Platform_ClockRate());
     line("last loaded state slot=%ld\n", (uintptr_t)(long)Memories_LastStateSlot(), 0, 0);
-    count = Log_Tail(32, tail_lines);
-    if (count) output("log tail:\n", 10);
-    for (i = 0; i < count; i++) {
-        output(tail_lines[i], strnlen(tail_lines[i], 512));
-        if (!strchr(tail_lines[i], '\n')) output("\n", 1);
-    }
+    context();
     if (report_fd >= 0) close(report_fd);
+    report_fd = -1;
 }
 
 #ifdef _WIN32
@@ -151,11 +172,42 @@ static void report_exception(unsigned long code, uintptr_t fault, uintptr_t eip,
     report_fatal("exception", code, fault, eip, esp, ebp);
 }
 
+/* abort() ends the process without an exception the handlers above would
+ * see. */
+static void on_abort(int number)
+{
+    (void)number;
+    if (reporting++) _exit(3);
+    Crash_ReportFatal("abort()", "the C runtime was asked to abort");
+    _exit(3);
+}
+
+/* A bad argument to a C runtime function: the function fails and returns,
+ * as with MinGW's own handler, which this replaces; the game has always
+ * gone on past them. Noted, so a report shows them. */
+static void on_invalid_parameter(const wchar_t *expression, const wchar_t *function, const wchar_t *file,
+                                 unsigned int at, uintptr_t reserved)
+{
+    static volatile long noted;
+    (void)expression;
+    (void)function;
+    (void)file;
+    (void)at;
+    (void)reserved;
+    if (__atomic_fetch_add(&noted, 1, __ATOMIC_RELAXED) < 8) {
+        fprintf(stderr, "memories-pc: a C runtime function was given an invalid parameter; it failed (called from %p)\n",
+                __builtin_return_address(0));
+    }
+}
+
 void Crash_Init(void)
 {
-    choose_report_dir();
+    Crash_ChooseReportDir();
     Win32_StackRange(&main_stack_low, &main_stack_high);
     Win32_SetCrashReporter(report_exception);
+    signal(SIGABRT, on_abort);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _set_invalid_parameter_handler(on_invalid_parameter);
 }
 #else
 void Crash_HandleSignal(int number, siginfo_t *info, void *context)
@@ -187,7 +239,7 @@ void Crash_Init(void)
     void *address;
     size_t size;
     unsigned i;
-    choose_report_dir();
+    Crash_ChooseReportDir();
     stack.ss_sp = alternate_stack;
     stack.ss_size = sizeof(alternate_stack);
     stack.ss_flags = 0;
@@ -219,36 +271,50 @@ void Crash_ReportSoft(const char *kind, const char *detail)
     for (i = 0; i < count; i++) fprintf(stderr, "  %s%s", tail_lines[i], strchr(tail_lines[i], '\n') ? "" : "\n");
 }
 
-void Crash_ReportHang(void *context)
+void Crash_ReportFatal(const char *kind, const char *detail)
+{
+    uintptr_t ebp = (uintptr_t)__builtin_frame_address(0);
+    fflush(stdout);
+    open_report();
+    output("memories-pc: fatal: ", 20);
+    output(kind, strlen(kind));
+    if (detail) {
+        output(": ", 2);
+        output(detail, strlen(detail));
+    }
+    output("\n", 1);
+    walk((uintptr_t)__builtin_return_address(0), ebp);
+    line("frame=%lu vblank=%lu clock=%ld%%\n", Memories_PresentedFrames(), Platform_VBlankCount(),
+         (uintptr_t)(long)Platform_ClockRate());
+    line("last loaded state slot=%ld\n", (uintptr_t)(long)Memories_LastStateSlot(), 0, 0);
+    context();
+    if (report_fd >= 0) close(report_fd);
+    report_fd = -1;
+}
+
+void Crash_ReportHang(void *context_pointer)
 {
     char path[640];
     uintptr_t eip, esp, ebp;
 #ifdef _WIN32
-    Win32_ContextRegisters(context, &eip, &esp, &ebp);
+    Win32_ContextRegisters(context_pointer, &eip, &esp, &ebp);
 #else
-    ucontext_t *user = context;
+    ucontext_t *user = context_pointer;
     eip = (uintptr_t)user->uc_mcontext.gregs[REG_EIP];
     esp = (uintptr_t)user->uc_mcontext.gregs[REG_ESP];
     ebp = (uintptr_t)user->uc_mcontext.gregs[REG_EBP];
 #endif
     report_fd = -1;
     snprintf(path, sizeof(path), "%s/hang-%ld.txt", Crash_ReportDir, (long)getpid());
-    report_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    report_fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666); /* the monitor may have begun it */
     {
         static const char message[] = "memories-pc: no VSync for 5 s\n";
-        const char *tail_lines[32];
-        int count, i;
         output(message, sizeof(message) - 1);
         line("registers: EIP=0x%08lx ESP=0x%08lx EBP=0x%08lx\n", eip, esp, ebp);
         walk(eip, ebp);
         line("frame=%lu vblank=%lu clock=%ld%%\n", Memories_PresentedFrames(), Platform_VBlankCount(),
              (uintptr_t)(long)Platform_ClockRate());
-        count = Log_Tail(32, tail_lines);
-        if (count) output("log tail:\n", 10);
-        for (i = 0; i < count; i++) {
-            output(tail_lines[i], strnlen(tail_lines[i], 512));
-            if (!strchr(tail_lines[i], '\n')) output("\n", 1);
-        }
+        context();
     }
     if (report_fd >= 0) close(report_fd);
     report_fd = -1;

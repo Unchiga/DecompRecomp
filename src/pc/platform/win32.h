@@ -50,6 +50,12 @@ const char *Win32_SerifFontPath(void);
  * automatic state load, and exits. Returns -1 if it could not. */
 int Win32_Restart(void);
 
+/* A guard page `room` bytes above the bottom of a stack of the port's own
+ * (the game's, state.c): running out of it then raises an exception while
+ * there is still stack to deliver and report it, where running off the end
+ * leaves Windows no room and it ends the process without a word. */
+void Win32_GuardStack(uintptr_t low, unsigned room);
+
 /* Called for a fatal exception raised by code in the executable. */
 typedef void (*Win32CrashReport)(unsigned long code, uintptr_t fault, uintptr_t eip, uintptr_t esp, uintptr_t ebp);
 void Win32_SetCrashReporter(Win32CrashReport report);

@@ -19,6 +19,7 @@
 #include "pc/debug/cheats.h"
 #include "pc/cards/cards.h"
 #include "pc/debug/log.h"
+#include "pc/debug/monitor.h"
 #include "pc/debug/hud.h"
 #include "pc/guest/state.h"
 #include <SDL3/SDL.h>
@@ -135,7 +136,9 @@ void Platform_OpenMods(void)
     /* The canvas is opaque; SDL would otherwise blend an ARGB texture by alpha. */
     if (mods_texture) SDL_SetTextureBlendMode(mods_texture, SDL_BLENDMODE_NONE);
     if (!mods_canvas.pixels || !mods_texture) {
+        Monitor_Modal(1);
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "MODS", "Could not open the mods window.", window);
+        Monitor_Modal(0);
         close_mods(); return;
     }
     show_cursor();
@@ -1409,8 +1412,11 @@ void Platform_ShowError(const char *title, const char *message)
 {
     const char *headless = getenv("MEMORIES_HEADLESS");
     fprintf(stderr, "memories-pc: %s\n", message);
+    Monitor_Shared()->error_shown = 1;
     if (!headless || !*headless || !strcmp(headless, "0")) {
+        Monitor_Modal(1);
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, NULL);
+        Monitor_Modal(0);
     }
 }
 
@@ -1466,11 +1472,18 @@ int Platform_Open(const char *title)
         return -1;
     }
     update_display_refresh();
+    Monitor_Fact("video", "SDL %d.%d.%d, video %s, audio %s", SDL_VERSIONNUM_MAJOR(SDL_GetVersion()),
+                 SDL_VERSIONNUM_MINOR(SDL_GetVersion()), SDL_VERSIONNUM_MICRO(SDL_GetVersion()),
+                 SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none",
+                 SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none");
     if (use_gl) {
+        Monitor_Fact("gpu", "%s | %s | OpenGL %s", (const char *)glGetString(GL_RENDERER),
+                     (const char *)glGetString(GL_VENDOR), (const char *)glGetString(GL_VERSION));
         LOG(LOG_WINDOW, "OpenGL renderer %s, version %s, video %s", glGetString(GL_RENDERER),
             glGetString(GL_VERSION), SDL_GetCurrentVideoDriver());
         GlPicture_Init();
     } else {
+        Monitor_Fact("gpu", "no OpenGL: SDL renderer %s", SDL_GetRendererName(renderer));
         LOG(LOG_WINDOW, "SDL fallback renderer %s, video %s", SDL_GetRendererName(renderer), SDL_GetCurrentVideoDriver());
     }
     Menu_Init();
@@ -1706,22 +1719,11 @@ void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
     static unsigned composed_then;
-    static int crash_tested;
-    static int hang_tested;
     current_frame = frame;
     Log_Drain();
     if (frame % 120 == 0) {
         LOG(LOG_WINDOW, "overlay composed %u times in 120 frames", compose_count - composed_then);
         composed_then = compose_count;
-    }
-    if (!crash_tested && frame >= 60 && getenv("MEMORIES_CRASH_TEST")) {
-        crash_tested = 1;
-        *(volatile int *)(uintptr_t)0 = 1;
-    }
-    if (!hang_tested && frame >= 60 && getenv("MEMORIES_HANG_TEST")) {
-        volatile unsigned spin = 0;
-        hang_tested = 1;
-        for (;;) spin++;
     }
     Gamepad_Poll(frame);
     Cheats_Frame();

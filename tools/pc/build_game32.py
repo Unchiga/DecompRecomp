@@ -679,6 +679,15 @@ def main():
             handle.writelines(table)
     with open(f"{options.build}/buildid", "w") as handle:
         handle.write(build_id + "\n")
+    # The commit, for crash reports (src/pc/debug/monitor.c): "unknown" in
+    # a tree that is not a git checkout.
+    try:
+        commit = subprocess.run(["git", "describe", "--always", "--dirty", "--abbrev=10"], capture_output=True,
+                                text=True, check=True).stdout.strip() or "unknown"
+    except (OSError, subprocess.CalledProcessError):
+        commit = "unknown"
+    with open(f"{options.build}/commit", "w") as handle:
+        handle.write(commit + "\n")
     kinds = {name: functions.get(name, "outside_resident_image") for name in stubs}
     report = {"game_units": len(game), "pinned_data_symbols": len(pinned),
               "stubbed": {kind: sorted(n for n in stubs if kinds[n] == kind)

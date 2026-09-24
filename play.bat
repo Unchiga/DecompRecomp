@@ -27,14 +27,14 @@ if /i "%~1"=="trace" set MEMORIES_STUB_TRACE=1
 if /i "%~1"=="load" (
     if "%~2"=="" (set MEMORIES_LOAD_STATE=1) else (set MEMORIES_LOAD_STATE=%~2)
 )
-for /f %%t in ('call "%PYTHON%" -c "import time; print(int(time.time()))"') do set STARTED=%%t
 tmp\pc\game32\memories-pc.exe
 set CODE=%errorlevel%
-rem A crash code (negative) means Windows ended the game before its own
-rem handler could write tmp\pc\crash-*.txt; the report comes from Windows' dump.
-if %CODE% LSS 0 (
-    echo The game crashed ^(exit code %CODE%^). Writing a report from Windows' crash dump...
-    "%PYTHON%" tools\pc\crash_report.py --since %STARTED% --wait 15
+rem The game's monitor (src\pc\debug\monitor.c) has written the report and
+rem said where; keep the window open to read it.
+if %CODE% NEQ 0 (
+    echo.
+    echo The game ended with an error ^(exit code %CODE%^). The report is in %CD%\tmp\pc:
+    echo the newest crash-*.txt or hang-*.txt, with last-session.log. Please send them.
     pause
 )
 exit /b %CODE%
