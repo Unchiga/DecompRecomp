@@ -63,5 +63,6 @@ void LibGte_State(MemoriesState *state);
 void LibPress_State(MemoriesState *state);
 void LibMcrd_State(MemoriesState *state);
 void SaveMenu_State(MemoriesState *state);
+void TitleJump_State(MemoriesState *state);
 void Platform_State(MemoriesState *state);
 #endif

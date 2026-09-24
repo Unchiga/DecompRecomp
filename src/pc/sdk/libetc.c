@@ -4,6 +4,7 @@
  * from it must stay async-signal-safe (no stdio, no allocation, no Xlib). */
 #include "pc/platform/platform.h"
 #include "pc/platform/ai_trace.h"
+#include "pc/platform/title_jump.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/sdk/disc.h"
 #include "pc/sdk/display.h"
@@ -231,6 +232,7 @@ int Memories_VSync(int mode)
         AiTrace_Frame(Memories_PresentedFrames());
         clock_gettime(CLOCK_MONOTONIC, &t0);
         Memories_PresentDisplay();
+        TitleJump_Frame(Memories_PresentedFrames());
         clock_gettime(CLOCK_MONOTONIC, &t1);
         {
             unsigned p = (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000), g = 0;

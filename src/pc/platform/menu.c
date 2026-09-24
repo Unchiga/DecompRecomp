@@ -23,6 +23,7 @@
 #include "pc/render/texture_pack.h"
 #include "paths.h"
 #include "pc/sdk/display.h"
+#include "title_jump.h"
 #ifdef _WIN32
 #include "win32.h"
 #else
@@ -134,7 +135,8 @@ static Menu menus[MENU_COUNT] = {
                {"Frame step", ".", ITEM_ACTION, ACT_FRAME_STEP, -1},
                {"Dump frame (PPM)", 0, ITEM_ACTION, ACT_DUMP_FRAME, -1, 0, ITEM_GROUP_BREAK},
                {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1},
-               {"Trace", 0, ITEM_SUBMENU, 0, -1, SUB_TRACE, ITEM_GROUP_BREAK}}, 7},
+               {"Trace", 0, ITEM_SUBMENU, 0, -1, SUB_TRACE, ITEM_GROUP_BREAK},
+               {"Back to title screen", 0, ITEM_ACTION, MENU_ITEM_TITLE, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED}}, 8},
 };
 static Menu submenus[SUB_COUNT] = {
     {"Window scale", {{"1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
@@ -916,6 +918,7 @@ static void activate(const Item *item, int *quit)
     case ACT_EXIT: *quit = 1; break;
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
     case ACT_UNLOCK_FREE_DUELISTS: Cheats_UnlockAllFreeDuelists(); break;
+    case MENU_ITEM_TITLE: TitleJump_Request(); break;
     case ACT_RELOAD_SETTINGS:
         Menu_LoadSettings();
         Platform_ApplyDisplaySettings();
