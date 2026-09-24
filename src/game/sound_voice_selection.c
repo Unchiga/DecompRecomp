@@ -5,6 +5,9 @@
 #include "sound_output_state.h"
 #include "sound_pending_entries.h"
 #include "sound_voice_selection.h"
+#ifdef MEMORIES_PC
+#include "pc/audio/replace.h"
+#endif
 
 /*
  * SD_ApplyVoiceSlotVolume: voice-slot attribute initialization order
@@ -265,6 +268,9 @@ void SD_KeyOffVoiceSlots(void)
     s32 count = 0;
     s32 total;
 
+#ifdef MEMORIES_PC
+    AudioReplace_StopSfx();
+#endif
     do {
         SpuSetKey(SPU_OFF, SD_VOICE_SLOT_MASK_ALL);
         SpuGetAllKeysStatus((char *)g_SDValue->field_15D8);

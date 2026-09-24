@@ -51,11 +51,12 @@ Every mod has a `mod.json`:
 | `name` | what the Mods window shows |
 | `library` | the mod's code: an object file relative to its directory (a subdirectory is fine), `.o` added when the name has no `.` anywhere in it (`rules` is `rules.o`, `rules.v2` stays `rules.v2`); `build_mod.py` writes it under the same name. The same file serves every system. Leave it out for a mod that is only data |
 | `enabled` | whether the mod is applied the first time the game sees it |
-| `restart` | whether changing it needs a fresh process. Data overrides default to `true`, because the game reads most of what they change while it starts; code mods default to `false` |
+| `restart` | whether changing it needs a fresh process. Data overrides default to `true`, because the game reads most of what they change while it starts; code mods and `audio` default to `false` |
 | `legacy_setting` | an older settings key to read the player's choice from, once |
 | `data` | what the mod changes on the disc, below |
 | `textures` | a directory inside the mod holding a texture pack, below |
 | `cards` | cards the mod adds after the disc's 722, below |
+| `audio` | songs, XA clips and sound effects the mod replaces with WAV or Ogg files, below |
 
 `version`, `author` and `description` are displayed in the manager. Version
 bounds in `requires` are checked before activation. API 3 also supports
@@ -240,6 +241,108 @@ in the Library, Build Deck, duels, rewards, trades and saves.
 the save holds of them is kept, and how the port does it. Like data
 overrides, a mod with cards needs a restart.
 
+## Audio: songs, voices and sounds from files
+
+A mod may replace the game's music, its XA streams (the recorded voices and
+jingles on the disc) and its sound effects with ordinary WAV or Ogg Vorbis
+files, from `mod.json` alone:
+
+```json
+"audio": {
+    "music": { "0x000": "title.ogg",
+               "0x010": { "file": "menu.wav", "loop": true, "loop_start": 44100 } },
+    "xa":    { "0x8020": "fanfare.ogg" },
+    "sfx":   { "0x007": { "file": "click.wav", "volume": 80 } }
+}
+```
+
+Each key is an id, in hexadecimal with `0x` or in decimal (`"0x2D0"` and
+`"720"` are the same id; a bare `2D0` is refused). Each value is a file name
+relative to the mod's directory, or an object:
+
+| Key | Meaning |
+|---|---|
+| `file` | the WAV or Ogg Vorbis file, inside the mod (`..` and absolute paths are refused) |
+| `loop` | play again from `loop_start` when the end is reached; `true` by default for music, `false` for `xa` and `sfx` |
+| `loop_start` | where the loop starts, in sample frames at 44.1 kHz (44100 is one second in), whatever the file's own rate |
+| `volume` | percent of the file's own level, 0-400, default 100 |
+
+A mod with only `audio` applies and removes live in **Game > Mods**, with no
+restart; a song that is playing when the mod is applied or removed switches
+at once. When several applied mods replace the same id, the one applied last
+wins, as data overrides do (load order: `priority`, `after`, `requires`, then
+discovery order); the Mods window warns about the overlap.
+
+### Finding the ids
+
+Play with `MEMORIES_TRACE=mods` and the log names every id as it starts:
+
+```
+audio: music 0x0 starts
+audio: sfx 0x7 plays (replaced by audio-replace)
+audio: music 0x0 stops
+audio: music 0x10 starts
+audio: xa 0x8020 starts
+```
+
+Songs known so far: `0x000` is the title screen, `0x010` the main menu.
+A sound effect the game starts every frame is logged every 60th time.
+
+* **music** is the sound driver's song number, `SD_BGMPlay(0x2D0)` is song
+  `0x2D0` (the number is a song package times 16 plus a track in it). A
+  replaced song's own sequence keeps running with its voices silenced, so
+  everything the game times on it is unchanged; the file starts when the
+  sequence does and stops when it stops, is reset, or reaches its end. The
+  game's fades and its music volume apply, and so does the port's
+  **Music** volume.
+* **xa** ids are `0x8xxx`, `0x9xxx` or `0xAxxx`, as the game asks for them
+  (the duel's `0x8020`-`0x8022`, for instance). The disc still reads the
+  original clip at its own pace and its sound is dropped, because the game
+  waits for the clip, not for the file: **the original clip's length decides
+  when the game carries on**. A longer file keeps playing over what follows
+  until the game stops XA playback or starts another clip; a shorter one
+  leaves silence. Match the original's length where it matters. XA
+  replacements go through the game's CD volume and fades and the port's
+  **Stream** volume. An XA clip a song plays through (`SD_BGMPlay` of an XA
+  id) is an `xa` entry too.
+* **sfx** ids are the sound bank's, the number the trace prints. A replaced
+  effect takes no SPU voice; it plays once with the game's volume and pan
+  for it (and `loop: true` repeats it until every effect is keyed off, which
+  most looped effects are not built for). The port's **SFX** volume applies.
+
+### Formats and limits
+
+* WAV: PCM 8, 16, 24 or 32-bit, or 32/64-bit float, including
+  `WAVE_FORMAT_EXTENSIBLE`; any sample rate and channel count. More than two
+  channels fold to stereo: even channels left, odd ones right.
+* Ogg Vorbis, decoded by [stb_vorbis](../src/pc/third_party/README.md)
+  (public domain). Opus, MP3 and FLAC are not read.
+* Files are decoded when the mod is applied, resampled to 44.1 kHz stereo
+  (linearly) and kept in memory: about 10 MB a minute. A clip is at most 12
+  minutes and a file at most 256 MB. The 32-bit game has little room to
+  spare, so prefer Ogg files for the mod and keep long songs few.
+* A file that will not decode is skipped, with the reason beside the mod in
+  the Mods window (and on stderr); the rest of the mod still applies.
+* At most eight replaced effects sound at once; a ninth takes the oldest's
+  place.
+* Save states do not hold replacement sounds. Loading one starts the loaded
+  game's song replacement from its top; an XA clip or effect that was playing
+  is not resumed.
+
+The same mod plays the same on Linux and Windows and with every audio
+output (SDL, ALSA, the headless dump). `examples/mods/audio-replace` is a
+worked example: run its `make_tone.py`, copy the directory into the user
+mods folder and apply it. To check a replacement without speakers:
+
+```sh
+MEMORIES_MOD_AUDIO_REPLACE=1 MEMORIES_TRACE=mods MEMORIES_HEADLESS=1 \
+MEMORIES_DUMP_AUDIO=out.raw MEMORIES_DUMP_FRAME=1500 MEMORIES_DUMP_PATH=out.ppm \
+MEMORIES_INPUT="700:0008,706:0000" tmp/pc/game32/memories-pc
+```
+
+`out.raw` is s16le stereo at 44.1 kHz. How it is done:
+[`src/pc/audio/replace.h`](../src/pc/audio/replace.h).
+
 ## Code mods
 
 A code mod is **one object file**, `<library>.o`, that runs on both the
@@ -398,4 +501,7 @@ zone from that card on, for measuring the cache and the arenas.
   systems and feeds the loader broken and damaged ones;
 * `tools/pc/check_mod_exports.py` (run by `smoke.py`) holds each game's
   table of names against its link;
-  `tests/pc/json_test.c` (`pc_json`) covers the manifest reader.
+  `tests/pc/json_test.c` (`pc_json`) covers the manifest reader;
+* `tests/pc/audio_replace_test.c` (`pc_audio_replace`) covers WAV and Ogg
+  decoding, resampling, the `audio` object, which mod wins an id and what
+  the mixer plays for the sound driver's calls.

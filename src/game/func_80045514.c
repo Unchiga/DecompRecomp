@@ -12,6 +12,11 @@
 
 #include "sound_command_index.h"
 
+#ifdef MEMORIES_PC
+#include "pc/audio/replace.h"
+extern u8 D_800E9EC0[];
+#endif
+
 void func_80045514(void)
 {
     SDValue *entry_state;
@@ -105,6 +110,9 @@ void func_80045514(void)
             return;
         }
         g_SDValue->field_0534 = 0xFFFF;
+#ifdef MEMORIES_PC
+        AudioReplace_XaStop();
+#endif
         if ((SD_HasQueuedStreamCommand() & 0xFF) != 0) {
             goto clear_7d_7c;
         }
@@ -189,6 +197,17 @@ void func_80045514(void)
             D_8009B460->field_00 = 6;
             D_8009B460->field_04 = request_offset;
             func_80014C40(D_8009B460, 0);
+#ifdef MEMORIES_PC
+            /* The clip's id again: its class (0x50/0x60/0x70 for
+               0x8xxx/0x9xxx/0xAxxx, func_80045208) and index. The drive
+               reads the sectors func_80014C40 asks for. */
+            AudioReplace_XaStart(
+                (g_SDValue->field_0054 == 0x50   ? 0x8000
+                 : g_SDValue->field_0054 == 0x60 ? 0x9000
+                                                 : 0xA000) |
+                    (g_SDValue->field_004E & 0xFFF),
+                *(s32 *)D_800E9EC0 + request_offset, D_8009B460->field_1C);
+#endif
         }
         goto clear_7d_7c;
 
@@ -213,6 +232,9 @@ void func_80045514(void)
             }
         }
         if (g_SDValue->field_157E == 0) {
+#ifdef MEMORIES_PC
+            AudioReplace_MusicStop();
+#endif
             if ((g_SDValue->flags_0040 & 0x80) != 0) {
                 SD_StopSequence(0);
                 SD_SetSecondaryMasterLevels(0, 0);
@@ -242,6 +264,9 @@ void func_80045514(void)
             if ((s16)g_SDValue->field_157E == 0) {
                 g_SDValue->field_157C = g_SDValue->field_004E;
                 SD_PlaySequence(1, 1);
+#ifdef MEMORIES_PC
+                AudioReplace_MusicStart(g_SDValue->field_004E);
+#endif
                 {
                     SDValue *sd = g_SDValue;
                     sd->field_158A = 0xFF;

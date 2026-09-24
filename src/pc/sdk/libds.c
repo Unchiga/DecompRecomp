@@ -7,6 +7,7 @@
 #include "types.h"
 #include "psyq/libds.h"
 #include "pc/audio/spu.h"
+#include "pc/audio/replace.h"
 #include "pc/sdk/disc.h"
 #include "pc/platform/game_files.h"
 #include "pc/render/texture_dump.h"
@@ -433,8 +434,10 @@ int DsRead2(DslLOC *position, int read_mode)
     return 1;
 }
 
-/* One XA ADPCM sector: 18 sound groups of 8 units x 28 samples (4-bit). */
-static void play_xa(const u8 *raw)
+/* One XA ADPCM sector: 18 sound groups of 8 units x 28 samples (4-bit).
+ * A sector of a clip a mod replaces (replace.h) is decoded, so the filter
+ * history carries on, but not heard. */
+static void play_xa(const u8 *raw, int heard)
 {
     static const int k0[4] = {0, 60, 115, 98}, k1[4] = {0, 0, -52, -55};
     static int16_t frames[18 * 4 * 28 * 2 * 2];
@@ -464,7 +467,7 @@ static void play_xa(const u8 *raw)
             }
         }
     }
-    Spu_CdWrite(frames, count[0], half_rate ? 18900 : 37800);
+    if (heard) Spu_CdWrite(frames, count[0], half_rate ? 18900 : 37800);
 }
 
 /* Streaming reads (ReadS, or any read with the XA bit) run at the drive's
@@ -508,7 +511,7 @@ void Memories_DiscService(uint64_t now_us)
         audio = (sector[18] & 0x64) == 0x64 || (sector[18] & 0x04);
         if (audio && (mode & 0x40)) {
             if (!(mode & 0x08) || (sector[16] == filter_file && sector[17] == filter_channel)) {
-                play_xa(sector);
+                play_xa(sector, !AudioReplace_XaSectorMuted(head_lba - 1));
             }
             continue;
         }

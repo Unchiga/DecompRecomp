@@ -5,6 +5,7 @@
 #include "pc/mods/events.h"
 #include "image.h"
 #include "pc/audio/spu.h"
+#include "pc/audio/replace.h"
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/render/texture_dump.h"
@@ -380,6 +381,7 @@ static void apply(void)
     pending_image = NULL;
     Spu_Hold(0);
     Mods_Reset(); /* another game: whatever the mods were holding is not it */
+    AudioReplace_StateLoaded(); /* replacement sounds are not in the state: the song restarts */
     {
         MemoriesModEvent event = {MEMORIES_EVENT_LOAD, MEMORIES_AFTER, 0, 0, 0, 0, 0};
         Mods_Dispatch(&event);

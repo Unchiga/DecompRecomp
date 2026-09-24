@@ -87,6 +87,7 @@ typedef struct {
     const JsonValue *data;       /* the "data" array, applied when enabled */
     const JsonValue *cards;      /* the "cards" array: cards the mod adds (src/pc/cards) */
     char textures[PATH_MAX_];    /* a texture pack directory inside the mod, or empty */
+    const JsonValue *audio;      /* the "audio" object: replacement sounds (src/pc/audio/replace.h) */
 } Mod;
 
 /* One stretch of the disc a mod replaces, and one run of patched bytes
@@ -878,6 +879,11 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         mod->broken = 1;
         note(mod, "\"data\" is not an array");
     }
+    mod->audio = Json_Member(root, "audio");
+    if (mod->audio && Json_TypeOf(mod->audio) != JSON_OBJECT) {
+        mod->broken = 1;
+        note(mod, "\"audio\" is not an object");
+    }
     mod->cards = Json_Member(root, "cards");
     if (mod->cards && Json_TypeOf(mod->cards) != JSON_ARRAY) {
         mod->broken = 1;
@@ -972,6 +978,16 @@ static void scan(const char *root, const char *origin)
 static int (*texture_pack_load)(const char *directory, unsigned rank, char *problems, size_t size);
 static void (*texture_pack_unload)(void);
 static unsigned texture_rank;   /* the highest rank a loaded pack has */
+static int (*audio_load)(int, const char *, const char *, const JsonValue *, char *, size_t);
+static void (*audio_unload)(int);
+
+void Mods_SetAudio(int (*load)(int mod, const char *id, const char *directory, const struct JsonValue *audio,
+                               char *error, size_t size),
+                   void (*unload)(int mod))
+{
+    audio_load = load;
+    audio_unload = unload;
+}
 
 void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
                          void (*unload)(void))
@@ -1036,6 +1052,15 @@ static void activate(int index, int on)
             }
             if (problems[0]) warn(mod, 0, "texture pack: %s", problems);
         }
+        if (mod->audio) {
+            /* Replacement sounds are decoded now; one that will not decode
+             * is skipped with its reason beside the mod, and the rest play. */
+            char error[STATUS_MAX];
+            int added = audio_load ? audio_load(index, mod->id, mod->directory, mod->audio, error, sizeof(error)) : 0;
+            if (!audio_load) warn(mod, 0, "this build has no audio replacement");
+            else if (error[0]) warn(mod, 0, "%s", error);
+            if (added > 0) say("%s: %d sounds replaced", mod->id, added);
+        }
         for (int option = 0; option < option_count; option++) mod->runtime_options[option] = Mods_OptionValue(index, option);
         mod->sequence = ++activation_sequence;
         mod->failed = 0;
@@ -1043,6 +1068,7 @@ static void activate(int index, int on)
         if (mod->hooks.applied) mod->hooks.applied(1);
     } else {
         drop_overrides(index);
+        if (mod->audio && audio_unload) audio_unload(index);
         if (mod->textures[0] && texture_pack_load && texture_pack_unload) {
             /* The packs add up: the others' come back without this one's. */
             load_texture_packs(-1, index, NULL, 0);

@@ -1,5 +1,6 @@
 #include "spu.h"
 #include "spu_gauss.h"
+#include "replace.h"
 #include "game/sound_voice_constants.h"
 #include <string.h>
 #include "pc/guest/state.h"
@@ -229,6 +230,7 @@ void Spu_Mix(int16_t *out, size_t frames)
     size_t n;
     unsigned v;
     uint32_t on;
+    int replaced;
     /* A save state is being taken or applied: stay out of the voices. */
     __atomic_store_n(&mixing, 1, __ATOMIC_SEQ_CST);
     if (__atomic_load_n(&hold, __ATOMIC_SEQ_CST)) {
@@ -236,6 +238,9 @@ void Spu_Mix(int16_t *out, size_t frames)
         __atomic_store_n(&mixing, 0, __ATOMIC_SEQ_CST);
         return;
     }
+    /* A mod's replacement sounds (replace.h): what they add to each bus, and
+     * whether the game's music voices are silenced under a replaced song. */
+    replaced = AudioReplace_MixBegin();
     on = __atomic_exchange_n(&pending_on, 0, __ATOMIC_SEQ_CST);
     uint32_t off = __atomic_exchange_n(&pending_off, 0, __ATOMIC_SEQ_CST);
     uint32_t late_off = __atomic_exchange_n(&pending_late_off, 0, __ATOMIC_SEQ_CST);
@@ -269,7 +274,7 @@ void Spu_Mix(int16_t *out, size_t frames)
     }
     for (n = 0; n < frames; n++) {
         int music_l = 0, music_r = 0, sfx_l = 0, sfx_r = 0, left, right;
-        int bus;
+        int bus, extra[6] = {0, 0, 0, 0, 0, 0};
         for (bus = 0; bus < SPU_BUS_COUNT; bus++) {
             if (bus_gain[bus] != bus_target[bus]) {
                 int step = bus_target[bus] - bus_gain[bus];
@@ -318,12 +323,20 @@ void Spu_Mix(int16_t *out, size_t frames)
             envelope(voice);
             sample = (sample * voice->level) >> 15;
             if (v < SPU_SFX_FIRST_VOICE) {
+                if (replaced & AUDIO_MIX_MUTE_MUSIC) continue; /* still advanced: the song keeps its time */
                 music_l += (sample * volume(voice->left)) >> 15;
                 music_r += (sample * volume(voice->right)) >> 15;
             } else {
                 sfx_l += (sample * volume(voice->left)) >> 15;
                 sfx_r += (sample * volume(voice->right)) >> 15;
             }
+        }
+        if (replaced & AUDIO_MIX_ACTIVE) {
+            AudioReplace_MixFrame(extra);
+            music_l += extra[0];
+            music_r += extra[1];
+            sfx_l += extra[2];
+            sfx_r += extra[3];
         }
         left = (int)(((int64_t)music_l * bus_gain[SPU_BUS_MUSIC] +
                       (int64_t)sfx_l * bus_gain[SPU_BUS_SFX]) / GAIN_ONE);
@@ -345,8 +358,11 @@ void Spu_Mix(int16_t *out, size_t frames)
                     cd_next[0] = cd_next[1] = 0;
                 }
             }
-            int stream_l = ((cd_last[0] + (int)((int64_t)(cd_next[0] - cd_last[0]) * cd_phase / 44100)) * cd_left) >> 15;
-            int stream_r = ((cd_last[1] + (int)((int64_t)(cd_next[1] - cd_last[1]) * cd_phase / 44100)) * cd_right) >> 15;
+            /* A replaced XA clip rides the CD input, under its volume. */
+            int stream_l = cd_last[0] + (int)((int64_t)(cd_next[0] - cd_last[0]) * cd_phase / 44100) + extra[4];
+            int stream_r = cd_last[1] + (int)((int64_t)(cd_next[1] - cd_last[1]) * cd_phase / 44100) + extra[5];
+            stream_l = (int)(((int64_t)stream_l * cd_left) >> 15);
+            stream_r = (int)(((int64_t)stream_r * cd_right) >> 15);
             left += (int)((int64_t)stream_l * bus_gain[SPU_BUS_STREAM] / GAIN_ONE);
             right += (int)((int64_t)stream_r * bus_gain[SPU_BUS_STREAM] / GAIN_ONE);
         }
@@ -362,6 +378,7 @@ void Spu_Mix(int16_t *out, size_t frames)
         out[n * 2] = (int16_t)(left < -32768 ? -32768 : left > 32767 ? 32767 : left);
         out[n * 2 + 1] = (int16_t)(right < -32768 ? -32768 : right > 32767 ? 32767 : right);
     }
+    AudioReplace_MixEnd();
     __atomic_store_n(&mixing, 0, __ATOMIC_SEQ_CST);
 }
 

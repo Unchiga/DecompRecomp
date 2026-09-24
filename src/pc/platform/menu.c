@@ -15,6 +15,7 @@
 #include "platform.h"
 #include "settings.h"
 #include "pc/audio/spu.h"
+#include "pc/audio/replace.h"
 #include "pc/debug/cheats.h"
 #include "pc/debug/log.h"
 #include "pc/guest/state.h"
@@ -511,6 +512,7 @@ void Menu_LoadSettings(void)
     Platform_SetClockRate(Settings_Get(SET_SPEED));
     Platform_SetPresentCap(Settings_Get(SET_FPS));
     Mods_SetTexturePack(TexturePack_Load, TexturePack_Unload);
+    Mods_SetAudio(AudioReplace_Load, AudioReplace_Unload);
     Mods_Load(); /* the mods the settings say are applied, once they are read */
 }
 

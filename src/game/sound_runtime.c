@@ -6,6 +6,9 @@
 #include "sound.h"
 #include "sound_voice_constants.h"
 #include "../unmatched.h"
+#ifdef MEMORIES_PC
+#include "pc/audio/replace.h"
+#endif
 
 s32 SD_EnqueueCommand(SDCommand *src) {
     SDValue *b1;
@@ -137,6 +140,9 @@ void SD_UpdateRuntime(void)
     if ((p->flags_0040 & 0x80) != 0 &&
         p->field_157E != -1 &&
         SD_PollSequenceState() != 1) {
+#ifdef MEMORIES_PC
+        AudioReplace_MusicStop(); /* the song ran to its end */
+#endif
         SD_StopSequence(g_SDValue->field_157E);
         p = g_SDValue;
         value = p->flags_0040;

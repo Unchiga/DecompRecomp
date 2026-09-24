@@ -963,3 +963,25 @@ views, not competing global declarations.
 Unchiga's generated `m2c_types.h` and focused decompilation sources corroborate
 the `0x848` clear size and several offsets, but the declarations above were
 derived and exact-tested from this repository's matched C.
+
+## PC port: audio replacement hooks
+
+Mods can replace songs, XA clips and sound effects with WAV/Ogg files
+(`notes/modding.md`, "Audio"; `src/pc/audio/replace.h`). The driver reaches
+the port only through `#ifdef MEMORIES_PC` calls, so the matching build is
+unchanged:
+
+| Site | Call | What it means |
+|---|---|---|
+| `func_80045514` case 0x48, after `SD_PlaySequence(1, 1)` | `AudioReplace_MusicStart(field_004E)` | song `field_004E` (package * 16 + track) started |
+| `func_80045514` case 0x48, `field_157E == 0` block | `AudioReplace_MusicStop()` | the previous song is being replaced |
+| `SD_ResetMusicState`, `field_157E != -1` | `AudioReplace_MusicStop()` | music reset |
+| `SD_UpdateRuntime`, sequence no longer playing | `AudioReplace_MusicStop()` | the song ran to its end |
+| `SD_SetSecondaryMasterLevels` | `AudioReplace_MusicLevel(left, right, field_0044)` | music level, fades included |
+| `func_800482B0`, before a voice is chosen | `AudioReplace_Sfx(id, volume, pan)` | a replaced effect returns without taking a voice |
+| `SD_KeyOffVoiceSlots` | `AudioReplace_StopSfx()` | every effect keyed off |
+| `func_80045514` case 0x24, after the request | `AudioReplace_XaStart(id, lba, sectors)` | XA clip `class | (field_004E & 0xFFF)`; class from `field_0054` (0x50/0x60/0x70 = 0x8xxx/0x9xxx/0xAxxx) |
+| `func_80045514` case 0x11, after the fade | `AudioReplace_XaStop()` | XA stopped |
+
+`AudioReplace_StateLoaded` (beside `SD_ResetMusicState`) restarts the
+loaded game's song replacement from `field_157C` after a save state loads.
