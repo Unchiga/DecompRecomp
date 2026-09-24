@@ -4,6 +4,13 @@
  * profile the presenter already draws with (immediate mode, glOrtho), so the
  * quad's own texture coordinates and the bound picture texture are what it
  * samples. Effects, each a setting that is off at its default:
+ *   Reduce flashes (Video > Effects): when the picture's average brightness
+ *   would rise faster than FLASH_RISE per second, the whole picture is
+ *   darkened to that rise, as a camera's exposure would follow it. A flash
+ *   is a large area changing, so a card or the cursor moving over a dark
+ *   board barely moves the average and is never dimmed, and darkening is
+ *   never held back. (Darkening only the blocks that brighten leaves blotches
+ *   on the picture.) Applied first, to the picture as the game drew it.
  *   Colour (Video > Color): gamma, then contrast about mid grey, then
  *   brightness, then saturation against Rec. 601 luma.
  *   CRT (Video > Effects): a scanline per line of the console's picture
@@ -32,11 +39,28 @@
     X(PFNGLGETUNIFORMLOCATIONPROC, GetUniformLocation) \
     X(PFNGLUNIFORM1IPROC, Uniform1i) \
     X(PFNGLUNIFORM1FPROC, Uniform1f) \
-    X(PFNGLUNIFORM2FPROC, Uniform2f)
+    X(PFNGLUNIFORM2FPROC, Uniform2f) \
+    X(PFNGLUNIFORM4FPROC, Uniform4f)
+
+/* Only the flash reduction needs these; without them the other effects
+ * still work. */
+#define FLASH_FUNCTIONS(X) \
+    X(PFNGLGENFRAMEBUFFERSPROC, GenFramebuffers) \
+    X(PFNGLBINDFRAMEBUFFERPROC, BindFramebuffer) \
+    X(PFNGLFRAMEBUFFERTEXTURE2DPROC, FramebufferTexture2D) \
+    X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, CheckFramebufferStatus) \
+    X(PFNGLACTIVETEXTUREPROC, ActiveTexture)
 
 #define DECLARE(type, name) static type pp_##name;
 PASS_FUNCTIONS(DECLARE)
+FLASH_FUNCTIONS(DECLARE)
 #undef DECLARE
+
+/* How fast (in Rec. 601 luma, 0 to 1, per second) the picture may brighten:
+ * black to white takes half a second, about twice as fast as the game's own
+ * fades, and one white frame over a dark scene at 60 frames a second rises
+ * by 0.03. */
+#define FLASH_RISE 2.0f
 
 static const char *vertex_source =
     "#version 120\n"
@@ -47,12 +71,13 @@ static const char *vertex_source =
 
 static const char *fragment_source =
     "#version 120\n"
-    "uniform sampler2D picture;\n"
+    "uniform sampler2D picture, level;\n"
     "uniform float brightness, contrast, saturation, gamma;\n"
-    "uniform int crt;\n"
+    "uniform int crt, flash;\n"
     "uniform float lines, t0, t1;\n"
     "void main() {\n"
     "    vec3 c = texture2D(picture, gl_TexCoord[0].xy).rgb;\n"
+    "    if (flash != 0) c *= texture2D(level, vec2(0.5)).g;\n"
     "    c = pow(c, vec3(1.0 / gamma));\n"
     "    c = (c - 0.5) * contrast + 0.5;\n"
     "    c *= brightness;\n"
@@ -66,9 +91,36 @@ static const char *fragment_source =
     "    gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);\n"
     "}\n";
 
+/* One fragment: the picture's average brightness now (32 x 24 samples), the
+ * brightness it was shown at last time (history's red), and from those the
+ * brightness it may show (red) and the gain that gives it (green). */
+static const char *measure_source =
+    "#version 120\n"
+    "uniform sampler2D picture, history;\n"
+    "uniform vec4 area;\n"
+    "uniform float rise;\n"
+    "void main() {\n"
+    "    float now = 0.0;\n"
+    "    for (int y = 0; y < 24; y++)\n"
+    "        for (int x = 0; x < 32; x++) {\n"
+    "            vec2 at = (vec2(x, y) + 0.5) / vec2(32.0, 24.0);\n"
+    "            now += dot(texture2D(picture, mix(area.xy, area.zw, at)).rgb, vec3(0.299, 0.587, 0.114));\n"
+    "        }\n"
+    "    now /= 768.0;\n"
+    "    float shown = min(now, texture2D(history, vec2(0.5)).r + rise);\n"
+    "    gl_FragColor = vec4(shown, now > shown ? shown / now : 1.0, 0.0, 1.0);\n"
+    "}\n";
+
 static int state; /* 0 not tried, 1 ready, -1 unavailable */
 static GLuint program;
-static GLint u_picture, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_lines, u_t0, u_t1;
+static GLint u_picture, u_level, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_flash, u_lines, u_t0,
+    u_t1;
+
+static int flash_state; /* as state, for the flash reduction */
+static GLuint measure, levels[2], level_fbo[2];
+static GLint m_picture, m_history, m_area, m_rise;
+static int current, primed, flash_on; /* levels[current] holds the last level; primed: it is this run's */
+static Uint64 last_ns;
 
 static GLuint compile(GLenum kind, const char *source)
 {
@@ -87,50 +139,151 @@ static GLuint compile(GLenum kind, const char *source)
     return shader;
 }
 
+static GLuint link(const char *fragment_text)
+{
+    GLuint vertex = compile(GL_VERTEX_SHADER, vertex_source);
+    GLuint fragment = compile(GL_FRAGMENT_SHADER, fragment_text);
+    GLuint linked;
+    GLint ok = 0;
+    if (!vertex || !fragment) return 0;
+    linked = pp_CreateProgram();
+    pp_AttachShader(linked, vertex);
+    pp_AttachShader(linked, fragment);
+    pp_LinkProgram(linked);
+    pp_DeleteShader(vertex);
+    pp_DeleteShader(fragment);
+    pp_GetProgramiv(linked, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        pp_GetProgramInfoLog(linked, sizeof(log), NULL, log);
+        fprintf(stderr, "memories-pc: present pass: program: %s\n", log);
+        return 0;
+    }
+    return linked;
+}
+
 static int build(void)
 {
-    GLuint vertex, fragment;
-    GLint ok = 0;
 #define LOAD(type, name) \
     pp_##name = (type)SDL_GL_GetProcAddress("gl" #name); \
     if (!pp_##name) return 0;
     PASS_FUNCTIONS(LOAD)
 #undef LOAD
-    vertex = compile(GL_VERTEX_SHADER, vertex_source);
-    fragment = compile(GL_FRAGMENT_SHADER, fragment_source);
-    if (!vertex || !fragment) return 0;
-    program = pp_CreateProgram();
-    pp_AttachShader(program, vertex);
-    pp_AttachShader(program, fragment);
-    pp_LinkProgram(program);
-    pp_DeleteShader(vertex);
-    pp_DeleteShader(fragment);
-    pp_GetProgramiv(program, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[1024];
-        pp_GetProgramInfoLog(program, sizeof(log), NULL, log);
-        fprintf(stderr, "memories-pc: present pass: program: %s\n", log);
-        return 0;
-    }
+    program = link(fragment_source);
+    if (!program) return 0;
     u_picture = pp_GetUniformLocation(program, "picture");
+    u_level = pp_GetUniformLocation(program, "level");
     u_brightness = pp_GetUniformLocation(program, "brightness");
     u_contrast = pp_GetUniformLocation(program, "contrast");
     u_saturation = pp_GetUniformLocation(program, "saturation");
     u_gamma = pp_GetUniformLocation(program, "gamma");
     u_crt = pp_GetUniformLocation(program, "crt");
+    u_flash = pp_GetUniformLocation(program, "flash");
     u_lines = pp_GetUniformLocation(program, "lines");
     u_t0 = pp_GetUniformLocation(program, "t0");
     u_t1 = pp_GetUniformLocation(program, "t1");
     return 1;
 }
 
-int PresentPass_Wanted(void)
+/* The measuring program and two 1 x 1 level textures with their
+ * framebuffers, one written while the other is read. */
+static int build_flash(void)
+{
+    int i;
+#define LOAD(type, name) \
+    pp_##name = (type)SDL_GL_GetProcAddress("gl" #name); \
+    if (!pp_##name) return 0;
+    FLASH_FUNCTIONS(LOAD)
+#undef LOAD
+    measure = link(measure_source);
+    if (!measure) return 0;
+    m_picture = pp_GetUniformLocation(measure, "picture");
+    m_history = pp_GetUniformLocation(measure, "history");
+    m_area = pp_GetUniformLocation(measure, "area");
+    m_rise = pp_GetUniformLocation(measure, "rise");
+    glGenTextures(2, levels);
+    pp_GenFramebuffers(2, level_fbo);
+    for (i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, levels[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        /* 16 bits, so that a small rise between two close presents is not
+         * rounded away. */
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, 1, 1, 0, GL_RGBA, GL_UNSIGNED_SHORT, NULL);
+        pp_BindFramebuffer(GL_FRAMEBUFFER, level_fbo[i]);
+        pp_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, levels[i], 0);
+        if (pp_CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            pp_BindFramebuffer(GL_FRAMEBUFFER, 0);
+            fprintf(stderr, "memories-pc: present pass: flash framebuffer incomplete\n");
+            return 0;
+        }
+    }
+    pp_BindFramebuffer(GL_FRAMEBUFFER, 0);
+    return 1;
+}
+
+/* Measure the picture into the other level texture, which becomes the
+ * current one. The picture is bound on the active unit. */
+static void measure_level(GLuint picture, GLint unit, float s0, float t0, float s1, float t1)
+{
+    Uint64 now = SDL_GetTicksNS();
+    float seconds = primed ? (float)(now - last_ns) / 1e9f : 0.0f;
+    GLint framebuffer = 0, viewport[4];
+    int next = current ^ 1;
+    if (seconds > 0.1f) seconds = 0.1f; /* a stall is not a licence to flash */
+    last_ns = now;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    pp_BindFramebuffer(GL_FRAMEBUFFER, level_fbo[next]);
+    glViewport(0, 0, 1, 1);
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+    pp_UseProgram(measure);
+    glBindTexture(GL_TEXTURE_2D, picture);
+    pp_ActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, levels[current]);
+    pp_ActiveTexture((GLenum)unit);
+    pp_Uniform1i(m_picture, unit - GL_TEXTURE0);
+    pp_Uniform1i(m_history, 1);
+    pp_Uniform4f(m_area, s0, t0, s1, t1);
+    /* First measure of this run: nothing was shown to rise from. */
+    pp_Uniform1f(m_rise, primed ? FLASH_RISE * seconds : 2.0f);
+    glBegin(GL_QUADS);
+    glVertex2f(-1, -1);
+    glVertex2f(1, -1);
+    glVertex2f(1, 1);
+    glVertex2f(-1, 1);
+    glEnd();
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    pp_BindFramebuffer(GL_FRAMEBUFFER, (GLuint)framebuffer);
+    glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    current = next;
+    primed = 1;
+}
+
+/* Whether an effect other than the flash reduction is on. */
+static int others_wanted(void)
 {
     return Settings_Get(SET_BRIGHTNESS) != 100 || Settings_Get(SET_CONTRAST) != 100 ||
            Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT);
 }
 
-int PresentPass_Begin(int source_h, float t0, float t1)
+int PresentPass_Wanted(void)
+{
+    if (!Settings_Get(SET_FLASH)) primed = 0; /* what was shown since is not in the level */
+    return others_wanted() || Settings_Get(SET_FLASH);
+}
+
+int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float s1, float t1)
 {
     GLint unit = 0;
     int multiple = (source_h + 120) / 240;
@@ -139,11 +292,28 @@ int PresentPass_Begin(int source_h, float t0, float t1)
         if (state < 0) fprintf(stderr, "memories-pc: present pass unavailable; colour settings do nothing\n");
     }
     if (state < 0) return 0;
-    pp_UseProgram(program);
     /* The picture is bound on whichever unit is active (the presenter's
      * fixed-function quad samples that one too). */
     glGetIntegerv(GL_ACTIVE_TEXTURE, &unit);
+    flash_on = 0;
+    if (Settings_Get(SET_FLASH)) {
+        if (!flash_state) {
+            flash_state = build_flash() ? 1 : -1;
+            if (flash_state < 0) fprintf(stderr, "memories-pc: flash reduction unavailable\n");
+        }
+        if (flash_state > 0) {
+            measure_level((GLuint)texture, unit, s0, t0, s1, t1);
+            pp_ActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, levels[current]);
+            pp_ActiveTexture((GLenum)unit);
+            flash_on = 1;
+        }
+    }
+    if (!flash_on && !others_wanted()) return 0; /* nothing to do: the plain quad, exactly */
+    pp_UseProgram(program);
     pp_Uniform1i(u_picture, unit - GL_TEXTURE0);
+    pp_Uniform1i(u_level, 1);
+    pp_Uniform1i(u_flash, flash_on);
     pp_Uniform1f(u_brightness, (float)Settings_Get(SET_BRIGHTNESS) / 100.0f);
     pp_Uniform1f(u_contrast, (float)Settings_Get(SET_CONTRAST) / 100.0f);
     pp_Uniform1f(u_saturation, (float)Settings_Get(SET_SATURATION) / 100.0f);
@@ -157,5 +327,13 @@ int PresentPass_Begin(int source_h, float t0, float t1)
 
 void PresentPass_End(void)
 {
-    if (state > 0) pp_UseProgram(0);
+    if (state <= 0) return;
+    pp_UseProgram(0);
+    if (flash_on) {
+        GLint unit = 0;
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &unit);
+        pp_ActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        pp_ActiveTexture((GLenum)unit);
+    }
 }
