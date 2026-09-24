@@ -79,7 +79,7 @@ enum {
     ACT_SAVE_STATE = 1, ACT_LOAD_STATE, ACT_SCREENSHOT, ACT_EXIT, ACT_GIVE_CARDS,
     ACT_MODS, ACT_CONTROLS, ACT_RELOAD_SETTINGS, ACT_PAUSE, ACT_FRAME_STEP, ACT_DUMP_FRAME, ACT_DUMP_VRAM,
     SLIDER_MASTER, SLIDER_MUSIC, SLIDER_SFX, CHECK_MUTE,
-    CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT, ACT_UNLOCK_FREE_DUELISTS,
+    CHECK_HUD, CHECK_HUD_FULL, RADIO_STATE_SLOT, ACT_UNLOCK_FREE_DUELISTS, ACT_RESET_COLOR,
     CHECK_TRACE = 300  /* value is a LogChannel */
 };
 
@@ -95,7 +95,7 @@ typedef struct {
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
 enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_COUNT };
-enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -114,7 +114,9 @@ static Menu menus[MENU_COUNT] = {
               {"Aspect Ratio", 0, ITEM_SUBMENU, 0, -1, SUB_ASPECT},
               {"Resolution", 0, ITEM_SUBMENU, 0, -1, SUB_RESOLUTION},
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
-              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 9},
+              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC},
+              {"Color", 0, ITEM_SUBMENU, 0, -1, SUB_COLOR, ITEM_GROUP_BREAK},
+              {"Effects", 0, ITEM_SUBMENU, 0, -1, SUB_EFFECTS}}, 11},
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
@@ -184,6 +186,13 @@ static Menu submenus[SUB_COUNT] = {
     {"Resolution", {{"Console resolution", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 1},
                      {"Internal 2x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 2},
                      {"Internal 4x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 4}}, 3},
+    /* The present pass (src/pc/render/present_pass.c); 100 is the picture as is. */
+    {"Color", {{"Brightness", 0, ITEM_SLIDER, 0, SET_BRIGHTNESS},
+               {"Contrast", 0, ITEM_SLIDER, 0, SET_CONTRAST},
+               {"Saturation", 0, ITEM_SLIDER, 0, SET_SATURATION},
+               {"Gamma", 0, ITEM_SLIDER, 0, SET_GAMMA},
+               {"Reset", 0, ITEM_ACTION, ACT_RESET_COLOR, -1, 0, ITEM_GROUP_BREAK}}, 5},
+    {"Effects", {{"CRT scanlines", 0, ITEM_CHECK, 0, SET_CRT}}, 1},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;
@@ -922,6 +931,13 @@ static void activate(const Item *item, int *quit)
     case ACT_EXIT: *quit = 1; break;
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
     case ACT_UNLOCK_FREE_DUELISTS: Cheats_UnlockAllFreeDuelists(); break;
+    case ACT_RESET_COLOR:
+        Settings_Set(SET_BRIGHTNESS, 100);
+        Settings_Set(SET_CONTRAST, 100);
+        Settings_Set(SET_SATURATION, 100);
+        Settings_Set(SET_GAMMA, 100);
+        Settings_Save();
+        break;
     case MENU_ITEM_TITLE: TitleJump_Request(); break;
     case MENU_ITEM_DECKS: DeckMenu_Request(); break;
     case ACT_RELOAD_SETTINGS:
