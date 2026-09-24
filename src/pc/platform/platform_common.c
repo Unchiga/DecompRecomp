@@ -68,19 +68,43 @@ static void deliver_vblank(void)
     if (vblank_handler) vblank_handler();
 }
 
-static void advance(uint64_t real_now)
+/* MEMORIES_CLOCK=cooperative: no interrupt. The clock's time is taken, and
+ * the ticks and VBlanks it owes are run, where the game calls in to wait or
+ * to read the time (VSync, Platform_WaitVBlank, Platform_PollTime), so the
+ * game's interrupt code never runs in the middle of anything. Every loop the
+ * game polls the clock in passes through one of those (notes/pc-build.md,
+ * "Cooperative clock"). */
+static int cooperative;
+
+static void advance(uint64_t real_now, uintptr_t eip)
 {
     uint64_t elapsed = real_prev ? real_now - real_prev : 0;
     real_prev = real_now;
-    if (elapsed > 100000) elapsed = 0;
+    /* A longer gap is a stall (a breakpoint, a window being dragged), not
+     * time the game should catch up. Serviced cooperatively, a heavy frame
+     * can legitimately run past 100 ms between two services. */
+    if (elapsed > (cooperative ? 500000u : 100000u)) elapsed = 0;
     if (deterministic_dump && rate == -1) {
         /* Time passes in Platform_WaitVBlank. Only a game that has spun for
          * a second without waiting for a VBlank gets steps from the timer,
          * so that it cannot hang; no loop the game runs does that today, and
-         * no frame takes that long to compute. */
+         * no frame takes that long to compute. Such a step is reported, with
+         * where the game was: a loop that polls the clock without a wait. */
         if (deterministic_last_wait && real_now - deterministic_last_wait > DETERMINISTIC_SPIN) {
+            static uintptr_t reported[16];
+            static unsigned reported_count, steps;
+            unsigned i;
             virtual_now += DETERMINISTIC_STEP;
             if (tick_handler) tick_handler(virtual_now, virtual_now);
+            steps++;
+            for (i = 0; i < reported_count && reported[i] != eip; i++) {}
+            if (i == reported_count && reported_count < 16) {
+                reported[reported_count++] = eip;
+                LOG(LOG_FRAMES, "clock: the game spun a second without a wait, at 0x%lx (%u steps so far)",
+                    (unsigned long)eip, steps);
+                fprintf(stderr, "memories-pc: clock: the game spun a second without a wait, at 0x%lx\n",
+                        (unsigned long)eip);
+            }
         }
         return;
     }
@@ -99,12 +123,35 @@ static void advance(uint64_t real_now)
     }
 }
 
+/* The cooperative clock's service point: the time now, and whatever it owes. */
+static void service(void)
+{
+    sigset_t set, previous;
+    if (!cooperative) return;
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &set, &previous);
+    advance(now_us(), (uintptr_t)__builtin_return_address(0));
+    sigprocmask(SIG_SETMASK, &previous, NULL);
+}
+
 static void on_tick(uintptr_t eip, void *context)
 {
     uint64_t real_now = now_us();
     while (CrashTest_TickHang) {
     }
     Profile_Sample(eip);
+    {
+        /* MEMORIES_TRACE=frames: where the game is when it has run 30 ms
+         * past its last VSync, once per such stretch. */
+        static uint64_t reported_stretch;
+        if (last_vsync_real && real_now - last_vsync_real > 30000 && reported_stretch != last_vsync_real &&
+            Log_Wanted(LOG_FRAMES)) {
+            reported_stretch = last_vsync_real;
+            LOG(LOG_FRAMES, "long stretch without a VSync: %llu us so far, at 0x%lx",
+                (unsigned long long)(real_now - last_vsync_real), (unsigned long)eip);
+        }
+    }
 #ifndef _WIN32 /* Windows watches from the clock thread (Win32_SetStallReporter) */
     if (watchdog_seconds && rate != 0 && !watchdog_reported &&
         real_now - last_vsync_real >= (uint64_t)watchdog_seconds * 1000000u) {
@@ -114,7 +161,7 @@ static void on_tick(uintptr_t eip, void *context)
 #else
     (void)context;
 #endif
-    advance(real_now);
+    advance(real_now, eip);
 }
 
 #ifndef _WIN32
@@ -153,10 +200,17 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
         if (watchdog && *watchdog) watchdog_seconds = (unsigned)strtoul(watchdog, NULL, 10);
     }
     Profile_Init();
+    {
+        const char *clock = getenv("MEMORIES_CLOCK");
+        cooperative = clock && strcmp(clock, "cooperative") == 0;
+        if (cooperative) fprintf(stderr, "memories-pc: cooperative clock (no interrupt)\n");
+    }
 #ifdef _WIN32
     Win32_SetStallReporter(Crash_ReportHang, watchdog_seconds);
+    if (cooperative) return Win32_StartWatch(); /* the clock thread only watches for a stall */
     return Win32_StartInterrupt(on_tick);
 #else
+    if (cooperative) return 0; /* the crash monitor process watches for a stall */
     memset(&action, 0, sizeof(action));
     action.sa_sigaction = on_alarm;
     action.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -245,6 +299,7 @@ void Platform_VSyncHeartbeat(void)
 {
     sigset_t set, previous;
     MonitorShared *monitor = Monitor_Shared();
+    service();
     monitor->frame = Memories_PresentedFrames();
     monitor->vblank = vblank_count;
     monitor->running = 1;
@@ -316,7 +371,10 @@ void Platform_StopTimers(void)
 void Platform_PollTime(void)
 {
     sigset_t set, previous;
-    if (!(deterministic_dump && rate == -1)) return;
+    if (!(deterministic_dump && rate == -1)) {
+        service();
+        return;
+    }
     sigemptyset(&set);
     sigaddset(&set, SIGALRM);
     sigprocmask(SIG_BLOCK, &set, &previous);
@@ -361,14 +419,16 @@ void Platform_WaitVBlank(unsigned count_at_entry)
             sigaddset(&set, SIGALRM);
             sigprocmask(SIG_BLOCK, &set, &previous);
             real_now = now_us();
-            advance(real_now);
+            advance(real_now, 0);
             if (vblank_count == count_at_entry) {
                 if (!next_vblank) next_vblank = virtual_now;
                 virtual_now = next_vblank;
-                advance(real_now);
+                advance(real_now, 0);
             }
             sigprocmask(SIG_SETMASK, &previous, NULL);
         } else {
+            service();
+            if (vblank_count != count_at_entry) break;
             if (rate == 0) Platform_PumpEvents();
 #ifdef _WIN32
             if (rate == 0) Win32_Heartbeat(); /* paused, not hung */

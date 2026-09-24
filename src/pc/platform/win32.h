@@ -11,6 +11,8 @@
  * as SIGALRM does on Linux. `context` describes the interrupted registers
  * (see Win32_ContextRegisters). Returns 0 on success. */
 int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context));
+/* The same thread, reporting stalls only: the cooperative clock. */
+int Win32_StartWatch(void);
 /* Stops the clock thread and waits for it; call before exiting. */
 void Win32_StopInterrupt(void);
 /* For the exception handlers, first thing: the clock can redirect the main

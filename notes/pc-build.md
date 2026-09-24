@@ -434,6 +434,57 @@ desktop theme at the size KDE publishes for Xwayland (`xrdb -query`:
 `Xcursor.size`). On Arch that is `lib32-libxcursor`; without it there is no
 fix from inside the game short of drawing its own pointer.
 
+### Cooperative clock
+
+`MEMORIES_CLOCK=cooperative` (opt-in; the interrupt clock stays the
+default) runs the game with no interrupt at all. The console's interrupt
+work (the VBlank callback, the sequencer's root counter, disc delivery,
+MDEC, memory card) is run on the main thread where the game calls in to
+wait or to read the time: every `VSync`, `Platform_WaitVBlank` (which wakes
+every 0.5 ms and runs what is due) and `Platform_PollTime`. The game's
+interrupt code therefore never runs in the middle of anything, which is what
+the SIGALRM holds and, on Windows, the suspend-and-redirect clock thread and
+its repairs exist for; in this mode that thread only watches for stalls.
+It is the model the deterministic runs (the smoke fixtures) have always used,
+with real time instead of synthetic steps.
+
+Why it holds: every loop in which the game waits for something its interrupt
+code sets goes through one of those calls (`Main_AdvanceFrame`, the VBlank
+waits; `File_WaitForTransfers` calls `Main_AdvanceFrame` each turn). In a
+deterministic run the fallback timer reports any second the game spins
+without a wait, with the address (`clock: the game spun a second without a
+wait`; checked to fire with `MEMORIES_CRASH_TEST=spin`); it never fired
+through boot, the movie, title, menu, options, the story, both duel cases,
+and the debug menu, Library, campaign map, Free Duel, Build Deck, name
+entry, password, game over, trade and credits entered with
+`MEMORIES_MODE_AT`.
+
+Measured on Windows at 100% (`MEMORIES_TRACE=frames` reports the
+sequencer's lateness against when each tick was due, every 1000 ticks, and
+each stretch of more than 20 ms between two `VSync` calls):
+
+| run | clock | sequencer lateness, mean / worst | ticks later than 5 ms | clock repairs |
+|---|---|---|---|---|
+| 3D duel case, first | interrupt | 818 us / 135.6 ms | 18 | 293 deferred ticks |
+| 3D duel case, first | cooperative | 75 us / 4.1 ms | 0 | none |
+| 3D duel case, second | interrupt | 724 us / 4.5 ms | 0 | 288 deferred ticks |
+| 3D duel case, second | cooperative | 74 us / 4.5 ms | 0 | none |
+| options case | interrupt | 740 us / 1.7 ms | 0 | 10 deferred ticks |
+| options case | cooperative | 27 us / 4.0 ms | 0 | none |
+
+VBlanks ran at 59.9-60.0 a second and the sequencer at 73.4-74.0 in both.
+The options case ends on the same frame, pixel for pixel, with either clock;
+the duel cases do not, with either clock, from one real-time run to the
+next: the deck is shuffled from time-dependent state, so the scripted
+presses meet a different hand (checked on the hand camera case: three
+clocks, three hands).
+
+Not yet: Linux has only been compiled with it (its stall reports come from
+the crash monitor process, since no tick runs); the sampling profiler
+(`MEMORIES_PROFILE`) takes its samples from the interrupt and gets none;
+save states made in one mode have not been loaded in the other. Removing the
+interrupt clock is a later step, once this has been played on both systems.
+
 ### Mods > Hand camera
 
 On by default (`mod.hand-camera=0` in `settings.txt` in the user directory
