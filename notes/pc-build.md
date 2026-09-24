@@ -273,6 +273,17 @@ address. Checked from a state at the ending's last dialogue, mashing Cross
 (`MEMORIES_INPUT`) at 400%: names and the wireframe monsters through
 "Created by Konami Computer Entertainment Japan" with no interpreter failure.
 
+The retail game never leaves the credits: `Main_RunCredits` runs the scene in
+its last phase, after the save and the secret number, and drops the answer of
+`Model_IsCreditsPresentationComplete`, so the screen stays on the last credit
+until the console is reset. Game > Title screen after the credits (the
+`return_after_credits` setting, `MEMORIES_RETURN_AFTER_CREDITS`, on by
+default) has the port publish the main menu's mode three seconds after the
+presentation is complete (`platform/credits.c`); the game's code is
+unchanged. Checked by entering the ending with `MEMORIES_MODE_AT=1000:15`,
+declining the save and running 60,000 frames: the main menu with the
+setting, the last credit without it.
+
 ### Where the player's files go
 
 Nothing the player owns lives beside the game any more. `platform/paths.c`

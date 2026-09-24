@@ -29,6 +29,7 @@ typedef enum {
     SET_WINDOW_Y,
     SET_AUDIO_INTERPOLATION,
     SET_INTERNAL_SCALE,
+    SET_RETURN_AFTER_CREDITS,
     SET_COUNT
 } SettingId;
 
