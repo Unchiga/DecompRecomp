@@ -120,9 +120,10 @@ void Memories_DumpFrame(const char *path, int full_vram)
     if (SoftGpu_Scale() > 1 && getenv("MEMORIES_DUMP_PICTURE") && !disp_env.isrgb24) {
         /* The scaled picture of the display area, as the window shows it. */
         int at_scale = SoftGpu_Scale(), stride = SOFT_GPU_WIDTH * at_scale;
-        const uint32_t *picture = SoftGpu_Picture();
+        const uint32_t *picture = !full_vram && Platform_Widescreen()
+            ? SoftGpu_WidePicture(disp_env.disp.x, disp_env.disp.y, disp_env.disp.w, h) : SoftGpu_Picture();
         uint32_t *read = NULL;
-        if (!picture) { /* the backend's own renderer drew it (gl_picture.h) */
+        if (!picture && (full_vram || !Platform_Widescreen())) { /* the backend's own renderer drew it (gl_picture.h) */
             read = malloc((size_t)w * at_scale * (size_t)h * at_scale * sizeof(*read));
             if (read && Platform_ReadPicture(read, x0 * at_scale, y0 * at_scale, w * at_scale, h * at_scale)) {
                 picture = read;
@@ -184,6 +185,10 @@ static void present_wide(int w, int h)
         logged = drawn;
     }
     if (drawn) {
+        int at_scale = SoftGpu_Scale();
+        const uint32_t *picture = SoftGpu_WidePicture(x, y, w, h);
+        if (picture && Platform_PresentPicture(picture, SOFT_GPU_WIDTH * at_scale,
+                wide_x * at_scale, y * at_scale, wide_w * at_scale, h * at_scale, at_scale)) return;
         Platform_Present(pixels, SOFT_GPU_WIDTH, wide_x, y, wide_w, h, 0);
         return;
     }

@@ -15,6 +15,18 @@ static int count(uint16_t colour)
     return n;
 }
 
+/* A recorder suppresses the normal software picture, as the GL backend
+ * does. Widescreen must still have its own scaled rendering in that mode. */
+static void record_gp0(const uint32_t *words, size_t count) { (void)words; (void)count; }
+static void record_load(int x, int y, int w, int h, const uint16_t *p)
+{ (void)x; (void)y; (void)w; (void)h; (void)p; }
+static void record_move(int x, int y, int dx, int dy, int w, int h)
+{ (void)x; (void)y; (void)dx; (void)dy; (void)w; (void)h; }
+static void record_fill(int x, int y, int w, int h, uint32_t c)
+{ (void)x; (void)y; (void)w; (void)h; (void)c; }
+static void record_resync(int scale, const uint32_t state[6]) { (void)scale; (void)state; }
+static const SoftGpuRecorder recording = {record_gp0, record_load, record_move, record_fill, record_resync};
+
 int main(void)
 {
     /* Flat quad (2,3)-(12,13): top-left rule gives exactly 10x10 pixels, and
@@ -76,6 +88,56 @@ int main(void)
         SoftGpu_SetWidescreen(0);
         CHECK(!SoftGpu_WideFrame(0, 256, 320, 240, &pixels, &x, &w));
     }
+    for (int recorded = 0; recorded < 2; recorded++) {
+        SoftGpu_SetRecorder(recorded ? &recording : NULL);
+        SoftGpu_SetWidescreen(1);
+        for (int scale = 2; scale <= 4; scale *= 2) {
+            const uint32_t area[] = {0xe3000000u | (256 << 10), 0xe4000000u | 319 | (495 << 10),
+                                     0xe5000000u | (256 << 11)};
+            /* Sloped triangle extending into the left border. Its diagonal
+             * must resolve within a console pixel, not just enlarge 1x. */
+            const uint32_t triangle[] = {0x200000ffu, 0x000a07ecu, 0x000a000au, 0x002807ecu};
+            const uint16_t *words;
+            const uint32_t *pic;
+            int x, w, stride = SOFT_GPU_WIDTH * scale;
+            CHECK(SoftGpu_SetScale(scale));
+            SoftGpu_Reset();
+            CHECK(SoftGpu_Gp0(area, 3) == 3);
+            /* Make the target, clear it, then draw against black. */
+            CHECK(SoftGpu_Gp0(triangle, 4) == 4);
+            SoftGpu_Fill(0, 256, 320, 240, 0);
+            CHECK(SoftGpu_Gp0(triangle, 4) == 4);
+            CHECK(SoftGpu_WideFrame(0, 256, 320, 240, &words, &x, &w) && w == 428);
+            pic = SoftGpu_WidePicture(0, 256, 320, 240);
+            CHECK(pic);
+            CHECK(pic[(size_t)(270 * scale) * stride + 36 * scale] == 0xff0000);
+            /* The diagonal x+y=330 is red just before the edge and black
+             * on it, inside the same native pixel at (53,276). */
+            CHECK(pic[(size_t)(276 * scale) * stride + 53 * scale] == 0xff0000);
+            CHECK(pic[(size_t)(277 * scale - 1) * stride + 54 * scale - 1] == 0);
+            if (!recorded) {
+                const uint32_t *normal = SoftGpu_Picture();
+                CHECK(normal[(size_t)(270 * scale) * stride + 36 * scale] == 0);
+            }
+            /* Transfers seed the centre and full-width clears reach sides. */
+            {
+                const uint16_t green = 0x03e0;
+                SoftGpu_Load(100, 300, 1, 1, &green);
+                CHECK(pic[(size_t)(300 * scale) * stride + 154 * scale] == 0x00ff00);
+                SoftGpu_Move(100, 300, 101, 300, 1, 1);
+                CHECK(pic[(size_t)(300 * scale) * stride + 155 * scale] == 0x00ff00);
+            }
+            SoftGpu_Fill(0, 256, 320, 240, 0xff0000);
+            CHECK(pic[(size_t)(300 * scale) * stride] == 0x0000ff);
+            CHECK(pic[(size_t)(300 * scale) * stride + 428 * scale - 1] == 0x0000ff);
+            CHECK(SoftGpu_WideFrame(0, 256, 320, 240, &words, &x, &w));
+            CHECK(pic[(size_t)(300 * scale) * stride] == 0);
+        }
+        CHECK(SoftGpu_SetScale(1));
+        CHECK(!SoftGpu_WidePicture(0, 256, 320, 240));
+        SoftGpu_SetWidescreen(0);
+    }
+    SoftGpu_SetRecorder(NULL);
     puts("Software GPU fill-rule, CLUT, clip, transfer and widescreen checks passed");
     return 0;
 }
