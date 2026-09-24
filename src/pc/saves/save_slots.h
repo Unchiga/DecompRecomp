@@ -62,5 +62,7 @@ void SaveSlots_ImportMemoryCards(const char *name);
 /* The player name of a state, in ASCII (full-width letters, digits and the
  * usual punctuation; anything else becomes '?'). */
 void SaveSlots_StateName(const unsigned char *state, char *out, size_t size);
+/* One full-width Shift-JIS character (or ASCII) as that name reads it. */
+char SaveSlots_Ascii(unsigned sjis);
 
 #endif

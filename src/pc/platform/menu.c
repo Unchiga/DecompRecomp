@@ -24,6 +24,7 @@
 #include "paths.h"
 #include "pc/sdk/display.h"
 #include "title_jump.h"
+#include "pc/saves/deck_menu.h"
 #ifdef _WIN32
 #include "win32.h"
 #else
@@ -130,7 +131,9 @@ static Menu menus[MENU_COUNT] = {
               {"Frame rate", 0, ITEM_SUBMENU, 0, -1, SUB_FPS},
               {"Back to title screen", 0, ITEM_ACTION, MENU_ITEM_TITLE, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED},
               {"Title screen after the credits", 0, ITEM_CHECK, 0, SET_RETURN_AFTER_CREDITS},
-              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 7},
+              {"Deck slots...", "F6", ITEM_ACTION, MENU_ITEM_DECKS, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED},
+              {"Use deck slots", 0, ITEM_CHECK, 0, SET_DECK_SLOTS},
+              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 9},
     {"Debug", {{"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1},
                {"Full stats", 0, ITEM_CHECK, CHECK_HUD_FULL, -1},
                {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},
@@ -920,6 +923,7 @@ static void activate(const Item *item, int *quit)
     case ACT_GIVE_CARDS: Cheats_GiveAllCards(3); break;
     case ACT_UNLOCK_FREE_DUELISTS: Cheats_UnlockAllFreeDuelists(); break;
     case MENU_ITEM_TITLE: TitleJump_Request(); break;
+    case MENU_ITEM_DECKS: DeckMenu_Request(); break;
     case ACT_RELOAD_SETTINGS:
         Menu_LoadSettings();
         Platform_ApplyDisplaySettings();

@@ -10,6 +10,7 @@
 #include "pc/debug/hud.h"
 #include "pc/guest/state.h"
 #include "menu.h"
+#include "pc/saves/deck_menu.h"
 #include "mods_window.h"
 #include "controls_window.h"
 #include <X11/XKBlib.h>
@@ -696,6 +697,14 @@ static void pump(void)
                     XNextEvent(display, &next);
                     continue;
                 }
+            }
+            if (key == XK_Escape && event.type == KeyPress && DeckMenu_Active()) {
+                DeckMenu_Close(); /* the deck slot screen, not the game */
+                continue;
+            }
+            if (key == XK_F6 && event.type == KeyPress) {
+                DeckMenu_Request();
+                continue;
             }
             if (key == XK_Escape && event.type == KeyPress) {
                 quit = 1;

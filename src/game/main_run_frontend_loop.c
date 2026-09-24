@@ -16,6 +16,7 @@
 #include "main_frame.h"
 #ifdef MEMORIES_PC
 #include "pc/platform/title_jump.h"
+#include "pc/saves/deck_menu.h"
 #endif
 
 s32 Main_RunFrontendLoop(void) {
@@ -70,6 +71,9 @@ s32 Main_RunFrontendLoop(void) {
                 MainMenu_InitFrontendMenu(0, 0);
                 Fade_StartIn();
             }
+#ifdef MEMORIES_PC
+            DeckMenu_Poll(DECK_MENU_TITLE_MENU);
+#endif
             r = MainMenu_UpdateFrontendMenu();
             if (r != -1) {
                 break;

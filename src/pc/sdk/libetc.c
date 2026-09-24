@@ -5,6 +5,7 @@
 #include "pc/platform/platform.h"
 #include "pc/platform/ai_trace.h"
 #include "pc/platform/title_jump.h"
+#include "pc/saves/deck_menu.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/sdk/disc.h"
 #include "pc/sdk/display.h"
@@ -79,7 +80,8 @@ static void run_vblank(void)
     int port;
     for (port = 0; port < 2 && pads_started; port++) {
         if (pad_buffer[port]) {
-            unsigned bits = Platform_Pad(port);
+            /* Released while the deck slot screen reads the pad (deck_menu.h). */
+            unsigned bits = DeckMenu_HoldsPads() ? 0 : Platform_Pad(port);
             MemoriesModEvent input = {MEMORIES_EVENT_INPUT, MEMORIES_BEFORE, port, (int)bits, 0, (int)bits, 0};
             Mods_Dispatch(&input);
             bits = (unsigned)(input.handled ? input.result : input.b) & 0xffffu;
@@ -233,6 +235,7 @@ int Memories_VSync(int mode)
         clock_gettime(CLOCK_MONOTONIC, &t0);
         Memories_PresentDisplay();
         TitleJump_Frame(Memories_PresentedFrames());
+        DeckMenu_Frame(Memories_PresentedFrames());
         clock_gettime(CLOCK_MONOTONIC, &t1);
         {
             unsigned p = (unsigned)((t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000), g = 0;

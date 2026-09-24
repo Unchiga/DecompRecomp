@@ -4,6 +4,7 @@
 #include "pc/guest/state.h"
 #include "pc/platform/platform.h"
 #include "pc/platform/settings.h"
+#include "pc/saves/deck_menu.h"
 #include "pc/saves/save_menu.h"
 #include "pc/sdk/disc.h"
 #include "pc/sdk/display.h"
@@ -106,6 +107,7 @@ void Hud_Draw(MenuCanvas *canvas)
     int x, y, w, h;
     draw_stats(canvas);
     SaveMenu_Draw(canvas, &x, &y, &w, &h);
+    if (!w || !h) DeckMenu_Draw(canvas, &x, &y, &w, &h);
     if (!w || !h) return;
     if (bounds.w && bounds.h) {
         int right = bounds.x + bounds.w > x + w ? bounds.x + bounds.w : x + w;
@@ -129,7 +131,7 @@ static unsigned stats_signature(void)
 
 unsigned Hud_Signature(void)
 {
-    return stats_signature() ^ SaveMenu_Signature() * 2654435761u;
+    return stats_signature() ^ SaveMenu_Signature() * 2654435761u ^ DeckMenu_Signature() * 40503u;
 }
 
 void Hud_Bounds(int *x, int *y, int *w, int *h)
