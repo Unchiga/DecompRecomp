@@ -118,6 +118,7 @@ int Memories_SigProcMask(int how, const sigset_t *set, sigset_t *previous)
 /* Set by Win32_StopInterrupt; the clock leaves its loop before it next
  * touches the main thread, so no suspend or redirect is in flight after. */
 static volatile LONG clock_stop;
+static int watch_only; /* the cooperative clock: the thread reports stalls and never touches the main thread */
 static HANDLE clock_thread;
 
 static DWORD WINAPI run_clock(void *unused)
@@ -162,6 +163,7 @@ static DWORD WINAPI run_clock(void *unused)
                 if (!Monitor_Active()) write_dump("hang", NULL, main_id);
             }
         }
+        if (watch_only) continue;
         if (SuspendThread(main_thread) == (DWORD)-1) continue;
         context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_EXCEPTION_REQUEST;
         if (GetThreadContext(main_thread, &context)) {
@@ -282,6 +284,20 @@ int Win32_StartInterrupt(void (*tick)(uintptr_t eip, void *context))
     clock_thread = thread;
     atexit(Win32_StopInterrupt);
     return 0;
+}
+
+/* The clock thread for the cooperative clock (platform_common.c): the stall
+ * reporter alone. The main thread services its own ticks where it waits. */
+static void no_tick(uintptr_t eip, void *context)
+{
+    (void)eip;
+    (void)context;
+}
+
+int Win32_StartWatch(void)
+{
+    watch_only = 1;
+    return Win32_StartInterrupt(no_tick);
 }
 
 /* Exiting with the clock running lets it suspend the main thread, or send it

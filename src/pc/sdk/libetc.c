@@ -47,6 +47,21 @@ static void run_tick(uint64_t game_now, uint64_t real_now)
         counter_next_us = real_now + counter_period_us;
     }
     while (real_now >= counter_next_us && budget--) {
+        /* MEMORIES_TRACE=frames: how late the sequencer's ticks run against
+         * when they were due, which is what the music's timing hears. */
+        static unsigned late_max, late_over_5ms, late_over_20ms, late_ticks;
+        static uint64_t late_total;
+        unsigned late = (unsigned)(real_now - counter_next_us);
+        late_total += late;
+        late_max = late > late_max ? late : late_max;
+        late_over_5ms += late > 5000;
+        late_over_20ms += late > 20000;
+        if (++late_ticks == 1000) {
+            LOG(LOG_FRAMES, "sequencer lateness over 1000 ticks: mean %u us, max %u us, %u over 5 ms, %u over 20 ms",
+                (unsigned)(late_total / 1000), late_max, late_over_5ms, late_over_20ms);
+            late_ticks = late_max = late_over_5ms = late_over_20ms = 0;
+            late_total = 0;
+        }
         counter_next_us += counter_period_us;
         counter_calls++;
         counter_handler();

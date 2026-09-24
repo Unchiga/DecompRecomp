@@ -68,11 +68,22 @@ static void deliver_vblank(void)
     if (vblank_handler) vblank_handler();
 }
 
+/* MEMORIES_CLOCK=cooperative: no interrupt. The clock's time is taken, and
+ * the ticks and VBlanks it owes are run, where the game calls in to wait or
+ * to read the time (VSync, Platform_WaitVBlank, Platform_PollTime), so the
+ * game's interrupt code never runs in the middle of anything. Every loop the
+ * game polls the clock in passes through one of those (notes/pc-build.md,
+ * "Cooperative clock"). */
+static int cooperative;
+
 static void advance(uint64_t real_now, uintptr_t eip)
 {
     uint64_t elapsed = real_prev ? real_now - real_prev : 0;
     real_prev = real_now;
-    if (elapsed > 100000) elapsed = 0;
+    /* A longer gap is a stall (a breakpoint, a window being dragged), not
+     * time the game should catch up. Serviced cooperatively, a heavy frame
+     * can legitimately run past 100 ms between two services. */
+    if (elapsed > (cooperative ? 500000u : 100000u)) elapsed = 0;
     if (deterministic_dump && rate == -1) {
         /* Time passes in Platform_WaitVBlank. Only a game that has spun for
          * a second without waiting for a VBlank gets steps from the timer,
@@ -110,6 +121,18 @@ static void advance(uint64_t real_now, uintptr_t eip)
         step_pending = 0;
         deliver_vblank();
     }
+}
+
+/* The cooperative clock's service point: the time now, and whatever it owes. */
+static void service(void)
+{
+    sigset_t set, previous;
+    if (!cooperative) return;
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &set, &previous);
+    advance(now_us(), (uintptr_t)__builtin_return_address(0));
+    sigprocmask(SIG_SETMASK, &previous, NULL);
 }
 
 static void on_tick(uintptr_t eip, void *context)
@@ -177,10 +200,17 @@ int Platform_StartTimers(void (*tick)(uint64_t, uint64_t), void (*vblank)(void))
         if (watchdog && *watchdog) watchdog_seconds = (unsigned)strtoul(watchdog, NULL, 10);
     }
     Profile_Init();
+    {
+        const char *clock = getenv("MEMORIES_CLOCK");
+        cooperative = clock && strcmp(clock, "cooperative") == 0;
+        if (cooperative) fprintf(stderr, "memories-pc: cooperative clock (no interrupt)\n");
+    }
 #ifdef _WIN32
     Win32_SetStallReporter(Crash_ReportHang, watchdog_seconds);
+    if (cooperative) return Win32_StartWatch(); /* the clock thread only watches for a stall */
     return Win32_StartInterrupt(on_tick);
 #else
+    if (cooperative) return 0; /* the crash monitor process watches for a stall */
     memset(&action, 0, sizeof(action));
     action.sa_sigaction = on_alarm;
     action.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -269,6 +299,7 @@ void Platform_VSyncHeartbeat(void)
 {
     sigset_t set, previous;
     MonitorShared *monitor = Monitor_Shared();
+    service();
     monitor->frame = Memories_PresentedFrames();
     monitor->vblank = vblank_count;
     monitor->running = 1;
@@ -340,7 +371,10 @@ void Platform_StopTimers(void)
 void Platform_PollTime(void)
 {
     sigset_t set, previous;
-    if (!(deterministic_dump && rate == -1)) return;
+    if (!(deterministic_dump && rate == -1)) {
+        service();
+        return;
+    }
     sigemptyset(&set);
     sigaddset(&set, SIGALRM);
     sigprocmask(SIG_BLOCK, &set, &previous);
@@ -393,6 +427,8 @@ void Platform_WaitVBlank(unsigned count_at_entry)
             }
             sigprocmask(SIG_SETMASK, &previous, NULL);
         } else {
+            service();
+            if (vblank_count != count_at_entry) break;
             if (rate == 0) Platform_PumpEvents();
 #ifdef _WIN32
             if (rate == 0) Win32_Heartbeat(); /* paused, not hung */
