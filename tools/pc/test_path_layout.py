@@ -7,9 +7,26 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import build_process
+import build_mod
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "Jos\u00e9-e\u0301-\u042f-\u6771\u4eac-\U0001f600 & (100%) ! ^"
+
+
+def compiler_paths(folder):
+    source = folder / "r\u00e8gles-\u6771\u4eac.c"
+    source.write_text("int path_probe(void) { return 42; }\n", encoding="utf-8")
+    output = folder / "r\u00e8gles.o"
+    previous = Path.cwd()
+    try:
+        os.chdir(folder)
+        # Long enough to force @file handling, including Unicode arguments.
+        build_mod.compile_object([str(source)], str(output), str(folder / "objects"),
+                                 ["-I", str(folder)] * 512)
+        assert output.is_file()
+    finally:
+        os.chdir(previous)
 
 
 def batch_launcher(folder, env):
@@ -31,7 +48,9 @@ int main(int argc, char **argv) {
     return fclose(f);
 }
 ''', encoding="utf-8")
-    subprocess.run(["i686-w64-mingw32-clang", str(source), "-static", "-o", str(python)], check=True)
+    result = build_process.run(["i686-w64-mingw32-clang", str(source), "-static", "-o", str(python)])
+    if result.returncode:
+        raise RuntimeError(result.stderr)
     shutil.copy2(python, game)
     shutil.copy2(ROOT / "play.bat", folder / "play.bat")
     env = dict(env, PATH=str(python.parent) + os.pathsep + env["PATH"])
@@ -56,9 +75,10 @@ def main():
         copy = folder / exe
         shutil.copy2(build / exe, copy)
         subprocess.run([str(copy), NAME], cwd=folder, env=env, check=True, timeout=30)
+        compiler_paths(folder)
         if sys.platform == "win32":
             batch_launcher(folder, env)
-    print("Unicode executable, temp paths, and launcher: passed")
+    print("Unicode executable, temp paths, compiler, and launcher: passed")
 
 
 if __name__ == "__main__":

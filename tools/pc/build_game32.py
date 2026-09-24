@@ -18,7 +18,8 @@ leading underscore; sections cannot be placed at chosen addresses, so the
 fixed game sections (save states across rebuilds) are not available; the
 section renames edit the COFF headers directly (rename_coff_sections) and
 __start_/__stop_ come from grouped marker sections; overrides win by link order instead of weakened symbols."""
-import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struct, subprocess, sys, tempfile
+import argparse, concurrent.futures, csv, glob, hashlib, json, os, shutil, struct, subprocess, sys
+import build_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ELF = "tmp/project-build/SLUS_014.11.elf"
@@ -118,22 +119,9 @@ def c_name(symbol):
     return symbol[1:] if symbol.startswith("_") else None
 
 def run(command):
-    response = None
-    if sum(len(word) + 1 for word in command) > 30000:
-        # Windows' command line holds 32 K, which the object lists reach.
-        # The llvm tools, gcc, clang and binutils all read @file arguments.
-        os.makedirs("tmp/pc", exist_ok=True)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\n", dir="tmp/pc", suffix=".rsp", delete=False) as handle:
-            handle.writelines('"%s"\n' % word.replace("\\", "\\\\").replace('"', '\\"') for word in command[1:])
-            response = handle.name
-        shown, command = command, [command[0], "@" + response]
-    else:
-        shown = command
-    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if response:
-        os.remove(response)
+    result = build_process.run(command)
     if result.returncode:
-        sys.exit(f"{' '.join(shown[:6])} ...\n{result.stderr}")
+        sys.exit(f"{' '.join(command[:6])} ...\n{result.stderr}")
     return result.stdout
 
 def compile_unit(job):
@@ -369,7 +357,8 @@ def write_sdk(build):
         if relative.startswith(os.path.join("pc", "mods", "sdk")):
             relative = os.path.join("libc", os.path.relpath(header, "src/pc/mods/sdk"))
         copy_if_newer(header, os.path.join(sdk, "include", relative))
-    copy_if_newer("tools/pc/build_mod.py", f"{sdk}/tools/build_mod.py")
+    for name in ("build_mod.py", "build_process.py"):
+        copy_if_newer(f"tools/pc/{name}", f"{sdk}/tools/{name}")
     # What else a mod author needs beside the headers: the texture pack tools
     # (the standard library only; upscale_pack.py also wants Pillow and
     # Upscayl, which it asks for), the example mods, and the notes that

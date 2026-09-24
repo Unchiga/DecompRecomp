@@ -28,6 +28,7 @@ provides: in the repository, each game build (--game, default both); beside
 a game, the list its SDK was shipped with. A mod that would load on one
 system and not the other fails here rather than in the game."""
 import argparse, glob, json, os, re, shutil, subprocess, sys
+import build_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # In the repository, or the copy in the sdk/ directory beside a game
@@ -85,7 +86,7 @@ def headers():
 
 
 def run(command):
-    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    result = build_process.run(command)
     if result.returncode:
         sys.exit(f"build_mod: {' '.join(command[:3])} ... failed\n{result.stdout}{result.stderr}")
     return result.stdout
