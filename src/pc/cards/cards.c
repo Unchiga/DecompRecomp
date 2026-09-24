@@ -9,6 +9,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include "cards.h"
 #include "art.h"
+#include "tables.h"
+#include "pc/text/glyphs.h"
 #include "pc/mods/mods.h"
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
@@ -64,8 +66,7 @@ int Cards_ModelId(int id) { return Cards_Valid(id) && model_ids[id] ? model_ids[
 int Cards_EffectId(int id) { return Cards_Valid(id) && effect_ids[id] ? effect_ids[id] : Cards_BaseId(id); }
 static int card_reference(const JsonValue *value)
 {
-    const char *name = Json_String(value, "");
-    return strchr(name, ':') ? Cards_FindIdentity(name) : (int)Json_Number(value, 0);
+    return Cards_Reference(value);   /* -1 matches no card, and makes none */
 }
 int Cards_Fusion(int a, int b, int *result)
 {
@@ -167,12 +168,25 @@ static void retail_name(int id, char *out, size_t size)
     out[n] = '\0';
 }
 
+/* A glyph code as the text holds it: one byte, or F1-F5 and a byte for the
+ * port's own glyphs. Returns the bytes written. */
+static size_t put_glyph(unsigned char *out, int code)
+{
+    if (code >= 0xF0) {
+        out[0] = (unsigned char)(0xF0 + (code >> 8));
+        out[1] = (unsigned char)code;
+        return 2;
+    }
+    out[0] = (unsigned char)code;
+    return 1;
+}
+
 /* "{n}" is the card's number within its entry, "{id}" its card id. */
 static unsigned char *encode_name(const char *mod, const char *pattern, int n, int id)
 {
     char text[128];
     unsigned char *glyphs;
-    size_t length = 0, i;
+    size_t length = 0;
     const char *p;
     for (p = pattern; *p && length + 8 < sizeof(text); p++) {
         if (!strncmp(p, "{n}", 3)) { length += (size_t)snprintf(text + length, sizeof(text) - length, "%d", n); p += 2; }
@@ -180,15 +194,21 @@ static unsigned char *encode_name(const char *mod, const char *pattern, int n, i
         else text[length++] = *p;
     }
     text[length] = '\0';
-    glyphs = malloc(length + 1);
+    glyphs = malloc(length * 2 + 1);
     if (!glyphs) return NULL;
-    for (i = 0, length = 0; text[i]; i++) {
-        int code = glyph_of((unsigned char)text[i]);
-        if (code < 0) {
-            Mods_Note(mod, "card %d: the game has no letter '%c'; left out of its name", id, text[i]);
-            continue;
+    {   /* UTF-8: accented letters and the like are glyphs of the port's (glyphs.h). */
+        const char *at = text;
+        length = 0;
+        while (*at) {
+            const char *letter = at;
+            int code = Glyphs_Code(Glyphs_NextCharacter(&at));
+            if (code < 0) {
+                Mods_Note(mod, "card %d: the game has no letter \"%.*s\"; left out of its name", id,
+                          (int)(at - letter), letter);
+                continue;
+            }
+            length += put_glyph(glyphs + length, code);
         }
-        glyphs[length++] = (unsigned char)code;   /* every letter above is below 0xF0 */
     }
     glyphs[length] = 0xFF;
     return glyphs;
@@ -214,19 +234,25 @@ static unsigned char *encode_description(const char *mod, const char *text, int 
         }
         if (*word == ' ') { word++; continue; }
         while (*end && *end != ' ' && *end != '\n') end++;
-        letters = (int)(end - word);
+        letters = 0;   /* characters, not bytes */
+        {
+            const char *at;
+            for (at = word; at < end; at++) letters += ((unsigned char)*at & 0xC0) != 0x80;
+        }
         if (column && column + 1 + letters > TEXT_LINE_LETTERS) {
             glyphs[n++] = 0xFE; lines++; column = 0;
         } else if (column) {
             glyphs[n++] = 0; column++;   /* glyph 0 is the space */
         }
-        for (; word < end; word++) {
-            int code = glyph_of((unsigned char)*word);
+        while (word < end) {
+            const char *letter = word;
+            int code = Glyphs_Code(Glyphs_NextCharacter(&word));
             if (code < 0) {
-                if (!warned++) Mods_Note(mod, "card %d: the game has no letter '%c'; left out of its text", id, *word);
+                if (!warned++) Mods_Note(mod, "card %d: the game has no letter \"%.*s\"; left out of its text", id,
+                                         (int)(word - letter), letter);
                 continue;
             }
-            glyphs[n++] = (unsigned char)code;
+            n += put_glyph(glyphs + n, code);
             column++;
         }
     }
@@ -295,15 +321,72 @@ static int choice(const JsonValue *value, const char *const *choices, int count)
     return (int)Json_Number(value, -1);
 }
 
+/* Letters and digits only, lowercased: "Blue-Eyes White Dragon" finds the
+ * disc's "Blue-eyes White Dragon". */
+static int same_letters(const char *a, const char *b)
+{
+    for (;;) {
+        while (*a && !isalnum((unsigned char)*a)) a++;
+        while (*b && !isalnum((unsigned char)*b)) b++;
+        if (!*a || !*b) return !*a && !*b;
+        if (tolower((unsigned char)*a++) != tolower((unsigned char)*b++)) return 0;
+    }
+}
+
+/* The retail names, decoded once: a manifest may name hundreds of cards. */
+static char (*retail_names)[48];
+
 static int retail_by_name(const char *text)
 {
-    char name[128];
     int id;
+    if (!retail_names) {
+        retail_names = calloc(CARD_ID_END, sizeof(*retail_names));
+        if (!retail_names) return 0;
+        for (id = 1; id <= CARD_COUNT; id++) retail_name(id, retail_names[id], sizeof(retail_names[id]));
+    }
     for (id = 1; id <= CARD_COUNT; id++) {
-        retail_name(id, name, sizeof(name));
-        if (same_words(text, name)) return id;
+        if (same_words(text, retail_names[id])) return id;
+    }
+    for (id = 1; id <= CARD_COUNT; id++) {
+        if (same_letters(text, retail_names[id])) return id;
     }
     return 0;
+}
+
+int Cards_Reference(const JsonValue *value)
+{
+    const char *text;
+    int id;
+    if (!value || Json_TypeOf(value) == JSON_NULL) return 0;
+    if (Json_TypeOf(value) == JSON_NUMBER) {
+        id = (int)Json_Number(value, 0);
+        return Cards_Valid(id) ? id : -1;
+    }
+    text = Json_String(value, NULL);
+    return text ? Cards_Named(text) : -1;
+}
+
+int Cards_Named(const char *text)
+{
+    int id;
+    if (!text || !*text) return -1;
+    if (strchr(text, ':')) return (id = Cards_FindIdentity(text)) ? id : -1;
+    if (strspn(text, "0123456789") == strlen(text)) return Cards_Valid(id = atoi(text)) ? id : -1;
+    return (id = retail_by_name(text)) ? id : -1;
+}
+
+int Cards_TypeNamed(const char *text)
+{
+    int type;
+    for (type = 0; text && type < (int)(sizeof(type_names) / sizeof(type_names[0])); type++) {
+        if (same_letters(text, type_names[type])) return type;
+    }
+    return -1;
+}
+
+int Cards_Type(int id)
+{
+    return Cards_Valid(id) ? (int)(((unsigned)gDuel_adwCardStats[id - 1] >> 26) & 0x1F) : -1;
 }
 
 typedef struct {
@@ -522,6 +605,9 @@ void Cards_Build(void)
     if (gCard_nCount > CARD_COUNT) {
         fprintf(stderr, "memories-pc: %d cards (%d added by mods)\n", gCard_nCount, gCard_nCount - CARD_COUNT);
     }
+    /* The mods' fusions, equips, rituals, drops and decks name cards, the
+     * new ones included. */
+    Tables_Build();
 }
 
 /* --- what the game asks -------------------------------------------- */

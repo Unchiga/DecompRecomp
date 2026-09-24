@@ -8,6 +8,7 @@
 #include "duel_grid.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/cards/tables.h"
 #endif
 
 s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
@@ -23,8 +24,18 @@ s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
     u16 *q;
     s32 i;
     s32 j;
+#ifdef MEMORIES_PC
+    /* A mod's recipe, laid out as the disc's table is, comes first. */
+    u16 own[DUEL_RITUAL_RECIPE_HALFWORD_COUNT + 1];
+    s32 ruled = Tables_Ritual(ritualId, own);
 
+    if (ruled == 0) {
+        return 0;
+    }
+    p = ruled > 0 ? own : gDuel_awRitualData;
+#else
     p = gDuel_awRitualData;
+#endif
     while (1) {
         if (p[0] == 0) {
             return 0;
@@ -60,8 +71,10 @@ s32 Duel_CheckRitual(DuelRitualResult *out, s32 ritualId)
         for (i = 0; i < DUEL_FIELD_ROW_SIZE; i++) {
             card = (c = first[i]);
 #ifdef MEMORIES_PC
-            /* A copy of a tribute monster counts as it. */
-            if (card != 0 && Cards_BaseId(card->card_id) == q[0]) {
+            /* A copy of a tribute monster counts as it; a mod's recipe
+               may also name the copy itself. */
+            if (card != 0 && (card->card_id == q[0] ||
+                              Cards_BaseId(card->card_id) == q[0])) {
 #else
             if (card != 0 && card->card_id == q[0]) {
 #endif

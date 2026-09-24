@@ -57,6 +57,8 @@ Every mod has a `mod.json`:
 | `textures` | a directory inside the mod holding a texture pack, below |
 | `cards` | cards the mod adds after the disc's 722, below |
 | `audio` | songs, XA clips and sound effects the mod replaces with WAV or Ogg files, below |
+| `fusions`, `equips`, `rituals`, `drops`, `decks` | changes to the duel's rule tables, below |
+| `text`, `font` | a translation of the game's text, and fonts for letters it has none of, below |
 
 `version`, `author` and `description` are displayed in the manager. Version
 bounds in `requires` are checked before activation. API 3 also supports
@@ -371,6 +373,39 @@ MEMORIES_INPUT="700:0008,706:0000" tmp/pc/game32/memories-pc
 
 `out.raw` is s16le stereo at 44.1 kHz. How it is done:
 [`src/pc/audio/replace.h`](../src/pc/audio/replace.h).
+## Rules: fusions, equips, rituals, drops and decks
+
+A mod may change what fuses into what, what an equip card may equip, what a
+ritual needs and makes, what each opponent drops and what its deck is dealt
+from, with no code and naming cards by name:
+
+```json
+"fusions": [ {"with": ["Kuriboh", "Mystical Elf"], "result": "Celtic Guardian"},
+             {"with": ["Baby Dragon", "Time Wizard"], "result": null} ],
+"equips":  [ {"card": "Legendary Sword", "add": ["Dragon"]} ],
+"drops":   { "Simon Muran": {"pow": {"Blue-eyes White Dragon": 20}} },
+"decks":   { "Heishin": {"Dark Magician": 60, "Kuriboh": 0} }
+```
+
+Weights are out of 2048, as the game's are, and the pools are always brought
+back to 2048. Several mods' edits of the same opponent add up rather than
+replace each other. [Gameplay tables](gameplay-tables.md) has every key, the
+opponents' names, and how the rules combine. Like cards, they need a restart.
+
+## Translations
+
+A mod may put the game's text in another language: dialogue, menus, card
+names and texts, types and duelists, accented letters included.
+`tools/pc/text_listing.py extract` writes the text out of the player's disc
+as an editable UTF-8 listing; the mod ships the translated file:
+
+```json
+{ "id": "spanish", "name": "Español", "text": "text.txt" }
+```
+
+[Translations](translation.md) describes the listing, its codes, the
+letters the port draws and how a font is added. Like cards, a translation
+needs a restart.
 
 ## Code mods
 

@@ -42,6 +42,16 @@ int Cards_ModelId(int id);
 int Cards_EffectId(int id);
 int Cards_Fusion(int a, int b, int *result);
 
+/* A card a manifest names: its id, a stable identity ("mod:entry:n"), or a
+ * retail card's name ("Blue-Eyes White Dragon"; case, spaces and punctuation
+ * do not matter). 0 for null or no value, -1 when it names no card. */
+struct JsonValue;
+int Cards_Reference(const struct JsonValue *value);
+int Cards_Named(const char *text);
+/* A monster type by name ("Winged Beast"), or -1; and the type of a card. */
+int Cards_TypeNamed(const char *text);
+int Cards_Type(int id);
+
 /* The retail card `id` is a copy of, or `id` itself; 0 for no card. */
 int Cards_BaseId(int id);
 /* Whether `id` names a card this run has. */

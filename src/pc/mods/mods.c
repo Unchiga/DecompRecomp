@@ -128,6 +128,8 @@ static int region_count;
 static Patch patches[PATCHES_MAX];
 static int patch_count;
 static int published_regions, published_patches;
+/* The mods applied at startup, in the order they were loaded. */
+static int loaded[MODS_MAX], loaded_count;
 static volatile int overrides_live;
 static int override_low, override_high;
 static void activate(int index, int on);
@@ -1113,6 +1115,13 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
         if (Json_Member(entry, "file") && Json_Member(entry, "replace")) mod->restart = 1;
     }
     if (Json_Count(mod->cards)) mod->restart = 1;
+    {   /* So are the rule tables (src/pc/cards/tables.c) and a translation
+         * (src/pc/text): both are read once, at startup. */
+        static const char *const tables[] = {"fusions", "equips", "rituals", "drops", "decks", "text", "font"};
+        for (size_t t = 0; t < sizeof(tables) / sizeof(tables[0]); t++) {
+            if (Json_Count(Json_Member(root, tables[t]))) mod->restart = 1;
+        }
+    }
     {   /* The key this mod's choice was stored under before it was a mod. */
         const char *legacy = Json_String(Json_Member(root, "legacy_setting"), NULL);
         char key[256];
@@ -1420,7 +1429,17 @@ void Mods_Load(void)
         }
         if (!changed) break;
     }
+    /* What the startup-only readers (rule tables, translation) see: the mods
+     * active once the game has started, in load order. A settings reload
+     * leaves it alone, as those readers do not run again. */
+    if (first) {
+        loaded_count = 0;
+        for (i = 0; i < count; i++) if (mods[order[i]].active) loaded[loaded_count++] = order[i];
+    }
 }
+
+int Mods_LoadedCount(void) { return loaded_count; }
+int Mods_Loaded(int index) { return index >= 0 && index < loaded_count ? loaded[index] : -1; }
 
 void Mods_Shutdown(void)
 {

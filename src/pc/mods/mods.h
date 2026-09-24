@@ -50,6 +50,10 @@ void Mods_SetEnabled(int mod, int enabled);
 struct JsonValue;
 void Mods_VisitCards(void (*visit)(const char *id, const char *directory, const struct JsonValue *cards, void *context),
                      void *context);
+/* The mods applied at startup, in the order they were loaded: where two
+ * of them set the same thing, the later one wins. */
+int Mods_LoadedCount(void);
+int Mods_Loaded(int index);
 /* One of a mod's settings (`mod.<id>.<key>`, or MEMORIES_MOD_<ID>_<KEY> for
  * the run), as a code mod's host->setting reads it. */
 int Mods_Setting(const char *id, const char *key, int fallback);

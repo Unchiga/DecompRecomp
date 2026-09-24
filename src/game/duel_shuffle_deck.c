@@ -6,6 +6,40 @@
 #include "duel_shuffle_both_decks.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/cards/tables.h"
+#include <string.h>
+
+/* An opponent's deck dealt from a pool a mod edited (tables.h): the draw
+   below, over every card this run has. */
+static void Duel_DealEditedDeck(const u16 *pool, u8 *out16, u8 *out8)
+{
+    static u8 held[CARD_TABLE_ID_END];
+    s32 n = 0;
+    s32 lim;
+    s32 acc;
+    s32 i;
+
+    memset(held, 0, sizeof(held));
+    while (n < DECK_SIZE) {
+        lim = (rand() & (DUEL_DROP_WEIGHT_TOTAL - 1)) + 1;
+        acc = 0;
+        for (i = 1; i <= gCard_nCount; i++) {
+            acc += pool[i];
+            if (acc >= lim) {
+                break;
+            }
+        }
+        if (i > gCard_nCount || held[i] >= DECK_CARD_COPY_LIMIT) {
+            continue;
+        }
+        held[i]++;
+        *(s16 *)out16 = i <= CARD_COUNT ? Cards_PickVariant(i, CARDS_USE_OPPONENT) : i;
+        *out8 = n;
+        n++;
+        out16 += 2;
+        out8 += 1;
+    }
+}
 #endif
 
 void Duel_ShuffleDeck(s32 src, u8 *out16, u8 *out8) {
@@ -29,6 +63,12 @@ void Duel_ShuffleDeck(s32 src, u8 *out16, u8 *out8) {
     b16 = (u16 *)out16;
     b8 = out8;
 
+#ifdef MEMORIES_PC
+    if (src == 0 && Tables_Pool(TABLES_POOL_DECK, (const u16 *)gDuel_awOpponentDeckPool) != 0) {
+        Duel_DealEditedDeck(Tables_Pool(TABLES_POOL_DECK, (const u16 *)gDuel_awOpponentDeckPool),
+                            out16, out8);
+    } else
+#endif
     if (src == 0) {
         for (i = CARD_COUNT - 1; i >= 0; i--) {
             buf[i] = 0;

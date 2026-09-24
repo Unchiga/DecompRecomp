@@ -27,6 +27,24 @@
 #define GRAPHICS_VIEWPORT_IN_DATA
 #include "graphics_frame.h"
 #include "func_80035E20.h"
+#ifdef MEMORIES_PC
+#include "gpu_packets.h"
+#include "pc/text/glyphs.h"
+
+/* A glyph past the retail font's is in a texture bank (glyphs.h), which a
+   sprite packet names in bits the sprite's own tpage cannot carry through
+   GsSortFastSprite: they go on the packet's draw-mode word. */
+static void sort_glyph_sprite(GsSPRITE *spr, GsOT *ot, s32 pri)
+{
+    u32 *packet = D_800FE240;
+
+    GsSortFastSprite(spr, ot, pri);
+    if (packet != D_800FE240) {
+        packet[1] |= spr->tpage & 0x7800;
+    }
+}
+#define GsSortFastSprite sort_glyph_sprite
+#endif
 
 #define GS_SPRITE_COLOR_WORD(sprite) (*(u32 *)&(sprite)->r)
 
@@ -186,6 +204,21 @@ void func_80035E20(DisplayObject *obj, GsOT *ot)
             spr->y = *(u16 *)(p - 8) + y;
         } else {
             spr = sprites[0];
+#ifdef MEMORIES_PC
+            spr->tpage = obj->field_66;
+            {
+                int tpage;
+                int u;
+                int v;
+
+                if (Glyphs_Cell((u16)c, p[2] == 1, obj->field_66, &tpage, &u, &v)) {
+                    spr->tpage = tpage;
+                    spr->u = u;
+                    spr->v = v;
+                    goto placed;
+                }
+            }
+#endif
             switch (c) {
             case 0x8171:
             case 0x8173:
@@ -313,6 +346,9 @@ void func_80035E20(DisplayObject *obj, GsOT *ot)
                 }
                 }
             }
+#ifdef MEMORIES_PC
+placed:
+#endif
             spr->cx = 0x280;
             spr->cy = p[0] + 0xE8;
             if (p[2] == 1) {
@@ -345,6 +381,15 @@ void func_80035E20(DisplayObject *obj, GsOT *ot)
             break;
         case 1:
             if ((p[-0xC] | (p[-0xE] | p[-0xD])) != 0) {
+#ifdef MEMORIES_PC
+                /* An added glyph's page and bank, the object's semi-
+                   transparency and depth. */
+                u16 page = ft4->tpage;
+
+                if (spr == sprites[0] && (spr->tpage & 0x7800)) {
+                    ft4->tpage = (page & 0x1E0) | (spr->tpage & 0x781F);
+                }
+#endif
                 SetGeomOffset((s16)spr->x + 8, (s16)spr->y + 8);
                 ft4->u0 = ft4->u2 = spr->u;
                 ft4->u1 = ft4->u3 = spr->u + 0xF;
@@ -377,6 +422,9 @@ void func_80035E20(DisplayObject *obj, GsOT *ot)
                                      &res[0], &res[1], &res[2]) > 0) {
                     GsSortPoly(ft4, ot, pri);
                 }
+#ifdef MEMORIES_PC
+                ft4->tpage = page;
+#endif
             } else {
                 GsSortFastSprite(spr, ot, pri);
             }

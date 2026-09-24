@@ -12,6 +12,9 @@
 #include "text_box_runtime.h"
 #include "dialog_choice_state.h"
 #include "text_constants.h"
+#ifdef MEMORIES_PC
+#include "pc/text/glyphs.h"
+#endif
 
 /* The retail body walks two pointers over the same four records: the record
  * base it hands to the per-record calls, and a second cursor parked on the
@@ -75,7 +78,12 @@ reset:
             arg = -1;
             idx = D_8009B35A;
             if (idx >= 0) {
+#ifdef MEMORIES_PC
+                /* An added glyph talks like its retail letter (glyphs.h). */
+                kind = table[Glyphs_Base(idx)].hi & 7;
+#else
                 kind = table[idx].hi & 7;
+#endif
                 if (kind == 4) {
                     arg = D_8009B356;
                 } else {

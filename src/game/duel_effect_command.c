@@ -11,6 +11,7 @@
 #include "../unmatched.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/text/text.h"
 #endif
 
 #define TEXT_STREAM_OWNER(object) ((TextStreamOwner *)(object))
@@ -129,6 +130,9 @@ void func_80037DA4(DuelEffectChannel *object)
         }
         text = (u8 *)((u32)D_801B0000 & 0xFFFF0000) + D_801C0000[n];
     }
+#ifdef MEMORIES_PC
+    text = (u8 *)Text_Resolve(id, text);   /* a translation's (text.h) */
+#endif
 store:
     slot = &TEXT_STREAM_OWNER(object)->streams[object->stream_58];
     *slot = text;
@@ -359,6 +363,9 @@ u32 *func_800383DC(DuelEffectChannel *a0) {
         }
         v1 = ((u32)D_801B0000 & TEXT_BANK_ADDRESS_MASK) + D_801C0000[a2];
     }
+#ifdef MEMORIES_PC
+    v1 = (u32)Text_Resolve(D_8009B32E, (const u8 *)v1);   /* a translation's (text.h) */
+#endif
 
     counter = *(u8 *)&a3->stream_58 + 1;
     *(u8 *)&a3->stream_58 = counter;

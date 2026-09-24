@@ -101,10 +101,11 @@ input before managed input hooks, so inspecting it cannot recurse into a hook.
 | `INPUT` | `a` pad port, `b` button bits; before can edit `b`, or replace with `result`; after receives the bits passed to the game |
 | `DAMAGE` | `a` affected side, `b` damage, `c` 0 battle / 1 spell or reflected recovery; initial `result` is current LP; handled replaces remaining LP; after observes clamped remaining LP before the caller stores it |
 | `REWARD` | `a` awarded card ID; edit it to replace the reward, or handle to cancel; invalid IDs are rejected |
-| `FUSION` | `a`, `b` input card IDs before base-card mapping; handled `result` is the resulting card, or zero to forbid a fusion |
+| `FUSION` | `a`, `b` input card IDs before base-card mapping; handled `result` is the resulting card, or zero to forbid a fusion. Unhandled, the mods' `fusions` rules ([gameplay tables](gameplay-tables.md)) come next |
 | `EFFECT` | Start: `a` presented card ID, `b` second-handler flag, `c=0`; update: `a` current effect card, `b` effect flags, `c=1`, `result` is returned flags. A custom multi-frame effect owns its flags and completion |
 | `AI` | Wraps the final `func_800279BC` turn-action decision. A replacement owns the AI selection record and returns its decision in `result` |
 | `SCENE` | Wraps `Main_ApplyMenuSelection`: `a` menu selection, `b` prior main mode; modify `a`, or handle the transition yourself |
+| `EQUIP` | `a` equip card, `b` monster; handled `result` nonzero lets the equip apply, zero refuses it. Unhandled, the mods' `equips` rules and then the disc's table decide |
 | `SETTINGS` | After only: `a` manager mod index, `b` option index, `c` new value after applying the settings batch |
 | `SAVE` | Before registered mod buffers are serialized: pack pointer-free state into your registered buffer |
 | `LOAD` | After save-state restoration and legacy reset callbacks: rebuild runtime caches from the registered buffer |

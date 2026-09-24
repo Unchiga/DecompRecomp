@@ -1,0 +1,27 @@
+{
+    "id": "example-tables",
+    "name": "Rule tables example",
+    "version": "1.0",
+    "author": "DecompRecomp",
+    "description": "Fusions, an equip, a ritual, drops and a CPU deck changed without code.",
+    "enabled": false,
+    "fusions": [
+        {"with": ["Kuriboh", "Mystical Elf"], "result": "Celtic Guardian"},
+        {"with": ["Baby Dragon", "Time Wizard"], "result": null},
+        {"remove": "Gaia the Dragon Champion"}
+    ],
+    "equips": [
+        {"card": "Legendary Sword", "add": ["Dragon"], "remove": ["Curse of Dragon"]}
+    ],
+    "rituals": [
+        {"card": "Black Luster Ritual", "tributes": ["Celtic Guardian", "Dark Magician", "Mystical Elf"],
+         "result": "Black Luster Soldier"}
+    ],
+    "drops": {
+        "Simon Muran": {"pow": {"Blue-eyes White Dragon": 20}},
+        "all": {"tec": {"Kuriboh": 0}}
+    },
+    "decks": {
+        "Heishin": {"Dark Magician": 60, "Kuriboh": 0}
+    }
+}

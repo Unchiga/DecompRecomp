@@ -12,6 +12,7 @@
 #include "pc/mods/exports.h"
 #include "pc/platform/game_files.h"
 #include "pc/cards/cards.h"
+#include "pc/text/text.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -139,7 +140,9 @@ int main(int argc, char **argv)
     }
     /* The mods are applied by now (Platform_Open reads the settings), and
      * the executable is in place: the cards they add come after its own. */
+    Text_Build();   /* the mods' translations and fonts, which the cards' names may use */
     Cards_Build();
+    Text_SortCards();
     note_settings(SET_COUNT, 0);
     Settings_Observe(note_settings);
 #ifndef _WIN32 /* the Windows runtime has no line buffering, and takes no size 0 */
