@@ -46,12 +46,14 @@ typedef struct WideTarget {
     int drawn;        /* primitives since this target was last presented */
     unsigned stamp;   /* last use, for reuse of the oldest slot */
     uint16_t *pixels;
+    uint32_t *picture; /* scaled companion, also used with the GL recorder */
 } WideTarget;
 static WideTarget wide[WIDE_TARGETS];
 static int wide_on;
 static unsigned wide_clock;
 /* The scaled picture (SoftGpu_SetScale): scale x scale pixels per word. */
 static uint32_t *picture;
+static uint32_t *wide_picture; /* only the widened primitive pass writes here */
 static int scale = 1, scale_shift; /* scale is 1, 2, 4 or 8: the picture wraps with masks and divides with shifts */
 static const SoftGpuRecorder *recorder; /* draws the picture instead, from a record (soft_gpu.h) */
 #define PICTURE_WIDTH (SOFT_GPU_WIDTH << scale_shift)
@@ -93,7 +95,7 @@ static void picture_from_words(int x, int y, int w, int h)
     if (!picture) return;
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
-            uint32_t colour = expand(*pixel(x + i, y + j));
+            uint32_t colour = expand(vram[((y + j) & 511) * SOFT_GPU_WIDTH + ((x + i) & 1023)]);
             for (sy = 0; sy < scale; sy++) {
                 for (sx = 0; sx < scale; sx++) *picture_pixel((x + i) * scale + sx, (y + j) * scale + sy) = colour;
             }
@@ -171,6 +173,10 @@ int SoftGpu_SetScale(int wanted)
         made = calloc((size_t)SOFT_GPU_WIDTH * wanted * SOFT_GPU_HEIGHT * wanted, sizeof(*made));
         if (!made) return 0;
     }
+    for (int t = 0; t < WIDE_TARGETS; t++) {
+        free(wide[t].picture);
+        wide[t].picture = NULL;
+    }
     free(picture);
     picture = made;
     scale = wanted;
@@ -210,6 +216,30 @@ static inline __attribute__((always_inline)) uint16_t sample(int x, int y)
     return texture_source[(y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + (x & (SOFT_GPU_WIDTH - 1))];
 }
 
+/* Seed transferred words in a scaled companion. Primitive rendering then
+ * replaces these blocks with samples at the requested internal resolution. */
+static void wide_picture_words(WideTarget *wt, int x, int y, int w, int h)
+{
+    if (!wt->picture) return;
+    for (int row = y; row < y + h; row++) {
+        for (int col = x; col < x + w; col++) {
+            uint32_t colour = expand(wt->pixels[row * SOFT_GPU_WIDTH + col]);
+            for (int sy = 0; sy < scale; sy++) {
+                uint32_t *out = wt->picture + (size_t)(row * scale + sy) * PICTURE_WIDTH + col * scale;
+                for (int sx = 0; sx < scale; sx++) out[sx] = colour;
+            }
+        }
+    }
+}
+
+static void wide_picture_prepare(WideTarget *wt)
+{
+    if (scale <= 1 || wt->picture) return;
+    wt->picture = calloc((size_t)PICTURE_WIDTH * PICTURE_HEIGHT, sizeof(*wt->picture));
+    wide_picture_words(wt, wt->x1, wt->y1, wt->x2 - wt->x1 + 1 + 2 * wt->margin,
+                       wt->y2 - wt->y1 + 1);
+}
+
 /* Copies what VRAM now holds in x,y,w,h into the centre of every
  * widescreen target it overlaps. A fill spanning a target's whole width
  * also fills its sides, as a cleared screen is cleared edge to edge. */
@@ -217,7 +247,7 @@ static void wide_mirror(int x, int y, int w, int h, int fill, uint16_t colour)
 {
     int t;
     for (t = 0; t < WIDE_TARGETS; t++) {
-        const WideTarget *wt = &wide[t];
+        WideTarget *wt = &wide[t];
         int x1 = x > wt->x1 ? x : wt->x1, x2 = x + w - 1 < wt->x2 ? x + w - 1 : wt->x2;
         int y1 = y > wt->y1 ? y : wt->y1, y2 = y + h - 1 < wt->y2 ? y + h - 1 : wt->y2;
         int row, column;
@@ -234,6 +264,10 @@ static void wide_mirror(int x, int y, int w, int h, int fill, uint16_t colour)
                 }
             }
         }
+        if (fill && x <= wt->x1 && x + w - 1 >= wt->x2)
+            wide_picture_words(wt, wt->x1, y1, wt->x2 - wt->x1 + 1 + 2 * wt->margin, y2 - y1 + 1);
+        else
+            wide_picture_words(wt, x1 + wt->margin, y1, x2 - x1 + 1, y2 - y1 + 1);
     }
 }
 
@@ -251,6 +285,7 @@ static WideTarget *wide_target(void)
         if (wt->pixels && wt->x1 == gpu.clip_x1 && wt->y1 == gpu.clip_y1 && wt->x2 == gpu.clip_x2 &&
             wt->y2 == gpu.clip_y2) {
             wt->stamp = ++wide_clock;
+            wide_picture_prepare(wt);
             return wt;
         }
         if (wide[t].stamp < wide[oldest].stamp) {
@@ -265,6 +300,8 @@ static WideTarget *wide_target(void)
     if (!wt->pixels && !(wt->pixels = malloc(sizeof(vram)))) {
         return NULL;
     }
+    free(wt->picture);
+    wt->picture = NULL;
     memset(wt->pixels, 0, sizeof(vram));
     wt->x1 = gpu.clip_x1;
     wt->y1 = gpu.clip_y1;
@@ -275,6 +312,7 @@ static WideTarget *wide_target(void)
     wt->stamp = ++wide_clock;
     /* Start from what VRAM holds, so a target made mid-frame is not black. */
     wide_mirror(wt->x1, wt->y1, w, h, 0, 0);
+    wide_picture_prepare(wt);
     return wt;
 }
 
@@ -286,9 +324,20 @@ void SoftGpu_SetWidescreen(int on)
     }
     wide_on = on;
     for (t = 0; t < WIDE_TARGETS; t++) {
+        free(wide[t].picture);
         free(wide[t].pixels);
         memset(&wide[t], 0, sizeof(wide[t]));
     }
+}
+
+const uint32_t *SoftGpu_WidePicture(int x, int y, int w, int h)
+{
+    for (int t = 0; t < WIDE_TARGETS; t++) {
+        WideTarget *wt = &wide[t];
+        if (wt->pixels && wt->x1 == x && wt->y1 == y && wt->x2 - wt->x1 + 1 == w &&
+            wt->y2 - wt->y1 + 1 >= h) return wt->picture;
+    }
+    return NULL;
 }
 
 int SoftGpu_WideFrameView(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w)
@@ -321,6 +370,8 @@ int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *
                     memset(out + wt->x1, 0, (size_t)wt->margin * 2);
                     memset(out + wt->x2 + wt->margin + 1, 0, (size_t)wt->margin * 2);
                 }
+                wide_picture_words(wt, wt->x1, y, wt->margin, h);
+                wide_picture_words(wt, wt->x2 + wt->margin + 1, y, wt->margin, h);
             }
             wt->drawn = 0;
             *pixels = wt->pixels;
@@ -575,7 +626,8 @@ static inline __attribute__((always_inline)) void picture_plot_in(int hx, int hy
     uint32_t *target, rgb = 0;
     int semi = flags & 2;
     if (gpu.mask_check && (*pixel(hx >> scale_shift, hy >> scale_shift) & 0x8000)) return;
-    target = picture_pixel(hx, hy);
+    target = wide_picture ? &wide_picture[(size_t)(hy & (PICTURE_HEIGHT - 1)) * PICTURE_WIDTH +
+                                          (hx & (PICTURE_WIDTH - 1))] : picture_pixel(hx, hy);
     if (flags & 4) {
         if (!picture_texel(u, v, &rgb)) return;
         semi = semi && (rgb & 0x80000000u);
@@ -806,7 +858,7 @@ static void line(Vertex a, Vertex b, int flags)
     if ((dx < 0 ? -dx : dx) > 1023 || (dy < 0 ? -dy : dy) > 511) {
         return;
     }
-    if (picture) { /* first: see the polygon's note */
+    if (wide_picture || (target == vram && picture)) { /* first: see the polygon's note */
         int hsteps = steps * scale, sx, sy;
         for (i = 0; i <= hsteps; i++) {
             int n = hsteps ? hsteps : 1;
@@ -904,7 +956,7 @@ static size_t polygon(const uint32_t *words, size_t count)
     }
     /* The picture's pass first: it reads the mask bits VRAM has before this
      * primitive, as the primitive's own pass does. */
-    if (picture) {
+    if (wide_picture || (target == vram && picture)) {
         picture_triangle(v[0], v[1], v[2], flags);
         if (quad) picture_triangle(v[1], v[2], v[3], flags);
     }
@@ -948,7 +1000,7 @@ static size_t rectangle(const uint32_t *words, size_t count)
         TextureDump_Primitive(texture_source, gpu.page_x, gpu.page_y, gpu.depth, gpu.clut_x, gpu.clut_y, base.u,
                               base.v, base.u + w - 1, base.v + h - 1);
     }
-    if (picture) { /* first: see the polygon's note */
+    if (wide_picture || (target == vram && picture)) { /* first: see the polygon's note */
         int hw = w * scale, hh = h * scale;
         for (j = 0; j < hh; j++) {
             for (i = 0; i < hw; i++) {
@@ -1031,8 +1083,10 @@ size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
                 }
                 gpu.offset_x += wt->margin;
                 target = wt->pixels;
+                wide_picture = wt->picture;
                 dither_shift = wt->margin;
                 draw(words + at, count - at);
+                wide_picture = NULL;
                 target = vram;
                 dither_shift = 0;
                 gpu.clip_x1 = clip_x1;

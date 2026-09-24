@@ -91,7 +91,7 @@ typedef struct {
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
 enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_COUNT };
-enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -106,17 +106,11 @@ static Menu menus[MENU_COUNT] = {
               {"Menu size", 0, ITEM_SUBMENU, 0, -1, SUB_MENU_SIZE},
               {"Fullscreen", "F11", ITEM_CHECK, MENU_ITEM_FULLSCREEN, SET_FULLSCREEN, 0, ITEM_GROUP_BREAK},
               {"Borderless window", 0, ITEM_CHECK, MENU_ITEM_BORDERLESS, SET_BORDERLESS},
-              {"Integer scaling", 0, ITEM_RADIO, MENU_ITEM_SCALING_INTEGER, SET_SCALING, 0, ITEM_GROUP_BREAK},
-              {"Fit to window", 0, ITEM_RADIO, MENU_ITEM_SCALING_FIT, SET_SCALING, 1},
-              {"Stretch", 0, ITEM_RADIO, MENU_ITEM_SCALING_STRETCH, SET_SCALING, 2},
-              {"4:3 aspect", 0, ITEM_RADIO, MENU_ITEM_ASPECT_4_3, SET_ASPECT, 0, ITEM_GROUP_BREAK},
-              {"Square pixels", 0, ITEM_RADIO, MENU_ITEM_ASPECT_SQUARE, SET_ASPECT, 1},
-              {"Widescreen (16:9)", 0, ITEM_RADIO, MENU_ITEM_ASPECT_WIDESCREEN, SET_ASPECT, 2},
+              {"Scaling", 0, ITEM_SUBMENU, 0, -1, SUB_SCALING, ITEM_GROUP_BREAK},
+              {"Aspect Ratio", 0, ITEM_SUBMENU, 0, -1, SUB_ASPECT},
+              {"Resolution", 0, ITEM_SUBMENU, 0, -1, SUB_RESOLUTION},
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
-              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC},
-              {"Console resolution", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 1, ITEM_GROUP_BREAK},
-              {"Internal 2x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 2},
-              {"Internal 4x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 4}}, 15},
+              {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC}}, 9},
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
@@ -172,6 +166,15 @@ static Menu submenus[SUB_COUNT] = {
                {"SPU", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_SPU},
                {"Input", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_INPUT},
                {"State", 0, ITEM_CHECK, CHECK_TRACE, -1, LOG_STATE}}, 5},
+    {"Scaling", {{"Integer scaling", 0, ITEM_RADIO, MENU_ITEM_SCALING_INTEGER, SET_SCALING, 0},
+                  {"Fit to window", 0, ITEM_RADIO, MENU_ITEM_SCALING_FIT, SET_SCALING, 1},
+                  {"Stretch", 0, ITEM_RADIO, MENU_ITEM_SCALING_STRETCH, SET_SCALING, 2}}, 3},
+    {"Aspect Ratio", {{"4:3 aspect", 0, ITEM_RADIO, MENU_ITEM_ASPECT_4_3, SET_ASPECT, 0},
+                       {"Square pixels", 0, ITEM_RADIO, MENU_ITEM_ASPECT_SQUARE, SET_ASPECT, 1},
+                       {"Widescreen (16:9)", 0, ITEM_RADIO, MENU_ITEM_ASPECT_WIDESCREEN, SET_ASPECT, 2}}, 3},
+    {"Resolution", {{"Console resolution", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 1},
+                     {"Internal 2x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 2},
+                     {"Internal 4x", 0, ITEM_RADIO, 0, SET_INTERNAL_SCALE, 4}}, 3},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;

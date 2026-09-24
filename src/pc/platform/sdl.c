@@ -1558,6 +1558,7 @@ int Platform_PresentPicture(const uint32_t *pixels, int stride, int x, int y, in
         return 1;
     }
     if (x < 0 || x + w > stride) return 0;
+    if (use_gl) GlPicture_Replay(); /* keep the normal picture current during widescreen */
     begin_present(w, h, at_scale);
     for (j = 0; j < h; j++) { /* the picture wraps at the bottom of VRAM, as VRAM does */
         memcpy(picture_pixels + (size_t)j * (size_t)w,

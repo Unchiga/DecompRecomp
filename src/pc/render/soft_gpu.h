@@ -39,6 +39,10 @@ void SoftGpu_SetWidescreen(int on);
 int SoftGpu_WideFrame(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w);
 /* The same picture without presenting it (frame dumps): nothing changes. */
 int SoftGpu_WideFrameView(int x, int y, int w, int h, const uint16_t **pixels, int *out_x, int *out_w);
+/* Scaled widened picture, SOFT_GPU_WIDTH * scale pixels per row. NULL at
+ * console resolution or if allocation failed. Call after WideFrame to also
+ * observe its clearing of stale side borders. */
+const uint32_t *SoftGpu_WidePicture(int x, int y, int w, int h);
 /* Internal resolution: with a scale above 1 every primitive is also drawn,
  * at scale x scale pixels per VRAM word, into a second picture of the whole
  * of VRAM in 24-bit colour, which is what is presented; VRAM itself stays
