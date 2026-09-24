@@ -20,6 +20,17 @@ mod's order keeps following its manifest `priority`. A failed restart keeps the 
 next launch. Active, inactive, pending, warning and error states are distinct.
 Changing a load-order value requires a restart. New directories are discovered
 on the next launch; native objects stay resident until exit.
+A live mod that requires a restart-only mod which is not in place yet waits for
+the same restart, and Apply offers it. Game > Reload settings follows the same
+rule: it records restart-only mods without putting them in place or taking them
+out. A mod that failed to go in place (a missing replacement file, say) is
+tried again after it is removed and applied again.
+
+A warning is text beside a mod that is still applied: manifest keys the game
+does not know (with the key it most likely meant), `enabled`/`restart` that are
+not booleans, another folder with the same id, a replacement larger than the
+file it replaces, and texture pack entries that were left out, counted, with
+the first file named.
 **Open mods folder** shows the folder new mods go in (`MEMORIES_MODS_DIR`, else
 the user `mods` folder, created if missing) in the system file manager.
 

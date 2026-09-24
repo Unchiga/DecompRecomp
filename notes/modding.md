@@ -62,6 +62,23 @@ bounds in `requires` are checked before activation. API 3 also supports
 `min_api`, `game`, `requires`, `after`, `conflicts`, `priority` and declarative
 `settings`; see [the API 3 guide](mod-api-3.md) for schemas and examples.
 
+Any other top-level key is a warning beside the mod in the Mods window, with
+the key it most likely meant: a manifest that says `"libary"` or `"texture"`
+would otherwise load a mod that does nothing, without a word
+(`unknown key 'libary' (did you mean 'library'?)`). `enabled` and `restart`
+that are not `true` or `false` are warned about too. A warning never stops
+the mod loading; the manifest keeps its warnings for the whole session,
+however often the mod is applied.
+
+Numbers are JSON's, in base 10, and must be whole (`1e3` is fine, `1.5` is
+an error, and so is `010`); arrays and objects nest at most 64 deep. A
+number written as a string (`"at": "0x5D800"`) may be hexadecimal with its
+`0x`, and is otherwise decimal.
+
+Two folders in one mods directory with the same `id` do not replace each
+other: the first by name is kept and says which one was left out. Across
+directories the player's copy still replaces the shipped one.
+
 ## Data mods: no code at all
 
 `data` is a list of entries, each naming a file on the disc by its retail
@@ -78,7 +95,8 @@ path (`"\\DATA\\CARD.MRG;1"`, as the game asks for it) or a raw sector
 
 * `replace` names a file the mod ships. It stands in for the whole file: the
   sectors past its end read as zeroes, and anything past the original file's
-  length is ignored, because the sectors after it belong to the next file.
+  length is ignored, because the sectors after it belong to the next file
+  (the Mods window warns when that happens).
   Replacing a raw `lba` region needs a `sectors` count as well.
 * `patch` writes `bytes` (hexadecimal, spaces optional) at `at`, an offset
   into the file, or into the sector when the entry names an `lba`. A run that
@@ -127,6 +145,54 @@ of them shows, the scaled picture shows all. The packs of every enabled
 mod add up. The extracted images themselves are the game's, so a pack
 ships painted images or a way to make them from the player's own disc,
 never the originals.
+
+A pack image does not need the extracted image's shape either: it is
+stretched to the texture's width and rows (the crop's width, below), so a
+4x image of a 102x96 card art is 408x384, and a wider or taller one is
+squeezed to fit rather than cropped.
+
+When two enabled packs replace the same image read the same way (the same
+archive offset, size, depth and palette), the one later in the mods' load
+order is drawn: the higher `priority` number, or the player's Order in the
+Mods window, or the one that names the other in `after`. That holds however
+the packs were applied, on Linux and on Windows alike. Entries of different
+sizes at one offset are not the same image; which one a texel comes from
+follows their size, not the packs.
+
+### The pack's manifest.json
+
+`manifest.json` is an array with one object per image. The texture pack
+loader (`src/pc/render/texture_pack.c`) reads these keys:
+
+| Key | Meaning |
+|---|---|
+| `file` | the PNG, relative to the pack's directory; `..` and absolute paths are refused |
+| `archive` | the archive on the disc the offsets are relative to, as the extractor names it (`WA_MRG.MRG`, looked up as `\DATA\WA_MRG.MRG;1`) |
+| `offset` | the image's first byte in the archive |
+| `words` | its width in 16-bit VRAM words (1 to 1024) |
+| `rows` | its height (1 to 512) |
+| `bpp` | 4, 8 or 16: how the game reads the words |
+| `clut_offset` | the palette's first byte in the archive; only used when `clut_entries` is not 0 |
+| `clut_entries` | the palette's size (16, 256), or 0 for a 16-bit image without one |
+| `stride` | words from one row to the next in the archive (default `words`) |
+| `row_offsets` | instead of a stride, each row's byte offset from `offset`: a list of exactly `rows` numbers, or `null` |
+| `crop_left` | the first texel of each row the image covers (default 0) |
+| `width` | how many texels from there it covers (default: the rest of the row) |
+
+The extractor also writes `alias` (what the image is), `height` (the rows
+again), and `sheet` and `column` (where a sheet's column stands, for
+`upscale_pack.py`); the game does not read them. Numbers are whole numbers,
+as everywhere in a manifest.
+
+An entry the loader cannot use is left out and counted, and the Mods window
+shows one line for the pack, for example `2 images could not be read
+(first: cards/001.png); 1 image is outside the pack (first: ../x.png)`: a
+file that is missing or not a PNG, a path outside the pack, measures out of
+range, a `row_offsets` list whose length is not `rows` (the image is then
+read with the stride), an entry without `file` or `archive`, or more than
+65535 images in all. PNGs are decoded the first time the game needs them;
+at load only their signature is checked, and a PNG that fails to decode
+later is reported on the console.
 
 `tools/pc/upscale_pack.py` makes a pack of upscaled images from an extracted
 set with Upscayl's command-line binary (Real-ESRGAN on the GPU): the same
@@ -308,9 +374,12 @@ the reason beside any that failed to load.
 
 Both were part of the executable until they became mods; they are the worked
 examples of a code mod that reaches deep into the game. 3D Monsters' knobs
-are its settings `depth`, `pixels`, `scale`, `lift`, `pitch` and `test`
-(`MEMORIES_MOD_3D_MONSTERS_SCALE=5000` for one run; they were
+are its declared settings `scale`, `pixels`, `lift`, `pitch` and `depth`, in
+the Mods window (`MEMORIES_MOD_3D_MONSTERS_SCALE=5000` for one run; they were
 `MEMORIES_MODS_SCALE` and so on before it became one object for both systems).
+One more, `test`, is read but not declared, so the window does not show it:
+`MEMORIES_MOD_3D_MONSTERS_TEST=<card>` stands a different monster in every
+zone from that card on, for measuring the cache and the arenas.
 
 ## Testing a mod
 
