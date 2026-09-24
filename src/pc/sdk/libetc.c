@@ -11,6 +11,7 @@
 #include <time.h>
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"
+#include "pc/debug/monitor.h"
 #include "pc/mods/mods.h"
 #ifdef _WIN32
 #include "pc/platform/win32.h"
@@ -258,6 +259,7 @@ int Memories_VSync(int mode)
         last_vsync = Platform_VBlankCount();
     }
     if (Platform_ShouldQuit()) {
+        Monitor_Shared()->exiting = 1; /* a slow shutdown is not a freeze */
         Mods_Shutdown(); /* mods get a word in before the process goes */
         Platform_StopTimers();
         exit(0);

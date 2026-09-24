@@ -6,6 +6,7 @@
 #include "psyq/libgpu.h"
 #include "pc/compat/libgs_ot.h"
 #include "pc/guest/image.h"
+#include "pc/debug/crash.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,7 +40,9 @@ void *func_80058F10(void)
 static void require(MemoriesGsResult result, const char *name)
 {
     if (result != MEMORIES_GS_OK) {
-        fprintf(stderr, "memories-pc: %s rejected its ordering table (%d)\n", name, (int)result);
+        char detail[96];
+        snprintf(detail, sizeof(detail), "%s rejected its ordering table (%d)", name, (int)result);
+        Crash_ReportFatal("GS", detail);
         exit(70);
     }
 }

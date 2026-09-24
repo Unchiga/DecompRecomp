@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "log.h"
+#include "monitor.h"
 #include "pc/platform/platform.h"
 #include "pc/sdk/display.h"
 #include <pthread.h>
@@ -11,8 +12,16 @@
 #include <time.h>
 
 #define SIGNAL_RECORDS 256
-#define TAIL_LINES 64
 #define LINE_SIZE 512
+/* The last lines stay in the monitor's shared block (monitor.h), so a
+ * report has them however the game ended. */
+#define TAIL_LINES MONITOR_TAIL_LINES
+#define tail (Monitor_Shared()->tail)
+#define tail_head (Monitor_Shared()->tail_head)
+/* Channels kept for reports even while not traced: quiet ones, that say
+ * what the game was doing (mods applied, states, the memory card, the duel
+ * models' commands). */
+#define RECORDED ((1u << LOG_MEMCARD) | (1u << LOG_MODS) | (1u << LOG_STATE) | (1u << LOG_MODEL))
 
 typedef struct {
     LogChannel channel;
@@ -34,8 +43,6 @@ static const char *const legacy_env[LOG_COUNT] = {
 static volatile uint32_t enabled;
 static SignalRecord signal_ring[SIGNAL_RECORDS];
 static volatile unsigned signal_head, signal_tail, signal_dropped;
-static char tail[TAIL_LINES][LINE_SIZE];
-static volatile unsigned tail_head;
 static FILE *log_file;
 static pthread_mutex_t output_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -54,6 +61,12 @@ const char *Log_ChannelName(LogChannel channel)
 int Log_Enabled(LogChannel channel)
 {
     return channel >= 0 && channel < LOG_COUNT && (__atomic_load_n(&enabled, __ATOMIC_RELAXED) >> channel & 1u);
+}
+
+int Log_Wanted(LogChannel channel)
+{
+    return channel >= 0 && channel < LOG_COUNT &&
+           ((__atomic_load_n(&enabled, __ATOMIC_RELAXED) | RECORDED) >> channel & 1u);
 }
 
 void Log_Enable(LogChannel channel, int on)
@@ -91,7 +104,8 @@ void Log_Init(void)
     if (path && *path) log_file = fopen(path, "a");
 }
 
-static void emit(LogChannel channel, uint64_t timestamp, unsigned frame, unsigned vblank, const char *message)
+/* `print`: to the console and the log file too, not only the ring. */
+static void emit(LogChannel channel, uint64_t timestamp, unsigned frame, unsigned vblank, const char *message, int print)
 {
     char line[LINE_SIZE];
     unsigned at;
@@ -99,7 +113,16 @@ static void emit(LogChannel channel, uint64_t timestamp, unsigned frame, unsigne
              (unsigned long long)timestamp, frame, vblank, Log_ChannelName(channel), message);
     pthread_mutex_lock(&output_lock);
     at = __atomic_fetch_add(&tail_head, 1, __ATOMIC_RELAXED);
-    snprintf(tail[at % TAIL_LINES], LINE_SIZE, "%s", line);
+    {   /* the ring's lines are shorter: cut, not overrun */
+        char *slot = tail[at % TAIL_LINES];
+        size_t length = strnlen(line, MONITOR_LINE_SIZE - 1);
+        memcpy(slot, line, length);
+        slot[length] = '\0';
+    }
+    if (!print) {
+        pthread_mutex_unlock(&output_lock);
+        return;
+    }
     fputs(line, stderr);
     if (!strchr(line, '\n')) fputc('\n', stderr);
     fflush(stderr);
@@ -115,11 +138,11 @@ void Log_Printf(LogChannel channel, const char *format, ...)
 {
     char message[384];
     va_list arguments;
-    if (!Log_Enabled(channel)) return;
+    if (!Log_Wanted(channel)) return;
     va_start(arguments, format);
     vsnprintf(message, sizeof(message), format, arguments);
     va_end(arguments);
-    emit(channel, timestamp_us(), Memories_PresentedFrames(), Platform_VBlankCount(), message);
+    emit(channel, timestamp_us(), Memories_PresentedFrames(), Platform_VBlankCount(), message, Log_Enabled(channel));
 }
 
 void Log_Signal(LogChannel channel, const char *literal_format,
@@ -129,7 +152,7 @@ void Log_Signal(LogChannel channel, const char *literal_format,
     unsigned tail_at = __atomic_load_n(&signal_tail, __ATOMIC_ACQUIRE);
     SignalRecord *record;
     struct timespec now;
-    if (!Log_Enabled(channel)) return;
+    if (!Log_Wanted(channel)) return;
     if (head - tail_at >= SIGNAL_RECORDS) {
         __atomic_fetch_add(&signal_dropped, 1, __ATOMIC_RELAXED);
         return;
@@ -155,7 +178,7 @@ void Log_Drain(void)
         char message[384];
         snprintf(message, sizeof(message), record->format, record->argument[0], record->argument[1],
                  record->argument[2], record->argument[3], record->argument[4], record->argument[5]);
-        emit(record->channel, record->timestamp, record->frame, record->vblank, message);
+        emit(record->channel, record->timestamp, record->frame, record->vblank, message, Log_Enabled(record->channel));
         tail_at++;
     }
     __atomic_store_n(&signal_tail, tail_at, __ATOMIC_RELEASE);
@@ -164,7 +187,7 @@ void Log_Drain(void)
         if (dropped) {
             char message[96];
             snprintf(message, sizeof(message), "signal log ring dropped %u records", dropped);
-            emit(LOG_STUB, timestamp_us(), Memories_PresentedFrames(), Platform_VBlankCount(), message);
+            emit(LOG_STUB, timestamp_us(), Memories_PresentedFrames(), Platform_VBlankCount(), message, 1);
         }
     }
 }

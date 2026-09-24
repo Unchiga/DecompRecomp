@@ -854,6 +854,55 @@ box naming the folder to put it in. Crash and hang reports, minidumps and
 menu frame dumps go to `reports/` in the user directory when the game is not
 run from a checkout (`Crash_ReportDir`; `tmp/pc` in one).
 
+### Crash reports
+
+The executable runs the game as its own child and stays as its monitor
+(`src/pc/debug/monitor.c`), so whatever ends or freezes the game, a report
+is written: `crash-<pid>.txt` or `hang-<pid>.txt` in `Crash_ReportDir`,
+with a message box naming it (not when headless or scripted;
+`MEMORIES_CRASH_DIALOG=0/1` decides). The two share a block of memory the
+game writes and the monitor reads, so what the game knew survives however
+it ended: facts (build and commit, OS or Wine version, CPU, memory, GPU and
+driver, SDL video and audio drivers, every setting, the applied mods), the
+runtime module last loaded, the frame and VBlank counts, and the last 128
+lines of the log. The mods, state, memory card and duel model channels are
+kept there even when not traced (`Log_Wanted`). The game's console output
+passes through the monitor into `last-session.log` (the run before in
+`previous-session.log`) and its last 200 lines into the report. The home
+folder is written `~` in the monitor's part of a report.
+
+- A crash the game's handlers see (`crash.c`) is reported by them first,
+  in the same file; the monitor adds its section after it. What they cannot
+  see is the monitor's alone: a fail-fast, the out-of-memory killer, a
+  stack Windows could not deliver an exception on, an unexplained exit.
+  On Linux it adds `coredumpctl info` (a stack per thread) when
+  systemd-coredump kept the core.
+- A freeze: no VSync for `MEMORIES_WATCHDOG` + 1 seconds (5 + 1 by
+  default; 30 before the first frame; never while paused, in a message
+  box, or quitting). The monitor lists every thread with its registers and
+  frames, taken from outside (ptrace and `/proc` on Linux, where the
+  game's own watchdog in the tick handler cannot see a freeze of the tick
+  itself; `GetThreadContext` on Windows) and writes a minidump on
+  Windows. If frames come again the report says so; if the player closes
+  the game, that too.
+- Errors the game cannot go on from (an unimplemented routine, a bad
+  ordering table, a MIPS overlay failure, a lost disc image) go through
+  `Crash_ReportFatal` to `crash-<pid>.txt` before the exit. Windows gets
+  `abort()` and the C runtime's invalid-parameter handler (logged and
+  ignored, as MinGW's own did) too, and the exception code for the exit
+  status of a crash.
+- `MEMORIES_NO_MONITOR=1`, or a debugger, runs the game alone. On Windows a
+  restart (mods window) is the monitor starting the game again; on Linux
+  `execv` keeps the same process.
+
+`MEMORIES_CRASH_TEST=<kind>@<frame>` fails on purpose
+(`src/pc/debug/crash_test.c`: segv, thread, overflow, abort, fatal, kill,
+hang, spin, deadlock, tickhang, slow, restart, null), and
+`tools/pc/crash_check.py [--windows]` runs every kind headless and checks
+its report; all 13 pass on Linux and under Wine. Not yet seen on real
+Windows: the message box, the minidump's size (Wine's is small), and the
+job that ends the game with the monitor.
+
 Every Linux build, the everyday one included, is the one that ships. A
 program built against this machine's libraries would ask for its glibc (2.43
 on Arch), so `build_game32.py` builds against Debian 11's i386 libraries, which
@@ -920,11 +969,11 @@ problem reporting on. It keeps a rolling state every 30 s
 `tmp/pc/debug/states` through `MEMORIES_AUTOSAVE_DIR`; F5 states stay in the
 user directory), traces in `tmp/pc/debug/trace.log` and the console in
 `tmp/pc/debug/console.txt`. `tmp/pc/hang-*.txt` / `crash-*.txt` hold named
-backtraces: PE symbols have no sizes, so the build sizes each function up to
-the next symbol, and addresses in a DLL are named by module. The hang
-watchdog runs on the clock thread (`Win32_SetStallReporter`), so it also
-reports a main thread stuck in a driver or a lock, which the tick cannot
-reach; a pause counts as alive.
+backtraces (see "Crash reports"): PE symbols have no sizes, so the build
+sizes each function up to the next symbol, and addresses in a DLL are named
+by module. The game's own hang watchdog runs on the clock thread
+(`Win32_SetStallReporter`), so it also reports a main thread stuck in a
+driver or a lock, which the tick cannot reach; a pause counts as alive.
 
 What differs from Linux, and why:
 
@@ -948,8 +997,12 @@ What differs from Linux, and why:
   any other access there through guest RAM (each site reported once).
 - **Stacks.** The game stack is at `0xB0000000` (32-bit Windows loads system
   DLLs around `0x70000000`; the mods keep `0x90000000`). `state.c` switches stacks with
-  `Memories_ContextSwitch` (`state_i386.S`) and moves the TEB's stack bounds
-  and exception chain with it, as fibers do.
+  `Memories_ContextSwitch` (`state_i386.S`) and moves the TEB's stack bounds,
+  `DeallocationStack` and exception chain with it, as fibers do. A guard
+  page 64 KiB above the game stack's bottom, below `DeallocationStack` so
+  that Windows and Wine take it for a plain guard page and not stack growth,
+  turns an overflow into a report; running off the end left no stack to
+  deliver the exception on, and the process just ended.
 - **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`
   labels are renamed to match. No GNU linker script: pins are absolute
   symbols from `guest_symbols.s`, and the game units' COMMON symbols for

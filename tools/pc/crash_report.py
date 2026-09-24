@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Report a Windows crash of memories-pc.exe from the minidump Windows wrote.
 
-Some crashes never reach the game's own handler (src/pc/debug/crash.c): with
-the stack pointer outside any writable memory, Windows cannot deliver the
-exception and ends the process at once. Windows Error Reporting still writes
-a dump to %LOCALAPPDATA%\\CrashDumps when local dumps are on; this reads it
-and writes tmp/pc/crash-<pid>.txt like the in-game report: the exception,
+Some crashes never reach the game's own handler (src/pc/debug/crash.c): a
+fail-fast, or a stack pointer outside any writable memory, where Windows
+cannot deliver the exception and ends the process at once. The game's
+monitor (src/pc/debug/monitor.c) still writes crash-<pid>.txt then, with
+the exit code, the log and the console output, but no dump. Windows Error
+Reporting writes one to %LOCALAPPDATA%\\CrashDumps when local dumps are on;
+this reads it and writes tmp/pc/crash-<pid>-wer.txt beside the monitor's
+report (and copies the dump to crash-<pid>-wer.dmp): the exception,
 the registers and what they point into, the game thread's frame chain, and
 the Windows clock's repair counters (src/pc/platform/win32.c).
 
@@ -14,7 +17,7 @@ the Windows clock's repair counters (src/pc/platform/win32.c).
                                                --wait S gives Windows S seconds to write it
     python tools/pc/crash_report.py DUMP       that dump
 
-play.bat and tools/pc/run_debug_windows.bat run it when the game crashes.
+tools/pc/run_debug_windows.bat runs it when the game crashes.
 """
 import argparse
 import bisect
@@ -320,10 +323,10 @@ def main():
     pid = numbers[-1] if numbers else "unknown"
     folder = os.path.join(ROOT, "tmp", "pc")
     os.makedirs(folder, exist_ok=True)
-    kept = os.path.join(folder, f"crash-{pid}.dmp")
+    kept = os.path.join(folder, f"crash-{pid}-wer.dmp")
     if os.path.abspath(path) != os.path.abspath(kept):
         shutil.copyfile(path, kept)
-    out = os.path.join(folder, f"crash-{pid}.txt")
+    out = os.path.join(folder, f"crash-{pid}-wer.txt")
     sys.stdout.write(report(kept, out))
     print(f"crash_report: wrote {os.path.relpath(out, ROOT)} and {os.path.relpath(kept, ROOT)}")
     return 0

@@ -475,7 +475,7 @@ void Memories_Unimplemented(const char *name)
         return;
     }
     fflush(stdout);
-    Crash_ReportSoft("unimplemented routine", name);
+    Crash_ReportFatal("unimplemented routine", name);
     Profile_Flush();
     _exit(70); /* not exit(): atexit handlers could re-enter game code */
 }

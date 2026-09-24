@@ -68,23 +68,35 @@ static unsigned region_count;
  * registers on that stack. The thread's stack bounds and exception-handler
  * chain live in its TEB and must follow the stack, as fibers do: exceptions
  * raised on a stack outside those bounds cannot be dispatched. Bounds are
- * the TEB's first three words: handler chain, stack base, stack limit. */
+ * the TEB's first three words (handler chain, stack base, stack limit) and
+ * its DeallocationStack (0xE0C), the bottom of the stack for Windows' guard
+ * page logic.
+ *
+ * The game stack's bottom is guarded (Win32_GuardStack): a guard page
+ * GUARD_ROOM above it, and DeallocationStack just above that, so Windows
+ * and Wine take a touch of it for a plain guard page exception (below
+ * DeallocationStack is not the stack to them, so not stack growth) with
+ * GUARD_ROOM of stack left to report the overflow in. Running off the end
+ * of the stack instead leaves no room to deliver the exception, and the
+ * process just ends. */
+#define GUARD_ROOM 0x10000u
 void Memories_ContextSwitch(uint32_t *from_esp, const uint32_t *to_esp);
 static uint32_t service_context, game_context;
-static uint32_t process_bounds[3];
-static const uint32_t game_bounds[3] = {0xffffffffu, STACK_TOP, STACK_BASE}; /* no handlers */
+static uint32_t process_bounds[4];
+static const uint32_t game_bounds[4] = {0xffffffffu, STACK_TOP, STACK_BASE, /* no handlers */
+                                        STACK_BASE + GUARD_ROOM + 0x1000u};
 
 static void save_stack_bounds(uint32_t *bounds)
 {
-    __asm__ volatile("movl %%fs:0, %0\n\tmovl %%fs:4, %1\n\tmovl %%fs:8, %2"
-                     : "=r"(bounds[0]), "=r"(bounds[1]), "=r"(bounds[2]));
+    __asm__ volatile("movl %%fs:0, %0\n\tmovl %%fs:4, %1\n\tmovl %%fs:8, %2\n\tmovl %%fs:0xe0c, %3"
+                     : "=r"(bounds[0]), "=r"(bounds[1]), "=r"(bounds[2]), "=r"(bounds[3]));
 }
 
 static void set_stack_bounds(const uint32_t *bounds)
 {
-    __asm__ volatile("movl %0, %%fs:0\n\tmovl %1, %%fs:4\n\tmovl %2, %%fs:8"
+    __asm__ volatile("movl %0, %%fs:0\n\tmovl %1, %%fs:4\n\tmovl %2, %%fs:8\n\tmovl %3, %%fs:0xe0c"
                      :
-                     : "r"(bounds[0]), "r"(bounds[1]), "r"(bounds[2])
+                     : "r"(bounds[0]), "r"(bounds[1]), "r"(bounds[2]), "r"(bounds[3])
                      : "memory");
 }
 
@@ -754,6 +766,7 @@ int Memories_StateRunGame(int (*entry)(void))
         top[4] = (uint32_t)(uintptr_t)run_game;
         top[5] = 0;
         game_context = (uint32_t)(uintptr_t)top;
+        Win32_GuardStack(STACK_BASE, GUARD_ROOM);
         save_stack_bounds(process_bounds);
         set_stack_bounds(game_bounds);
         /* Every load request re-enters here, on the process stack. */

@@ -111,7 +111,7 @@ static void say(const char *format, ...)
 {
     char message[512];
     va_list arguments;
-    if (!Log_Enabled(LOG_MODS)) return;
+    if (!Log_Wanted(LOG_MODS)) return;
     va_start(arguments, format);
     vsnprintf(message, sizeof(message), format, arguments);
     va_end(arguments);
@@ -188,7 +188,7 @@ static void host_log(const MemoriesModHost *host, const char *format, ...)
     char message[512];
     va_list arguments;
     Mod *mod = owner(host);
-    if (!Log_Enabled(LOG_MODS)) return;
+    if (!Log_Enabled(LOG_MODS)) return; /* a mod may log every frame: traced only */
     va_start(arguments, format);
     vsnprintf(message, sizeof(message), format, arguments);
     va_end(arguments);

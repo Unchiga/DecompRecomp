@@ -46,7 +46,7 @@ def stage(system, label):
     folder = os.path.join(DIST, "stage", system, f"{NAME}-{label}")
     shutil.rmtree(os.path.dirname(folder), ignore_errors=True)
     os.makedirs(os.path.join(folder, "game"))
-    for name in [executable, "buildid"] + extras:
+    for name in [executable, "buildid", "commit"] + extras:
         shutil.copy2(os.path.join(build_dir, name), folder)
     for name in ("mods", "sdk"):
         shutil.copytree(os.path.join(build_dir, name), os.path.join(folder, name))

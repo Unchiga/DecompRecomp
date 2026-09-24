@@ -11,6 +11,7 @@
  *   first sector arrives. */
 #include "pc/render/texture_dump.h"
 #include "image.h"
+#include "pc/debug/monitor.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,8 +52,15 @@ void Memories_GuestWritten(void *destination, size_t length)
         const MemoriesModule *module = &Memories_Modules[i];
         if (first <= module->bank && module->bank + 4 <= first + length &&
             *(const uint32_t *)(uintptr_t)module->bank == module->identifier) {
+            char *name = Monitor_Shared()->module; /* for reports; no stdio here */
+            size_t at = 0;
             memcpy(module->data, snapshots[i], (size_t)(module->data_end - module->data));
             memset(module->bss, 0, (size_t)(module->bss_end - module->bss));
+            while (module->name[at] && at < sizeof(Monitor_Shared()->module) - 1) {
+                name[at] = module->name[at];
+                at++;
+            }
+            name[at] = '\0';
         }
     }
 }

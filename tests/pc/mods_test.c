@@ -24,6 +24,7 @@
 /* --- the port around the mod system ---------------------------------- */
 
 int Log_Enabled(int channel) { (void)channel; return 0; }
+int Log_Wanted(int channel) { (void)channel; return 0; }
 void Log_Printf(int channel, const char *format, ...) { (void)channel; (void)format; }
 unsigned short Platform_Pad(int port) { (void)port; return 0; }
 int Symbols_Add(const SymbolsEntry *entries, size_t count) { (void)entries; (void)count; return 0; }

@@ -11,6 +11,7 @@
 #include "pc/platform/game_files.h"
 #include "pc/render/texture_dump.h"
 #include "pc/guest/image.h"
+#include "pc/debug/crash.h"
 #include "pc/debug/log.h"
 #include "pc/mods/mods.h"
 #include "pc/guest/state.h"
@@ -117,7 +118,9 @@ int DsInit(void)
         const char *path = GameFiles_Disc(why, sizeof(why));
         disc = path ? open(path, O_RDONLY) : -1;
         if (disc < 0) {
-            fprintf(stderr, "memories-pc: cannot open the disc image %s\n", path ? path : why);
+            char text[640];
+            snprintf(text, sizeof(text), "cannot open the disc image %s", path ? path : why);
+            Crash_ReportFatal("disc", text);
             _exit(1);
         }
     }

@@ -23,6 +23,7 @@
 #include "pc/compat/gte.h"
 #include "pc/rng.h"
 #include "pc/debug/log.h"
+#include "pc/debug/crash.h"
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,10 +93,13 @@ static int ensure_stack(void)
 
 static void fail(State *s, uint32_t pc, const char *what, uint32_t detail)
 {
+    char text[160];
     fprintf(stderr, "memories-pc: MIPS overlay: %s (0x%08x at 0x%08x)\n", what, detail, pc);
     if (s->escape) {
         longjmp(*s->escape, 1);
     }
+    snprintf(text, sizeof(text), "%s (0x%08x at 0x%08x)", what, detail, pc);
+    Crash_ReportFatal("MIPS overlay", text);
     exit(71);
 }
 
@@ -350,7 +354,9 @@ uint32_t Memories_MipsCall(uint32_t address, uint32_t a0, uint32_t a1, uint32_t 
 {
     uint32_t args[4] = {a0, a1, a2, a3}, result;
     if (Memories_MipsTry(address, args, 4, &result)) {
-        fprintf(stderr, "memories-pc: overlay routine 0x%08x failed with no fallback\n", address);
+        char text[96];
+        snprintf(text, sizeof(text), "overlay routine 0x%08x failed with no fallback", address);
+        Crash_ReportFatal("MIPS overlay", text);
         exit(71);
     }
     return result;
@@ -366,7 +372,9 @@ uint32_t Memories_MipsThunk(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, 
     uint32_t target = Memories_MipsThunkTarget, result;
     uint32_t args[12] = {a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11};
     if (Memories_MipsTry(target, args, 12, &result)) {
-        fprintf(stderr, "memories-pc: guest callback 0x%08x failed with no fallback\n", target);
+        char text[96];
+        snprintf(text, sizeof(text), "guest callback 0x%08x failed with no fallback", target);
+        Crash_ReportFatal("MIPS overlay", text);
         exit(71);
     }
     return result;

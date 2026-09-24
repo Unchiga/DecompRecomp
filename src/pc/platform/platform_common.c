@@ -9,6 +9,9 @@
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"
 #include "pc/debug/crash.h"
+#include "pc/debug/monitor.h"
+#include "pc/debug/crash_test.h"
+#include "pc/sdk/display.h"
 #include "pc/debug/profile.h"
 #include "pc/compat/signal.h"
 #include <pthread.h>
@@ -99,6 +102,8 @@ static void advance(uint64_t real_now)
 static void on_tick(uintptr_t eip, void *context)
 {
     uint64_t real_now = now_us();
+    while (CrashTest_TickHang) {
+    }
     Profile_Sample(eip);
 #ifndef _WIN32 /* Windows watches from the clock thread (Win32_SetStallReporter) */
     if (watchdog_seconds && rate != 0 && !watchdog_reported &&
@@ -188,6 +193,7 @@ void Platform_SetClockRate(int percent)
     if (percent > 400) percent = 400;
     if (percent > 0 && percent < 25) percent = 25;
     rate = percent;
+    Monitor_Shared()->paused = percent == 0; /* no VSync is expected: not a freeze */
 }
 
 int Platform_ClockRate(void) { return rate; }
@@ -238,6 +244,11 @@ int Platform_VSyncPacesGame(void)
 void Platform_VSyncHeartbeat(void)
 {
     sigset_t set, previous;
+    MonitorShared *monitor = Monitor_Shared();
+    monitor->frame = Memories_PresentedFrames();
+    monitor->vblank = vblank_count;
+    monitor->running = 1;
+    __atomic_add_fetch(&monitor->heartbeat, 1, __ATOMIC_RELEASE);
     sigemptyset(&set);
     sigaddset(&set, SIGALRM);
     sigprocmask(SIG_BLOCK, &set, &previous);
@@ -253,6 +264,7 @@ void Platform_VSyncHeartbeat(void)
      * thread only leaves the tick pending. Take it here, as the waits do. */
     Win32_ServiceInterrupt();
 #endif
+    CrashTest_Frame();
 }
 
 void Platform_SetVBlankPeriod(unsigned us)
