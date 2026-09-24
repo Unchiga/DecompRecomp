@@ -1,5 +1,6 @@
 /* Exercise manager transactions and dependency ordering against real manifests. */
 #define main original_mods_test
+#include "pc/compat/fs.h"
 #include "mods_test.c"
 #undef main
 #include "pc/mods/events.h"

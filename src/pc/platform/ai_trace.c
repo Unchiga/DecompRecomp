@@ -16,6 +16,7 @@
  * frame, so the interpreter yields there as a slow console would.
  * tools/pc/ai_trace_check.py reads the file; notes/pc-build.md has the
  * result. */
+#include "pc/compat/fs.h"
 #include "pc/platform/ai_trace.h"
 #include "pc/rng.h"
 #include <stdio.h>

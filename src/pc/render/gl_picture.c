@@ -23,6 +23,7 @@
  * no mask checks: the game only ever sets the mask bit. The rules are the
  * software picture pass's (soft_gpu.c), which is this pass's oracle
  * (MEMORIES_GL_PICTURE=0 selects it on the same build). */
+#include "pc/compat/fs.h"
 #include "gl_picture.h"
 #include "soft_gpu.h"
 #include "texture_pack.h"

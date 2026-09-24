@@ -17,6 +17,7 @@
  *    whole, so a poster cannot tear it, and the sound-effect slots are
  *    handed out by an atomic counter, so two posters never share one. */
 #define _POSIX_C_SOURCE 200809L
+#include "pc/compat/fs.h"
 #include "replace.h"
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"

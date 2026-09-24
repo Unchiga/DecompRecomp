@@ -5,6 +5,7 @@
  * on every thread they create. Windows interrupts the main thread from a
  * timer thread instead (win32.c). */
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "platform.h"
 #include "pc/guest/state.h"
 #include "pc/debug/log.h"

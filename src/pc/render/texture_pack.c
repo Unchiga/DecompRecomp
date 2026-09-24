@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include "texture_pack.h"
 #include "texture_dump.h"
 #include "soft_gpu.h"
@@ -105,6 +106,7 @@ static int compare(const void *a, const void *b)
 static int load_pixels(Entry *entry)
 {
     png_image image;
+    FILE *file;
     unsigned char *rgba;
     char path[1200];
     int width = entry->words * per_word(entry->bpp), height = entry->rows, x, y;
@@ -113,8 +115,10 @@ static int load_pixels(Entry *entry)
     snprintf(path, sizeof(path), "%s", entry->file);
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
-    if (!png_image_begin_read_from_file(&image, path)) {
+    file = fopen(path, "rb");
+    if (!file || !png_image_begin_read_from_stdio(&image, file)) {
         fprintf(stderr, "memories-pc: texture pack: %s cannot be read: %s\n", path, image.message);
+        if (file) fclose(file);
         entry->failed = 1;
         return 0;
     }
@@ -123,10 +127,12 @@ static int load_pixels(Entry *entry)
     if (!rgba || !png_image_finish_read(&image, NULL, rgba, 0, NULL)) {
         fprintf(stderr, "memories-pc: texture pack: %s cannot be read: %s\n", path, rgba ? image.message : "out of memory");
         free(rgba);
+        fclose(file);
         png_image_free(&image);
         entry->failed = 1;
         return 0;
     }
+    fclose(file);
     entry->pixels = calloc((size_t)width * height, sizeof(uint16_t));
     if (!entry->pixels) {
         fprintf(stderr, "memories-pc: texture pack: %s: out of memory\n", path);

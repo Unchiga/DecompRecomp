@@ -1,6 +1,7 @@
 /* Finding the player's disc image and reading the game's executable out of
  * it (game_files.h). Plain reads at startup, before the drive model (libds.c)
  * opens the image for the game. */
+#include "pc/compat/fs.h"
 #include "game_files.h"
 #include "paths.h"
 #include <dirent.h>
@@ -85,7 +86,7 @@ static int search(const char *folder)
 {
     DIR *directory;
     struct dirent *entry;
-    char best[256] = "";
+    char best[PATH_MAX_] = "";
     if (snprintf(found, sizeof(found), "%s/rpg-yfm.bin", folder) < (int)sizeof(found) && is_the_disc(found)) return 1;
     directory = opendir(folder);
     if (!directory) return 0;

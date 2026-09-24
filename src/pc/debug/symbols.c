@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include "symbols.h"
 #include "pc/guest/state.h"
 #include <stdio.h>

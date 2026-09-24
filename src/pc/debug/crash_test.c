@@ -21,6 +21,7 @@
  *
  * The frame defaults to 60. */
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "crash_test.h"
 #include "crash.h"
 #include "monitor.h"

@@ -1,5 +1,6 @@
 /* Legacy X11 controller adapter. Device discovery is independent of ports. */
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "controls_linux.h"
 #include "platform.h"
 #include <dirent.h>

@@ -15,7 +15,7 @@ build_game32.py builds every Linux executable against the result, so the one
 a developer runs is the one that is shared. Debian's own 32-bit libgcc comes
 with it, so the host needs gcc and binutils but not their 32-bit (multilib)
 parts; CMake and Ninja come from tools/pc/fetch_tools.py when missing."""
-import hashlib, lzma, os, re, shutil, subprocess, sys, tarfile, urllib.request
+import hashlib, lzma, os, re, shlex, shutil, subprocess, sys, tarfile, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SYSROOT = os.path.join(ROOT, "tmp", "pc", "linux-sysroot")
@@ -166,7 +166,7 @@ def flags():
     lib, gcc = os.path.join(SYSROOT, "usr/lib/i386-linux-gnu"), os.path.join(SYSROOT, GCC_LIB)
     return (["--sysroot=" + SYSROOT, "-isystem", os.path.join(SYSROOT, "usr/include/i386-linux-gnu")],
             ["--sysroot=" + SYSROOT, "-no-pie", "-nostartfiles", "-L" + gcc, "-L" + lib,
-             "-L" + os.path.join(SYSROOT, "lib/i386-linux-gnu"), "-Wl,-rpath-link," + lib, "-static-libgcc"])
+             "-L" + os.path.join(SYSROOT, "lib/i386-linux-gnu"), "-Xlinker", "-rpath-link", "-Xlinker", lib, "-static-libgcc"])
 
 
 def startfiles():
@@ -216,18 +216,21 @@ def build_sdl(sysroot_stamp):
     # well: they link with the sysroot's start-up objects like everything else.
     os.makedirs(SDL_BUILD, exist_ok=True)
     toolchain = os.path.join(SDL_BUILD, "sysroot-toolchain.cmake")
-    quote = lambda words: " ".join(words).replace("\\", "/")
-    with open(toolchain, "w") as handle:
+    # First quote for the shell that executes CMake's command; then use a
+    # CMake bracket argument so $, quotes and backslashes stay literal.
+    quote = shlex.join
+    bracket = lambda text: "[====[" + text + "]====]"
+    with open(toolchain, "w", encoding="utf-8") as handle:
         handle.write(f"""set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR i686)
-set(CMAKE_SYSROOT "{SYSROOT}")
+set(CMAKE_SYSROOT {bracket(SYSROOT)})
 set(CMAKE_LIBRARY_ARCHITECTURE i386-linux-gnu)
 set(CMAKE_C_COMPILER gcc)
-set(CMAKE_C_FLAGS_INIT "-m32 {quote(compile_flags)}")
+set(CMAKE_C_FLAGS_INIT {bracket("-m32 " + quote(compile_flags))})
 set(CMAKE_ASM_FLAGS_INIT "-m32")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-m32 {quote(link_flags)}")
+set(CMAKE_EXE_LINKER_FLAGS_INIT {bracket("-m32 " + quote(link_flags))})
 set(CMAKE_C_LINK_EXECUTABLE
-    "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> {quote(startfiles())} <OBJECTS> -o <TARGET> <LINK_LIBRARIES> {quote(endfiles())}")
+    {bracket("<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> " + quote(startfiles()) + " <OBJECTS> -o <TARGET> <LINK_LIBRARIES> " + quote(endfiles()))})
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

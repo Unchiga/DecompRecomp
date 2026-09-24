@@ -23,6 +23,7 @@
  * one is trusting it. */
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE   /* MAP_ANONYMOUS, MAP_FIXED_NOREPLACE */
+#include "pc/compat/fs.h"
 #include "mods.h"
 #include "modapi.h"
 #include "exports.h"

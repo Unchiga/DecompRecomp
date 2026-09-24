@@ -18,6 +18,7 @@
  * with a reset.
  *
  * MEMORIES_TITLE_AT=N[,N...] requests it at presented frames N (checks). */
+#include "pc/compat/fs.h"
 #include "pc/platform/title_jump.h"
 #include "pc/platform/menu.h"
 #include "pc/saves/save_menu.h"

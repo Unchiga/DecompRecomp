@@ -14,6 +14,7 @@
  * from elapsed time. */
 #ifdef _WIN32
 #define _WIN32_WINNT 0x0A00 /* GetCurrentThreadStackLimits, high-resolution timers */
+#include "pc/compat/fs.h"
 #include "win32.h"
 #include "pc/debug/crash.h"
 #include "pc/debug/monitor.h"
@@ -333,16 +334,22 @@ void Win32_ImageRange(uintptr_t *low, uintptr_t *high)
 int Win32_ModuleName(uintptr_t address, char *out, unsigned size, uintptr_t *offset)
 {
     HMODULE module;
-    char path[MAX_PATH];
+    wchar_t wide[MAX_PATH];
+    char *path;
     const char *name;
+    DWORD length;
     if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            (LPCSTR)address, &module) ||
-        !GetModuleFileNameA(module, path, sizeof(path))) {
+                            (LPCSTR)address, &module)) {
         return 0;
     }
+    length = GetModuleFileNameW(module, wide, MAX_PATH);
+    if (!length || length >= MAX_PATH) return 0;
+    path = Memories_WideToUtf8(wide);
+    if (!path) return 0;
     name = strrchr(path, '\\');
     snprintf(out, size, "%s", name ? name + 1 : path);
     *offset = address - (uintptr_t)module;
+    free(path);
     return 1;
 }
 
@@ -379,13 +386,17 @@ const char *Win32_FontPath(int japanese)
     static const char *const cjk[] = {"msgothic.ttc", "YuGothM.ttc", "meiryo.ttc", "segoeui.ttf", "arial.ttf", NULL};
     static char path[MAX_PATH];
     const char *const *name;
-    char directory[MAX_PATH];
-    UINT length = GetWindowsDirectoryA(directory, sizeof(directory));
-    if (!length || length >= sizeof(directory)) return NULL;
+    wchar_t wide[MAX_PATH];
+    char *directory;
+    UINT length = GetWindowsDirectoryW(wide, MAX_PATH);
+    if (!length || length >= MAX_PATH) return NULL;
+    directory = Memories_WideToUtf8(wide);
+    if (!directory) return NULL;
     for (name = japanese ? cjk : sans; *name; name++) {
         snprintf(path, sizeof(path), "%s\\Fonts\\%s", directory, *name);
-        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) return path;
+        if (!access(path, F_OK)) { free(directory); return path; }
     }
+    free(directory);
     return NULL;
 }
 
@@ -395,13 +406,17 @@ const char *Win32_SerifFontPath(void)
     static const char *const serif[] = {"times.ttf", "georgia.ttf", "timesbd.ttf", "georgiab.ttf", NULL};
     static char path[MAX_PATH];
     const char *const *name;
-    char directory[MAX_PATH];
-    UINT length = GetWindowsDirectoryA(directory, sizeof(directory));
-    if (!length || length >= sizeof(directory)) return NULL;
+    wchar_t wide[MAX_PATH];
+    char *directory;
+    UINT length = GetWindowsDirectoryW(wide, MAX_PATH);
+    if (!length || length >= MAX_PATH) return NULL;
+    directory = Memories_WideToUtf8(wide);
+    if (!directory) return NULL;
     for (name = serif; *name; name++) {
         snprintf(path, sizeof(path), "%s\\Fonts\\%s", directory, *name);
-        if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) return path;
+        if (!access(path, F_OK)) { free(directory); return path; }
     }
+    free(directory);
     return NULL;
 }
 
@@ -418,10 +433,14 @@ void Win32_StackRange(uintptr_t *low, uintptr_t *high)
 static void write_dump(const char *kind, EXCEPTION_POINTERS *pointers, DWORD thread)
 {
     char path[640];
+    wchar_t *wide;
     HANDLE file;
     MINIDUMP_EXCEPTION_INFORMATION exception;
     snprintf(path, sizeof(path), "%s/%s-%lu.dmp", Crash_ReportDir, kind, GetCurrentProcessId());
-    file = CreateFileA(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    wide = Memories_Utf8ToWide(path);
+    if (!wide) return;
+    file = CreateFileW(wide, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    free(wide);
     if (file == INVALID_HANDLE_VALUE) return;
     exception.ThreadId = thread;
     exception.ExceptionPointers = pointers;

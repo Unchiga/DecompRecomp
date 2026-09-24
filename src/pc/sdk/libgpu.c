@@ -1,5 +1,6 @@
 /* LIBGPU entry points over the software GPU. Drawing completes synchronously,
  * so the queue/idle queries always report an idle GPU. */
+#include "pc/compat/fs.h"
 #include "types.h"
 #include "psyq/libgte.h"
 #include "psyq/libgpu.h"

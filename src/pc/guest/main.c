@@ -1,3 +1,4 @@
+#include "pc/compat/fs.h"
 #include "image.h"
 #include "state.h"
 #include "pc/platform/platform.h"
@@ -106,6 +107,11 @@ void Psx___main(void)
 
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
+    /* main's narrow argv is lossy under a legacy Windows code page. */
+    argv = Memories_Argv(&argc);
+    if (!argv) return 1;
+#endif
     const char *exe = argc > 1 ? argv[1] : NULL;
     launch_argv = argv;
     if (getenv("MEMORIES_MOD_EXPORTS")) {

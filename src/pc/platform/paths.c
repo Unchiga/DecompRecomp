@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
-#include <shlobj.h> /* SHGetFolderPathA; ahead of posix.h, which then skips its own declarations */
+#include <shlobj.h> /* SHGetFolderPathW */
 #endif
 #include "pc/compat/posix.h" /* mkdir, and readlink of /proc/self/exe, on Windows */
 #include <sys/stat.h>
@@ -70,10 +70,15 @@ const char *Paths_UserDir(void)
          * since the Games for Windows era; the player can find and back it
          * up without being told where to look. Ask the shell where Documents
          * is, since OneDrive and the folder's Location tab both move it. */
-        char documents[MAX_PATH];
+        wchar_t documents[MAX_PATH];
+        char *utf8 = NULL;
         const char *profile = getenv("USERPROFILE");
-        if (SHGetFolderPathA(NULL, CSIDL_PERSONAL, NULL, 0, documents) == S_OK)
-            snprintf(root, sizeof(root), "%s/My Games", documents);
+        if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, documents) == S_OK)
+            utf8 = Memories_WideToUtf8(documents);
+        if (utf8) {
+            snprintf(root, sizeof(root), "%s/My Games", utf8);
+            free(utf8);
+        }
         else
             snprintf(root, sizeof(root), "%s/Documents/My Games", profile && *profile ? profile : ".");
 #else

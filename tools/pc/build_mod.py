@@ -63,7 +63,7 @@ def compiler():
             continue
         clang = "clang" in os.path.basename(path)
         if clang:
-            resource = subprocess.run([path, "-print-resource-dir"], capture_output=True, text=True).stdout.strip()
+            resource = subprocess.run([path, "-print-resource-dir"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
             include = os.path.join(resource, "include")
             # The lld that came with this clang. Windows needs the .exe
             # spelled out: "ld.lld" already has an extension, so it adds none.
@@ -72,7 +72,7 @@ def compiler():
             if not linker:
                 continue  # clang without lld cannot merge the objects; try the next compiler
             return [path], CLANG_FLAGS + ["-isystem", include], [linker, "-r"]
-        include = subprocess.run([path, "-m32", "-print-file-name=include"], capture_output=True, text=True).stdout.strip()
+        include = subprocess.run([path, "-m32", "-print-file-name=include"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
         return [path], GCC_FLAGS + ["-isystem", include], [tool("ld") or "ld", "-m", "elf_i386", "-r"]
     sys.exit("build_mod: no compiler found; install clang or gcc (with 32-bit support), or set MEMORIES_MOD_CC")
 
@@ -85,7 +85,7 @@ def headers():
 
 
 def run(command):
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode:
         sys.exit(f"build_mod: {' '.join(command[:3])} ... failed\n{result.stdout}{result.stderr}")
     return result.stdout

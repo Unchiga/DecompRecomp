@@ -2,6 +2,7 @@
  * font renderer without booting guest code. Interaction goes through the
  * window's own keyboard API (Tab moves focus, Enter activates), so the
  * pictures stay correct when the layout changes. */
+#include "pc/compat/fs.h"
 #include "../../src/pc/platform/menu.c"
 #include "pc/platform/controls_window.h"
 #include <assert.h>

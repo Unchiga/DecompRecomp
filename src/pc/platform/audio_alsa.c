@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include "pc/compat/fs.h"
 #include "platform.h"
 #include <alsa/asoundlib.h>
 #include <pthread.h>
