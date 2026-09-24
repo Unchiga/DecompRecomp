@@ -4,8 +4,12 @@
  * profile the presenter already draws with (immediate mode, glOrtho), so the
  * quad's own texture coordinates and the bound picture texture are what it
  * samples. Effects, each a setting that is off at its default:
- *   Colour (Video > Colour): gamma, then contrast about mid grey, then
- *   brightness, then saturation against Rec. 601 luma. */
+ *   Colour (Video > Color): gamma, then contrast about mid grey, then
+ *   brightness, then saturation against Rec. 601 luma.
+ *   CRT (Video > Effects): a scanline per line of the console's picture
+ *   (240: the source's height over its nearest multiple of 240) darkened
+ *   towards its edges, and an aperture grille of window pixels, with the
+ *   brightness they take given back. */
 #include "present_pass.h"
 #include "pc/platform/settings.h"
 #include <SDL3/SDL.h>
@@ -45,18 +49,26 @@ static const char *fragment_source =
     "#version 120\n"
     "uniform sampler2D picture;\n"
     "uniform float brightness, contrast, saturation, gamma;\n"
+    "uniform int crt;\n"
+    "uniform float lines, t0, t1;\n"
     "void main() {\n"
     "    vec3 c = texture2D(picture, gl_TexCoord[0].xy).rgb;\n"
     "    c = pow(c, vec3(1.0 / gamma));\n"
     "    c = (c - 0.5) * contrast + 0.5;\n"
     "    c *= brightness;\n"
     "    c = mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, saturation);\n"
+    "    if (crt != 0) {\n"
+    "        float s = sin(3.14159265 * (gl_TexCoord[0].y - t0) / (t1 - t0) * lines);\n"
+    "        float m = mod(gl_FragCoord.x, 3.0);\n"
+    "        c *= mix(0.55, 1.0, s * s);\n"
+    "        c *= (m < 1.0 ? vec3(1.0, 0.8, 0.8) : m < 2.0 ? vec3(0.8, 1.0, 0.8) : vec3(0.8, 0.8, 1.0)) * 1.3;\n"
+    "    }\n"
     "    gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);\n"
     "}\n";
 
 static int state; /* 0 not tried, 1 ready, -1 unavailable */
 static GLuint program;
-static GLint u_picture, u_brightness, u_contrast, u_saturation, u_gamma;
+static GLint u_picture, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_lines, u_t0, u_t1;
 
 static GLuint compile(GLenum kind, const char *source)
 {
@@ -105,19 +117,23 @@ static int build(void)
     u_contrast = pp_GetUniformLocation(program, "contrast");
     u_saturation = pp_GetUniformLocation(program, "saturation");
     u_gamma = pp_GetUniformLocation(program, "gamma");
+    u_crt = pp_GetUniformLocation(program, "crt");
+    u_lines = pp_GetUniformLocation(program, "lines");
+    u_t0 = pp_GetUniformLocation(program, "t0");
+    u_t1 = pp_GetUniformLocation(program, "t1");
     return 1;
 }
 
 int PresentPass_Wanted(void)
 {
     return Settings_Get(SET_BRIGHTNESS) != 100 || Settings_Get(SET_CONTRAST) != 100 ||
-           Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100;
+           Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT);
 }
 
-int PresentPass_Begin(int source_w, int source_h, int output_w, int output_h)
+int PresentPass_Begin(int source_h, float t0, float t1)
 {
     GLint unit = 0;
-    (void)source_w, (void)source_h, (void)output_w, (void)output_h;
+    int multiple = (source_h + 120) / 240;
     if (!state) {
         state = build() ? 1 : -1;
         if (state < 0) fprintf(stderr, "memories-pc: present pass unavailable; colour settings do nothing\n");
@@ -132,6 +148,10 @@ int PresentPass_Begin(int source_w, int source_h, int output_w, int output_h)
     pp_Uniform1f(u_contrast, (float)Settings_Get(SET_CONTRAST) / 100.0f);
     pp_Uniform1f(u_saturation, (float)Settings_Get(SET_SATURATION) / 100.0f);
     pp_Uniform1f(u_gamma, (float)Settings_Get(SET_GAMMA) / 100.0f);
+    pp_Uniform1i(u_crt, Settings_Get(SET_CRT));
+    pp_Uniform1f(u_lines, (float)source_h / (float)(multiple > 0 ? multiple : 1));
+    pp_Uniform1f(u_t0, t0);
+    pp_Uniform1f(u_t1, t1);
     return 1;
 }
 

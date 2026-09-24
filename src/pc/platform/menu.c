@@ -93,7 +93,7 @@ typedef struct {
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
 enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_COUNT };
-enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -113,7 +113,8 @@ static Menu menus[MENU_COUNT] = {
               {"Resolution", 0, ITEM_SUBMENU, 0, -1, SUB_RESOLUTION},
               {"Smooth filtering", 0, ITEM_CHECK, MENU_ITEM_FILTER, SET_FILTER, 0, ITEM_GROUP_BREAK},
               {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC},
-              {"Color", 0, ITEM_SUBMENU, 0, -1, SUB_COLOR, ITEM_GROUP_BREAK}}, 10},
+              {"Color", 0, ITEM_SUBMENU, 0, -1, SUB_COLOR, ITEM_GROUP_BREAK},
+              {"Effects", 0, ITEM_SUBMENU, 0, -1, SUB_EFFECTS}}, 11},
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
@@ -187,6 +188,7 @@ static Menu submenus[SUB_COUNT] = {
                {"Saturation", 0, ITEM_SLIDER, 0, SET_SATURATION},
                {"Gamma", 0, ITEM_SLIDER, 0, SET_GAMMA},
                {"Reset", 0, ITEM_ACTION, ACT_RESET_COLOR, -1, 0, ITEM_GROUP_BREAK}}, 5},
+    {"Effects", {{"CRT scanlines", 0, ITEM_CHECK, 0, SET_CRT}}, 1},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;

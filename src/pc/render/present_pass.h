@@ -9,9 +9,9 @@
 /* Whether any effect is on (the settings are read every frame). */
 int PresentPass_Wanted(void);
 /* Around the picture's quad: Begin binds the effect program for a picture
- * texture of source_w x source_h texels shown at output_w x output_h window
- * pixels, End goes back to fixed function. Begin returns 0 (and End is not
+ * source_h texels high that the quad samples between texture rows t0 and
+ * t1, End goes back to fixed function. Begin returns 0 (and End is not
  * needed) when the program cannot be built; the quad then draws plainly. */
-int PresentPass_Begin(int source_w, int source_h, int output_w, int output_h);
+int PresentPass_Begin(int source_h, float t0, float t1);
 void PresentPass_End(void);
 #endif

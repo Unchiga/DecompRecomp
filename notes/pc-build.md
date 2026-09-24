@@ -452,6 +452,11 @@ settings that are off at their defaults:
   picture alone). They are applied in that order in the shader: gamma,
   contrast about mid grey, brightness, then saturation against Rec. 601
   luma. The sliders are in Video > Color, with Reset.
+- CRT scanlines (Video > Effects, `crt`). There is one scanline per line of
+  the console's picture: 240, the source height over its nearest multiple
+  of 240, so the lines match at every internal resolution. Each line is
+  darkened towards its edges, and an aperture grille is drawn over window
+  pixels, with the lost brightness given back.
 
 While every effect is at its default, the pass is not used, and the picture
 is drawn by the fixed-function quad exactly as before. The SDL_Render

@@ -58,6 +58,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_CONTRAST] = {"contrast", NULL, "MEMORIES_CONTRAST", NULL, 100, 50, 150},
     [SET_SATURATION] = {"saturation", NULL, "MEMORIES_SATURATION", NULL, 100, 0, 200},
     [SET_GAMMA] = {"gamma", NULL, "MEMORIES_GAMMA", NULL, 100, 50, 200},
+    /* 1: scanlines and an aperture grille on the picture (present_pass.c). */
+    [SET_CRT] = {"crt", NULL, "MEMORIES_CRT", NULL, 0, 0, 1},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

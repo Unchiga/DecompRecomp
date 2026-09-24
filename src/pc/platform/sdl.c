@@ -1101,13 +1101,14 @@ static void show(void)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
             effects = PresentPass_Wanted() &&
-                      PresentPass_Begin(gl_pass_rect[2], gl_pass_rect[3], output_w, output_h);
+                      PresentPass_Begin(gl_pass_rect[3], (float)gl_pass_rect[1] / (float)ph,
+                                        (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
             gl_quad_part(texture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h,
                          (float)gl_pass_rect[0] / (float)pw, (float)gl_pass_rect[1] / (float)ph,
                          (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
                          (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
         } else {
-            effects = PresentPass_Wanted() && PresentPass_Begin(picture_w, picture_h, output_w, output_h);
+            effects = PresentPass_Wanted() && PresentPass_Begin(picture_h, 0.0f, 1.0f);
             gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);
         }
         if (effects) PresentPass_End(); /* the menu and the HUD are not filtered */
