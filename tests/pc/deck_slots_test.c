@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 /* Deck slots (src/pc/saves/deck_slots.c): when a kept deck can replace the
  * current one, what the trunk holds afterwards, and the slot file. */
 #include "pc/saves/deck_slots.h"
