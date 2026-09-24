@@ -252,6 +252,7 @@ static void subsystems(MemoriesState *state)
     LibGte_State(state);
     LibPress_State(state);
     LibMcrd_State(state);
+    SaveMenu_State(state);
     Platform_State(state);
 }
 

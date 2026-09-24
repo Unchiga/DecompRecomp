@@ -4,6 +4,7 @@
 #include "pc/guest/state.h"
 #include "pc/platform/platform.h"
 #include "pc/platform/settings.h"
+#include "pc/saves/save_menu.h"
 #include "pc/sdk/disc.h"
 #include "pc/sdk/display.h"
 #include <stdio.h>
@@ -39,7 +40,7 @@ static void text(MenuCanvas *canvas, int x, int *y, const char *value)
     *y += 17 * s;
 }
 
-void Hud_Draw(MenuCanvas *canvas)
+static void draw_stats(MenuCanvas *canvas)
 {
     const FrameStats *stats = Memories_FrameStats();
     char line[512], rate[32] = "";
@@ -99,13 +100,36 @@ void Hud_Draw(MenuCanvas *canvas)
     }
 }
 
-unsigned Hud_Signature(void)
+/* The statistics, then the save slot menu over them. */
+void Hud_Draw(MenuCanvas *canvas)
+{
+    int x, y, w, h;
+    draw_stats(canvas);
+    SaveMenu_Draw(canvas, &x, &y, &w, &h);
+    if (!w || !h) return;
+    if (bounds.w && bounds.h) {
+        int right = bounds.x + bounds.w > x + w ? bounds.x + bounds.w : x + w;
+        int bottom = bounds.y + bounds.h > y + h ? bounds.y + bounds.h : y + h;
+        x = bounds.x < x ? bounds.x : x;
+        y = bounds.y < y ? bounds.y : y;
+        w = right - x;
+        h = bottom - y;
+    }
+    bounds.x = x; bounds.y = y; bounds.w = w; bounds.h = h;
+}
+
+static unsigned stats_signature(void)
 {
     const FrameStats *stats = Memories_FrameStats();
     int level = Settings_Get(SET_SHOW_HUD);
     if (!level) return 0;
     if (level == 2) return Memories_PresentedFrames() * 4u + 2u;
     return (stats->fps_tenths * 4096u + stats->shown_tenths) * 512u + (unsigned)(Platform_ClockRate() + 1) * 4u + 1u;
+}
+
+unsigned Hud_Signature(void)
+{
+    return stats_signature() ^ SaveMenu_Signature() * 2654435761u;
 }
 
 void Hud_Bounds(int *x, int *y, int *w, int *h)
