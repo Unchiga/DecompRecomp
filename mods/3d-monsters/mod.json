@@ -6,5 +6,56 @@
     "description": "Face-up monsters stand on their cards as the models the battle presentation uses, animating on the spot. The console had neither the RAM nor the VRAM for it.",
     "library": "3d-monsters",
     "enabled": false,
-    "legacy_setting": "3d_monsters"
+    "legacy_setting": "3d_monsters",
+    "settings": [
+        {
+            "key": "scale",
+            "label": "Model scale",
+            "type": "int",
+            "default": 4096,
+            "min": 512,
+            "max": 8192,
+            "step": 256,
+            "restart": true,
+            "description": "4096 is the original model scale."
+        },
+        {
+            "key": "pixels",
+            "label": "Target height",
+            "type": "int",
+            "default": 32,
+            "min": 8,
+            "max": 160,
+            "step": 4,
+            "restart": true,
+            "description": "Model height in game pixels."
+        },
+        {
+            "key": "lift",
+            "label": "Vertical lift",
+            "type": "int",
+            "default": 16,
+            "min": -4096,
+            "max": 4096,
+            "step": 128
+        },
+        {
+            "key": "pitch",
+            "label": "Field pitch threshold",
+            "type": "int",
+            "default": 512,
+            "min": 0,
+            "max": 4096,
+            "step": 64
+        },
+        {
+            "key": "depth",
+            "label": "Depth offset",
+            "type": "int",
+            "default": 3,
+            "min": 0,
+            "max": 64,
+            "step": 1
+        }
+    ]
 }

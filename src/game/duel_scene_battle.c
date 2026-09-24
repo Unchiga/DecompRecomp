@@ -1,3 +1,6 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 /*
  * Duel scene-state 9: the battle. It presents the attacker and the defender,
  * resolves the exchange, shows the damage and the guardian-star bonus, and
@@ -344,7 +347,11 @@ void DuelScene_UpdateBattle(void)
                         return;
                     }
                     view = (u8 *)&D_800E9FF0[D_8009B1D5 ^ 1];
+#ifdef MEMORIES_PC
+                    life = Mods_DamageLife(D_8009B1D5 ^ 1, H(view, 0x14), result, 0);
+#else
                     life = H(view, 0x14) - result;
+#endif
                     H(view, 0x14) = life;
                     if ((s16)life < 0) {
                         H(view, 0x14) = 0;
@@ -364,7 +371,11 @@ void DuelScene_UpdateBattle(void)
                 D_8009B1A4[1] = 0;
                 if (result < -1) {
                     view = (u8 *)&D_800E9FF0[D_8009B1D5];
+#ifdef MEMORIES_PC
+                    life = Mods_DamageLife(D_8009B1D5, H(view, 0x14), -result, 0);
+#else
                     life = H(view, 0x14) + result;
+#endif
                     H(view, 0x14) = life;
                     if ((s16)life < 0) {
                         H(view, 0x14) = 0;
@@ -486,7 +497,7 @@ void DuelScene_UpdateBattle(void)
 #ifdef MEMORIES_PC
             /* The 3D models are the base cards': a card past the disc's has
                none, and its id could be MODEL_SPECIAL_BATTLE_ID (Exodia). */
-            models[0].model_id = Cards_BaseId((s16)H(left, 0xC));
+            models[0].model_id = Cards_ModelId((s16)H(left, 0xC));
 #else
             models[0].model_id = H(left, 0xC);
 #endif
@@ -495,7 +506,7 @@ void DuelScene_UpdateBattle(void)
             models[0].field_04 = 0;
             models[0].field_07 = (D_8009B178[0] >> 9) & 1;
 #ifdef MEMORIES_PC
-            models[1].model_id = Cards_BaseId(right->card_id);
+            models[1].model_id = Cards_ModelId(right->card_id);
 #else
             models[1].model_id = right->card_id;
 #endif

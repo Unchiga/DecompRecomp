@@ -1,3 +1,6 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 #define D_8009B0CC_IN_DATA
 #define D_8009B362_IN_DATA
 #define GINPUT_PAD1_PRESSED_IN_DATA_VOLATILE
@@ -474,7 +477,11 @@ s32 Duel_SelectCardDrop(s32 pool_index)
     return 0;
 }
 
+#ifdef MEMORIES_PC
+static void Duel_AwardCardRetail(s32 card_id)
+#else
 void Duel_AwardCard(s32 card_id)
+#endif
 {
     s32 i;
     u8 *base = (u8 *)gDuel_awPlayerDeck;
@@ -498,3 +505,16 @@ void Duel_AwardCard(s32 card_id)
     } while (i >= 0);
     *destination = card_id;
 }
+
+#ifdef MEMORIES_PC
+void Duel_AwardCard(s32 card_id)
+{
+    MemoriesModEvent event = {MEMORIES_EVENT_REWARD, MEMORIES_BEFORE, 0, 0, 0, 0, 0};
+    event.a = card_id;
+    Mods_Dispatch(&event);
+    if (!Cards_Valid(event.a)) return;
+    if (!event.handled) { Duel_AwardCardRetail(event.a); }
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+
+}
+#endif

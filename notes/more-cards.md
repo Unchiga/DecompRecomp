@@ -6,8 +6,10 @@ wherever a card does: the Library, Build Deck, duels (the hand, the field, the
 3D battle, fusions, equips, rituals and card effects), duel rewards, the card
 viewer, saves, save states, trading and two-player duels.
 
-Each new card is a **copy** of a retail card, its *base*: it has the base's
-3D model, fusions, equips and effect. Everything a player reads off the card
+Each new card starts as a **copy** of a retail card, its *base*. Model, effect
+and fusion defaults come from that card, but entries can specify independent
+`model`, `effect` and `fusions` values. Managed code hooks can implement new
+behavior; see [Mod API 3](mod-api-3.md). Everything a player reads off the card
 can be its own: name, artwork, card text, ATK, DEF, type, guardian stars,
 level and attribute. What a mod leaves out is the base's. The disc has none
 of these cards, so wherever the game goes to the disc, or to a table laid out
@@ -53,7 +55,11 @@ The release ships no card mod; the checks below were made with test mods
 | `drops` | whether the card can be won in its base's place (default `true`, below) |
 | `opponents` | whether an opponent's deck can be dealt it in its base's place (default `false`) |
 
-What an entry leaves out is its base's. The ids follow each other in the order
+What an entry leaves out is its base's. Give entries explicit stable `id` keys. Saves use these identities; runtime
+IDs are remapped when mods change. Legacy numeric sidecars require explicit
+migration as described in [Mod API 3](mod-api-3.md#card-definitions-and-identities).
+
+The runtime ids follow each other in the order
 the mods are found (sorted by directory) and the entries are written. A mod
 with `cards` needs a restart to apply or remove, like a data override: the
 cards are counted once, when the game starts. The window and the log
@@ -135,8 +141,8 @@ the trade screen and its commit.
 
 **Beside the save.** A memory card block has no room for them either, so
 `cards/<duelist code>.txt` in the user directory holds them, a section per
-save sequence (`save <n>`, then `chest <id> <count>`, `seen <id>` and
-`deck <slot> <id> <base>` lines, then `end`), the newest eight kept. The
+save sequence (`save <n>`, then `chest2 <identity> <count>`, `seen2 <identity>` and
+`deck2 <slot> <old-id> <base> <identity>` lines, then `end`), the newest eight kept. The
 game's own save writes one (`SaveData_RequestWrite`, under the sequence the
 payload gets), a load reads the one for the loaded sequence
 (`SaveData_PollLoad`), a two-player load reads both saves', and a trade
@@ -144,8 +150,9 @@ rewrites both once the memory cards took it. NEW GAME is noticed by the
 running save's duelist code changing. A save made while no card mod was
 applied has no section, and gets the newest earlier one: what the player had
 when they last played with the mod. A deck that holds a card the run does not
-have (the mod was removed) gets each such slot's base back, from its `deck`
-line, so a duel never deals a card that is not there.
+have (the mod was removed) gets each such slot's base back, from its `deck2`
+line, so a duel never deals a card that is not there. Ownership and seen records
+for missing mods are retained; returning mods recover them by stable identity.
 
 **Its own art and text.** The game still loads the base's art record
 (`func_80029164`) and the base's thumbnail sector
@@ -193,14 +200,15 @@ rows of 200 (`CARD_GRID_SECTION_ROW_COUNT`).
 
 * Ids stop at 32766 (`CARD_ID_LIMIT`): card ids are signed 16-bit in the
   duel's records and 0x7FFF-masked beside their flags.
-* A card has its base's 3D model, and its base's effect and place in the
-  fusion, equip and ritual tables.
+* A card defaults to its base's 3D model and effect, with independent `model`
+  and `effect` borrowing available. Declarative recipes and code hooks extend
+  fusion behavior; equip and ritual tables still use the base.
 * The generated name plate is set in a system font, not the retail plates'
   own lettering; a `title` PNG replaces it.
 * Copies of Exodia's pieces do not complete Exodia, and Build Deck's one-copy
   rule for the pieces is by id: a copy is another card.
-* The sidecar records ids, so a save only makes sense with the same card mods
-  applied in the same order.
+* Legacy numeric sidecars require the original card mods and order for an
+  explicit migration. See [API 3 migration](mod-api-3.md); new sidecars use stable identities.
 * The Library's panels past section 7 carry no range numbers; the card number
   under the cursor is always shown.
 

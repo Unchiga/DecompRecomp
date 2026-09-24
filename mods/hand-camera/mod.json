@@ -1,10 +1,54 @@
 {
     "id": "hand-camera",
-    "name": "Hand camera (L1/R1 turn, L3/R3 zoom)",
+    "name": "Hand camera",
     "version": "1.0",
     "author": "DecompRecomp",
     "description": "Turns and zooms the duel camera with the shoulder buttons while the hand is up, where the console left them unused.",
     "library": "hand-camera",
     "enabled": true,
-    "legacy_setting": "hand_camera"
+    "legacy_setting": "hand_camera",
+    "settings": [
+        {
+            "key": "turn_speed",
+            "label": "Turn speed",
+            "type": "int",
+            "default": 20,
+            "min": 1,
+            "max": 100,
+            "step": 1
+        },
+        {
+            "key": "zoom_speed",
+            "label": "Zoom speed",
+            "type": "int",
+            "default": 6,
+            "min": 1,
+            "max": 40,
+            "step": 1
+        },
+        {
+            "key": "turn_left",
+            "label": "Turn left",
+            "type": "key",
+            "default": 1024
+        },
+        {
+            "key": "turn_right",
+            "label": "Turn right",
+            "type": "key",
+            "default": 2048
+        },
+        {
+            "key": "zoom_in",
+            "label": "Zoom in",
+            "type": "key",
+            "default": 2
+        },
+        {
+            "key": "zoom_out",
+            "label": "Zoom out",
+            "type": "key",
+            "default": 4
+        }
+    ]
 }

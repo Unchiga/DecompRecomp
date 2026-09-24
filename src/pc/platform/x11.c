@@ -456,6 +456,15 @@ static const MenuEvent *translate(const XEvent *event)
         out.key = key == XK_Escape ? MENU_KEY_ESCAPE : key == XK_F10 ? MENU_KEY_F10 : key == XK_Left ? MENU_KEY_LEFT
                 : key == XK_Right ? MENU_KEY_RIGHT : key == XK_Up ? MENU_KEY_UP : key == XK_Down ? MENU_KEY_DOWN
                 : key == XK_Return || key == XK_KP_Enter || key == XK_space ? MENU_KEY_ENTER : MENU_KEY_OTHER;
+        if (event->type == KeyPress && key == XK_space) strcpy(out.text, " ");
+        if (key == XK_Tab) out.key = MENU_KEY_TAB;
+        if (key == XK_BackSpace) out.key = MENU_KEY_BACKSPACE;
+        if (event->type == KeyPress && out.key != MENU_KEY_BACKSPACE && out.key != MENU_KEY_TAB &&
+            out.key != MENU_KEY_ESCAPE && out.key != MENU_KEY_ENTER) {
+            KeySym translated;
+            int length = XLookupString((XKeyEvent *)&event->xkey, out.text, sizeof(out.text) - 1, &translated, NULL);
+            if (length > 0) out.text[length] = 0;
+        }
         break;
     }
     default: break;
@@ -479,6 +488,21 @@ static void draw_mods(void)
         (unsigned)mods_canvas.width, (unsigned)mods_canvas.height);
     XFlush(display);
 }
+static void resize_mods(int w, int h)
+{
+    int screen = DefaultScreen(display);
+    XImage *next;
+    if (w < 1 || h < 1 || w > 8192 || h > 8192) return;
+    next = XCreateImage(display, DefaultVisual(display, screen), (unsigned)DefaultDepth(display, screen),
+                        ZPixmap, 0, NULL, (unsigned)w, (unsigned)h, 32, 0);
+    if (!next) return;
+    next->data = calloc((size_t)next->bytes_per_line, h);
+    if (!next->data || next->bits_per_pixel != 32) { XDestroyImage(next); return; }
+    XDestroyImage(mods_image); mods_image = next;
+    mods_canvas.pixels = (uint32_t *)next->data;
+    mods_canvas.width = w; mods_canvas.height = h; mods_canvas.stride = next->bytes_per_line / 4;
+    ModsWindow_Resize(w, h);
+}
 void Platform_OpenMods(void)
 {
     int screen;
@@ -488,6 +512,9 @@ void Platform_OpenMods(void)
     ModsWindow_Init();
     ModsWindow_Size(&mods_canvas.width, &mods_canvas.height);
     screen = DefaultScreen(display);
+    if (mods_canvas.width > DisplayWidth(display, screen) - 40) mods_canvas.width = DisplayWidth(display, screen) - 40;
+    if (mods_canvas.height > DisplayHeight(display, screen) - 60) mods_canvas.height = DisplayHeight(display, screen) - 60;
+    ModsWindow_Resize(mods_canvas.width, mods_canvas.height);
     mods_image = XCreateImage(display, DefaultVisual(display, screen),
         (unsigned)DefaultDepth(display, screen), ZPixmap, 0, NULL,
         (unsigned)mods_canvas.width, (unsigned)mods_canvas.height, 32, 0);
@@ -500,13 +527,13 @@ void Platform_OpenMods(void)
         (unsigned)mods_canvas.width, (unsigned)mods_canvas.height, 0, 0, 0);
     XStoreName(display, mods_window, "MODS");
     XSetTransientForHint(display, mods_window, window);
-    hints.flags = PMinSize | PMaxSize;
-    hints.min_width = hints.max_width = mods_canvas.width;
-    hints.min_height = hints.max_height = mods_canvas.height;
+    hints.flags = PMinSize;
+    hints.min_width = 620;
+    hints.min_height = 480;
     XSetWMNormalHints(display, mods_window, &hints);
     XSetWMProtocols(display, mods_window, &close_atom, 1);
     XSelectInput(display, mods_window, ExposureMask | KeyPressMask | KeyReleaseMask |
-        ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask);
+        ButtonPressMask | ButtonReleaseMask | PointerMotionMask | LeaveWindowMask | StructureNotifyMask);
     XMapRaised(display, mods_window);
     draw_mods();
 }
@@ -602,8 +629,10 @@ static void pump(void)
         if(event.type==FocusOut){if(!controls_window)ControlsRuntime_ResetKeys();mouse_bits=wheel_now=0;wheel_frames=0;}
 
         if (mods_window && event.xany.window == mods_window) {
-            if ((event.type == ClientMessage && (Atom)event.xclient.data.l[0] == close_atom) ||
-                ModsWindow_Event(translate(&event))) close_mods();
+            MenuEvent input = *translate(&event);
+            if (event.type == ConfigureNotify) resize_mods(event.xconfigure.width, event.xconfigure.height);
+            if (event.type == ClientMessage && (Atom)event.xclient.data.l[0] == close_atom) { input.type = MENU_EVENT_KEY_DOWN; input.key = MENU_KEY_ESCAPE; }
+            if (ModsWindow_Event(&input)) close_mods();
             else draw_mods();
             continue;
         }

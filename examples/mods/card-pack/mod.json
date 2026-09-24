@@ -1,0 +1,13 @@
+{
+    "id": "example-cards",
+    "name": "Independent card definitions example",
+    "version": "1.0",
+    "author": "DecompRecomp",
+    "description": "Two cards with stable save identities and their own fusion recipe. Artwork is inherited from the player's disc.",
+    "enabled": false,
+    "cards": [
+        {"id": "starlight-dragon", "copy": 1, "name": "Starlight Dragon", "attack": 2800,
+         "model": 1, "fusions": [{"with": 2, "result": "example-cards:moon-dragon:1"}]},
+        {"id": "moon-dragon", "copy": 1, "name": "Moon Dragon", "attack": 3200, "defense": 2700}
+    ]
+}

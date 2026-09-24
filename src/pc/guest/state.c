@@ -2,6 +2,7 @@
 #include "state.h"
 #include "pc/platform/paths.h"
 #include "pc/mods/mods.h"
+#include "pc/mods/events.h"
 #include "image.h"
 #include "pc/audio/spu.h"
 #include "pc/compat/gte.h"
@@ -181,9 +182,56 @@ int Memories_StateChunk(MemoriesState *state, const char *tag, const MemoriesSta
     return 1;
 }
 
+typedef struct { MemoriesState *state; int valid; } ModStateCheck;
+static void mod_state_tag(char *tag, size_t size, int owner)
+{
+    int ordinal = 0;
+    /* Rank by stable identity, independent of discovery and activation order. */
+    for (int i = 0; i < Mods_Count(); i++)
+        if (Mods_Active(i) && strcmp(Mods_Id(i), Mods_Id(owner)) < 0)
+            ordinal++;
+    snprintf(tag, size, "mod:%d", ordinal);
+}
+static void mod_state_visit(int owner, void *data, size_t size, unsigned version, void *context)
+{
+    MemoriesState *state = context;
+    char tag[16];
+    MemoriesStateField fields[] = {{&version, sizeof(version)}, {data, size}};
+    mod_state_tag(tag, sizeof(tag), owner);
+    Memories_StateChunk(state, tag, fields, 2);
+}
+static void mod_state_check(int owner, void *data, size_t size, unsigned version, void *context)
+{
+    ModStateCheck *check = context;
+    char tag[16]; size_t have = 0; unsigned saved = 0;
+    const uint8_t *chunk;
+    (void)data;
+    mod_state_tag(tag, sizeof(tag), owner);
+    chunk = find_chunk(check->state, tag, &have);
+    if (chunk && have >= sizeof(saved)) memcpy(&saved, chunk, sizeof(saved));
+    if (!chunk || have != size + sizeof(version) || saved != version) check->valid = 0;
+}
+static int compatible_mods(MemoriesState *state)
+{
+    size_t size = 0;
+    const uint8_t *chunk = find_chunk(state, "mod-set", &size);
+    unsigned saved = 0, current = Mods_Signature();
+    ModStateCheck check = {state, 1};
+    if (chunk && size == sizeof(saved)) memcpy(&saved, chunk, size);
+    /* Old vanilla states remain usable; old modded states have no way to
+     * establish card identity or native callback compatibility. */
+    if ((!chunk && current != 2166136261u) || (chunk && (size != sizeof(saved) || saved != current))) return 0;
+    Mods_VisitState(mod_state_check, &check);
+    return check.valid;
+}
+
 static void subsystems(MemoriesState *state)
 {
+    unsigned signature = Mods_Signature();
+    MemoriesStateField mod_set = {&signature, sizeof(signature)};
     MemoriesStateField gpu[2], gte[1];
+    if (!Memories_StateLoading(state)) Memories_StateChunk(state, "mod-set", &mod_set, 1);
+    Mods_VisitState(mod_state_visit, state);
     unsigned gte_size;
     gpu[0].data = SoftGpu_StateData(0, &gpu[0].size);
     gpu[1].data = SoftGpu_StateData(1, &gpu[1].size);
@@ -272,6 +320,10 @@ static int save(const char *path)
         tagged(tag, sizeof(tag), "bss", region->name);
         Memories_StateChunk(&state, tag, bss, 1);
     }
+    {
+        MemoriesModEvent event = {MEMORIES_EVENT_SAVE, MEMORIES_BEFORE, 0, 0, 0, 0, 0};
+        Mods_Dispatch(&event);
+    }
     subsystems(&state);
     Spu_Hold(0);
     hold_signals(0);
@@ -328,6 +380,10 @@ static void apply(void)
     pending_image = NULL;
     Spu_Hold(0);
     Mods_Reset(); /* another game: whatever the mods were holding is not it */
+    {
+        MemoriesModEvent event = {MEMORIES_EVENT_LOAD, MEMORIES_AFTER, 0, 0, 0, 0, 0};
+        Mods_Dispatch(&event);
+    }
     fprintf(stderr, "memories-pc: state loaded\n");
     hold_signals(0);
 #ifdef _WIN32
@@ -610,6 +666,10 @@ static int load(const char *path)
         fprintf(stderr, "memories-pc: %s was saved by another build and was not loaded\n", path);
         free(image);
         return -1;
+    }
+    if (!compatible_mods(&state)) {
+        fprintf(stderr, "memories-pc: save state uses different mods, card definitions or mod state layouts; restore its mod profile first\n");
+        free(image); return -1;
     }
     pending_image = image;
     pending_size = (size_t)length;

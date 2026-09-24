@@ -33,10 +33,12 @@
  * keeps working, and one built against a later version can check host->api
  * before it calls an entry the host may not have.
  *   1  the first
- *   2  now_us, map_fixed; setting() reads MEMORIES_MOD_<ID>_<KEY> first */
-#define MEMORIES_MOD_API 2
+ *   2  now_us, map_fixed; setting() reads MEMORIES_MOD_<ID>_<KEY> first
+ *   3  managed events, registered state and stable card lookup */
+#include "mod_types.h"
 
 typedef struct MemoriesModHost MemoriesModHost;
+
 
 typedef struct {
     unsigned api;      /* MEMORIES_MOD_API */
@@ -86,7 +88,7 @@ struct MemoriesModHost {
     int (*disc_file_start)(const MemoriesModHost *host, const char *iso_path);
     int (*disc_read)(const MemoriesModHost *host, int lba, int sectors, void *out);
 
-    /* The pad, as the game sees it: the buttons of port 0 or 1. */
+    /* Normalized pad buttons of port 0 or 1, before managed input hooks. */
     unsigned short (*pad)(const MemoriesModHost *host, int port);
 
     /* --- API 2 --- */
@@ -99,6 +101,18 @@ struct MemoriesModHost {
      * needs data at a fixed guest-sized address, as the game's own model
      * code does; anything else should use malloc. */
     void *(*map_fixed)(const MemoriesModHost *host, uintptr_t address, size_t size);
+    /* --- API 3 ---
+     * A token of zero means registration failed. Hooks remain registered
+     * while disabled but never run; failed initialization removes them.
+     * Register during Init; do not install raw pointers in game save data. */
+    int (*subscribe)(const MemoriesModHost *, unsigned event, int priority, MemoriesModCallback);
+    void (*unsubscribe)(const MemoriesModHost *, int token);
+    /* One pointer-free state buffer per mod, persisted in save states.
+     * Keep it alive until shutdown. Bump version whenever its layout changes.
+     * SAVE/BEFORE and LOAD/AFTER let a mod pack/unpack its state here. */
+    int (*register_state)(const MemoriesModHost *, void *data, size_t size, unsigned version);
+    /* Resolve a stable "mod-id:card-key" identity after card tables build. */
+    int (*card_id)(const MemoriesModHost *, const char *identity);
 };
 
 /* The symbol a mod's object defines, and its type. */

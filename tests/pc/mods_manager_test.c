@@ -1,0 +1,118 @@
+/* Exercise manager transactions and dependency ordering against real manifests. */
+#define main original_mods_test
+#include "mods_test.c"
+#undef main
+#include "pc/mods/events.h"
+
+static int calls[8], call_count;
+static void low(MemoriesModEvent *e)
+{
+    calls[call_count++] = 1;
+    e->b += 2;
+}
+static void high(MemoriesModEvent *e)
+{
+    calls[call_count++] = 2;
+    e->b *= 3;
+}
+static void replace(MemoriesModEvent *e)
+{
+    calls[call_count++] = 3;
+    e->handled = 1;
+    e->result = 17;
+}
+int main(void)
+{
+    char path[1024], error[256];
+    int enabled[MODS_MAX] = {0}, order[MODS_MAX], a, b, partial;
+    unsigned char sector[2048] = {0};
+    MemoriesModEvent event = {MEMORIES_EVENT_DAMAGE, MEMORIES_BEFORE, 0, 4, 0, 0, 0};
+    scratch_template(root, sizeof(root), "memories-manager");
+    assert(mkdtemp(root));
+    make_dir("mods");
+    make_dir("mods/a");
+    write_text(
+        "mods/a/mod.json",
+        "{\"id\":\"a\",\"version\":\"1.2\",\"settings\":[{\"key\":\"speed\",\"default\":5,\"min\":1,\"max\":10}]}");
+    make_dir("mods/b");
+    write_text("mods/b/mod.json",
+               "{\"id\":\"b\",\"requires\":[{\"id\":\"a\",\"min_version\":\"1.1\"}],\"after\":[\"a\"]}");
+    make_dir("mods/partial");
+    write_text("mods/partial/mod.json", "{\"id\":\"partial\",\"enabled\":true,\"data\":[{\"lba\":5000,\"patch\":[{"
+                                        "\"at\":0,\"bytes\":\"AA\"},{\"at\":1,\"bytes\":\"ZZ\"}]}]}");
+    make_dir("mods/cycle-a");
+    make_dir("mods/invalid-data");
+    write_text("mods/invalid-data/mod.json",
+               "{\"id\":\"invalid-data\",\"enabled\":true,\"data\":[{\"lba\":5001,\"patch\":{}}]}");
+    write_text("mods/cycle-a/mod.json", "{\"id\":\"cycle-a\",\"after\":[\"cycle-b\"]}");
+    make_dir("mods/cycle-b");
+    write_text("mods/cycle-b/mod.json", "{\"id\":\"cycle-b\",\"after\":[\"cycle-a\"]}");
+    make_dir("mods/invalid-schema");
+    write_text("mods/invalid-schema/mod.json",
+               "{\"id\":\"invalid-schema\",\"settings\":[{\"key\":\"oops\",\"default\":99,\"max\":10}]}");
+    snprintf(path, sizeof(path), "%s/mods", root);
+    assert(!setenv("MEMORIES_MODS_DIR", path, 1));
+    snprintf(path, sizeof(path), "%s/settings.txt", root);
+    assert(!setenv("MEMORIES_SETTINGS", path, 1));
+    assert(!setenv("MEMORIES_USER_DIR", root, 1));
+    Settings_Load();
+    Mods_Load();
+    a = find("a");
+    b = find("b");
+    partial = find("partial");
+    assert(a >= 0 && b >= 0 && partial >= 0);
+    assert(Mods_Failed(partial) && !Mods_Active(partial));
+    assert(!Mods_DiscSector(5000, sector) && sector[0] == 0);
+    assert(Mods_Failed(find("invalid-schema")));
+    assert(Mods_Failed(find("invalid-data")) && !Mods_Active(find("invalid-data")));
+    enabled[find("cycle-a")] = enabled[find("cycle-b")] = 1;
+    assert(Mods_Order(enabled, order, error, sizeof(error)) < 0);
+    enabled[find("cycle-a")] = enabled[find("cycle-b")] = 0;
+    enabled[b] = 1;
+    assert(!Mods_Validate(enabled, error, sizeof(error)));
+    assert(strstr(error, "requires a"));
+    enabled[a] = 1;
+    assert(Mods_Validate(enabled, error, sizeof(error)));
+    Settings_SetNamed("mod.b.order", -100);
+    assert(Mods_Order(enabled, order, error, sizeof(error)) == 2 && order[0] == a && order[1] == b);
+    assert(!Mods_OptionSet(a, 0, 99));
+    assert(Mods_OptionSet(a, 0, 7));
+    assert(Mods_OptionValue(a, 0) == 7);
+    assert(Mods_Apply(enabled, error, sizeof(error)));
+    assert(Mods_Active(a) && Mods_Active(b));
+    assert(Mods_ProfileSave("Test profile"));
+    enabled[a] = enabled[b] = 0;
+    assert(Mods_ProfileRead("Test profile", enabled));
+    assert(enabled[a] && enabled[b]);
+    assert(Mods_ProfileValue("Test profile", "mod.a.speed", 0) == 7);
+    assert(!Mods_ProfileSave("../escape"));
+    int h1 = Mods_Subscribe(a, MEMORIES_EVENT_DAMAGE, 0, low), h2 = Mods_Subscribe(b, MEMORIES_EVENT_DAMAGE, 10, high);
+    assert(h1 && h2);
+    Mods_Dispatch(&event);
+    assert(call_count == 2 && calls[0] == 2 && calls[1] == 1 && event.b == 14);
+    call_count = 0;
+    event.phase = MEMORIES_AFTER;
+    Mods_Dispatch(&event);
+    assert(event.b == 14); /* observers cannot change result */
+    int h3 = Mods_Subscribe(b, MEMORIES_EVENT_DAMAGE, 20, replace);
+    assert(h3);
+    call_count = 0;
+    event.phase = MEMORIES_BEFORE;
+    Mods_Dispatch(&event);
+    assert(call_count == 1 && event.result == 17 && event.handled);
+    Mods_Unsubscribe(b, h3);
+    Mods_SetEnabled(b, 0);
+    call_count = 0;
+    event.handled = 0;
+    Mods_Dispatch(&event);
+    assert(call_count == 1 && calls[0] == 1);
+    Mods_ClearHooks(a);
+    call_count = 0;
+    Mods_Dispatch(&event);
+    assert(call_count == 0);
+    assert(!setenv("MEMORIES_SETTINGS", "/dev/null/settings", 1));
+    enabled[b] = 1;
+    assert(!Mods_Apply(enabled, error, sizeof(error)));
+    assert(!Mods_Enabled(b));
+    return 0;
+}

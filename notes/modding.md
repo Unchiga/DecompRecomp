@@ -57,8 +57,10 @@ Every mod has a `mod.json`:
 | `textures` | a directory inside the mod holding a texture pack, below |
 | `cards` | cards the mod adds after the disc's 722, below |
 
-`version`, `author` and `description` are for people; the game does not read
-them.
+`version`, `author` and `description` are displayed in the manager. Version
+bounds in `requires` are checked before activation. API 3 also supports
+`min_api`, `game`, `requires`, `after`, `conflicts`, `priority` and declarative
+`settings`; see [the API 3 guide](mod-api-3.md) for schemas and examples.
 
 ## Data mods: no code at all
 
@@ -193,7 +195,7 @@ int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
 }
 ```
 
-The hooks are `frame` (after the game has queued its own drawing, which is
+The legacy hooks are `frame` (after the game has queued its own drawing, which is
 where an extra pass can draw over the finished picture), `applied` (the
 player applied or removed the mod), `reset` (a save state was loaded, so
 anything cached from the old game is stale) and `shutdown`.
@@ -207,6 +209,12 @@ the player's settings file as `mod.<id>.<key>`, and read from
 (memory at an address the mod chooses, as 3D Monsters' model arenas need).
 A mod that uses an entry newer than API 1 should refuse to start when
 `host->api` is older.
+
+API 3 adds managed gameplay events, named configuration profiles and registered
+save-state buffers. The [API 3 guide](mod-api-3.md) describes damage, reward,
+fusion, effect, AI, input and scene hooks, their ordering/cancellation rules,
+and stable card identities. The [manager](mods-window.md) exposes descriptions,
+settings, compatibility and staged batch changes.
 
 ### Building one
 

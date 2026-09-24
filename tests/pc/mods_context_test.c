@@ -4,7 +4,9 @@
 #include "../../src/pc/platform/sdl.c"
 #include <assert.h>
 
+void Monitor_Modal(int on) { (void)on; }
 void ModsWindow_Init(void) {}
+void ModsWindow_Resize(int w, int h) { (void)w; (void)h; }
 void ModsWindow_Size(int *w, int *h) { *w = 780; *h = 294; }
 void ModsWindow_Draw(MenuCanvas *c)
 {
@@ -29,6 +31,12 @@ int main(void)
         assert(SDL_GL_GetCurrentWindow() == window);
         glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack);
         assert(unpack == 320);
+        draw_mods();
+        assert(SDL_GL_GetCurrentContext() == gl_context);
+        glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack);
+        assert(unpack == 320);
+        resize_mods(920, 640);
+        assert(mods_canvas.width == 920 && mods_canvas.height == 640);
         draw_mods();
         assert(SDL_GL_GetCurrentContext() == gl_context);
         glGetIntegerv(GL_UNPACK_ROW_LENGTH, &unpack);

@@ -118,17 +118,41 @@ static void draw_mods(void)
     SDL_RenderPresent(mods_renderer);
     restore_game_context();
 }
+static void resize_mods(int w, int h)
+{
+    SDL_Texture *texture;
+    uint32_t *pixels;
+    if (w < 1 || h < 1 || w > 8192 || h > 8192) return;
+    pixels = calloc((size_t)w * h, 4);
+    texture = SDL_CreateTexture(mods_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+    restore_game_context();
+    if (!pixels || !texture) { free(pixels); if (texture) SDL_DestroyTexture(texture); restore_game_context(); return; }
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+    SDL_DestroyTexture(mods_texture); free(mods_canvas.pixels);
+    mods_texture = texture; mods_canvas.pixels = pixels;
+    mods_canvas.width = mods_canvas.stride = w; mods_canvas.height = h;
+    ModsWindow_Resize(w, h);
+    restore_game_context();
+}
 void Platform_OpenMods(void)
 {
     sigset_t previous;
     if (mods_window) { SDL_RaiseWindow(mods_window); return; }
     ModsWindow_Init();
     ModsWindow_Size(&mods_canvas.width, &mods_canvas.height);
+    {
+        SDL_Rect bounds;
+        if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &bounds)) {
+            if (mods_canvas.width > bounds.w - 40) mods_canvas.width = bounds.w - 40;
+            if (mods_canvas.height > bounds.h - 60) mods_canvas.height = bounds.h - 60;
+            ModsWindow_Resize(mods_canvas.width, mods_canvas.height);
+        }
+    }
     mods_canvas.stride = mods_canvas.width;
     mods_canvas.pixels = calloc((size_t)mods_canvas.width * mods_canvas.height, 4);
     /* Driver worker threads must inherit the blocked game timer signals. */
     block_signals(&previous);
-    mods_window = SDL_CreateWindow("MODS", mods_canvas.width, mods_canvas.height, 0);
+    mods_window = SDL_CreateWindow("Mods", mods_canvas.width, mods_canvas.height, SDL_WINDOW_RESIZABLE);
     mods_renderer = mods_window ? SDL_CreateRenderer(mods_window, NULL) : NULL;
     mods_texture = mods_renderer ? SDL_CreateTexture(mods_renderer, SDL_PIXELFORMAT_ARGB8888,
         SDL_TEXTUREACCESS_STREAMING, mods_canvas.width, mods_canvas.height) : NULL;
@@ -141,6 +165,8 @@ void Platform_OpenMods(void)
         Monitor_Modal(0);
         close_mods(); return;
     }
+    SDL_SetWindowMinimumSize(mods_window, 620, 480);
+    SDL_StartTextInput(mods_window);
     show_cursor();
     draw_mods();
 }
@@ -1139,6 +1165,8 @@ static MenuKey menu_key(SDL_Keycode key)
     switch (key) {
     case SDLK_ESCAPE: return MENU_KEY_ESCAPE;
     case SDLK_F10: return MENU_KEY_F10;
+    case SDLK_TAB: return MENU_KEY_TAB;
+    case SDLK_BACKSPACE: return MENU_KEY_BACKSPACE;
     case SDLK_LEFT: return MENU_KEY_LEFT;
     case SDLK_RIGHT: return MENU_KEY_RIGHT;
     case SDLK_UP: return MENU_KEY_UP;
@@ -1169,6 +1197,10 @@ static void translate(const SDL_Event *event, MenuEvent *out)
         out->wheel = event->wheel.y > 0 ? 1 : event->wheel.y < 0 ? -1 : 0;
         out->x = (int)event->wheel.mouse_x;
         out->y = (int)event->wheel.mouse_y;
+        break;
+    case SDL_EVENT_TEXT_INPUT:
+        out->type = MENU_EVENT_TEXT;
+        snprintf(out->text, sizeof(out->text), "%s", event->text.text);
         break;
     case SDL_EVENT_WINDOW_MOUSE_LEAVE: out->type = MENU_EVENT_LEAVE; break;
     case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:
@@ -1229,7 +1261,9 @@ static void pump(void)
         if(event.type==SDL_EVENT_KEY_UP)ControlsRuntime_Key(controls_key(event.key.scancode),0);
         if(dispatch_controls(&event, &menu_event))continue;
         if (mods_window && SDL_GetWindowFromEvent(&event) == mods_window) {
-            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED || ModsWindow_Event(&menu_event)) close_mods();
+            if (event.type == SDL_EVENT_WINDOW_RESIZED) resize_mods(event.window.data1, event.window.data2);
+            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) { menu_event.type = MENU_EVENT_KEY_DOWN; menu_event.key = MENU_KEY_ESCAPE; }
+            if (ModsWindow_Event(&menu_event)) close_mods();
             else draw_mods();
             continue;
         }

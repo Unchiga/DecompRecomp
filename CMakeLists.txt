@@ -64,7 +64,7 @@ if(BUILD_TESTING)
         target_compile_options(memories_json_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_json COMMAND memories_json_test)
-    add_executable(memories_mods_test tests/pc/mods_test.c src/pc/mods/mods.c src/pc/mods/mod_libc.c
+    add_executable(memories_mods_test tests/pc/mods_test.c src/pc/mods/mods.c src/pc/mods/events.c src/pc/mods/manager.c src/pc/mods/mod_libc.c
         src/pc/mods/object_loader.c src/pc/mods/json.c
         src/pc/platform/paths.c src/pc/platform/settings.c)
     target_include_directories(memories_mods_test PRIVATE src)
@@ -76,7 +76,23 @@ if(BUILD_TESTING)
         target_compile_options(memories_mods_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME pc_mods COMMAND memories_mods_test)
-    add_executable(memories_mods_window_test tests/pc/mods_window_test.c src/pc/platform/mods_window.c)
+    set(MOD_TEST_SOURCES src/pc/mods/mods.c src/pc/mods/manager.c src/pc/mods/events.c
+        src/pc/mods/mod_libc.c src/pc/mods/object_loader.c src/pc/mods/json.c
+        src/pc/platform/paths.c src/pc/platform/settings.c)
+    add_executable(memories_mods_manager_test tests/pc/mods_manager_test.c ${MOD_TEST_SOURCES})
+    target_include_directories(memories_mods_manager_test PRIVATE src)
+    target_link_libraries(memories_mods_manager_test PRIVATE m Threads::Threads)
+    add_test(NAME pc_mods_manager COMMAND memories_mods_manager_test)
+    add_executable(memories_cards_identity_test tests/pc/cards_identity_test.c src/pc/platform/paths.c)
+    target_include_directories(memories_cards_identity_test PRIVATE src)
+    target_compile_definitions(memories_cards_identity_test PRIVATE MEMORIES_PC)
+    if(NOT MSVC)
+        target_compile_options(memories_cards_identity_test PRIVATE -ffunction-sections -fdata-sections)
+        target_link_options(memories_cards_identity_test PRIVATE -Wl,--gc-sections)
+    endif()
+    add_test(NAME pc_cards_identity COMMAND memories_cards_identity_test)
+    add_executable(memories_mods_window_test tests/pc/mods_window_test.c src/pc/platform/mods_window.c ${MOD_TEST_SOURCES})
+    target_link_libraries(memories_mods_window_test PRIVATE m Threads::Threads)
     target_include_directories(memories_mods_window_test PRIVATE src)
     if(NOT MSVC)
         target_compile_options(memories_mods_window_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -156,6 +172,9 @@ if(Python3_Interpreter_FOUND)
     # The code mod loader runs in a 32-bit process, so it is built and run by
     # its own script (gcc -m32 here; smoke.py --windows runs the Windows half).
     if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME pc_mods_lifecycle
+            COMMAND "${Python3_EXECUTABLE}" tools/pc/test_mods_lifecycle.py --target linux
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
         add_test(NAME pc_object_loader
             COMMAND "${Python3_EXECUTABLE}" tools/pc/test_object_loader.py --target linux
             WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

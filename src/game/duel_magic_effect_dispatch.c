@@ -1,3 +1,9 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 #include "../types.h"
 #include "duel_side_state.h"
 #include "duel_grid.h"
@@ -40,7 +46,11 @@ void DuelEffect_ApplyHarpiesFeatherDuster(void)
     }
 }
 
+#ifdef MEMORIES_PC
+static int DuelEffect_UpdateCardEffectRetail(void)
+#else
 int DuelEffect_UpdateCardEffect(void)
+#endif
 {
     u16 flags = gDuel_wCardEffectFlags;
 
@@ -57,7 +67,11 @@ int DuelEffect_UpdateCardEffect(void)
     return gDuel_wCardEffectFlags;
 }
 
+#ifdef MEMORIES_PC
+static void DuelEffect_StartCardEffectRetail(int value, int flag)
+#else
 void DuelEffect_StartCardEffect(int value, int flag)
+#endif
 {
     int index;
 
@@ -65,7 +79,7 @@ void DuelEffect_StartCardEffect(int value, int flag)
     /* A card past the disc's has its base's effect, and the handlers that
        test gDuel_wEffectCardID for a particular card see the base. */
     if (value > 0) {
-        value = Cards_BaseId(value);
+        value = Cards_EffectId(value);
     }
 #endif
 
@@ -94,3 +108,29 @@ void DuelEffect_StartCardEffect(int value, int flag)
         }
     }
 }
+
+#ifdef MEMORIES_PC
+void DuelEffect_StartCardEffect(int value, int flag)
+{
+    MemoriesModEvent event = {MEMORIES_EVENT_EFFECT, MEMORIES_BEFORE, 0, 0, 0, 0, 0};
+    event.a = value; event.b = flag;
+    Mods_Dispatch(&event);
+
+    if (!event.handled) { DuelEffect_StartCardEffectRetail(event.a, event.b); }
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+
+}
+#endif
+
+#ifdef MEMORIES_PC
+int DuelEffect_UpdateCardEffect(void)
+{
+    MemoriesModEvent event = {MEMORIES_EVENT_EFFECT, MEMORIES_BEFORE, 0, 0, 0, 0, 0};
+    event.a = gDuel_wEffectCardID; event.b = gDuel_wCardEffectFlags; event.c = 1;
+    Mods_Dispatch(&event);
+
+    if (!event.handled) { event.result = DuelEffect_UpdateCardEffectRetail(); }
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+    return event.result;
+}
+#endif

@@ -49,6 +49,44 @@ extern unsigned char gDuel_abCardLevelAttr[];
 extern int Campaign_TestStoryFlag(int flag);
 extern void Library_UpdateCardUsedFlag(int flag);
 
+static char *identities[CARD_TABLE_ID_END];
+static const JsonValue *definitions[CARD_TABLE_ID_END];
+static unsigned short model_ids[CARD_TABLE_ID_END], effect_ids[CARD_TABLE_ID_END];
+const char *Cards_Identity(int id) { return id > CARD_COUNT && Cards_Valid(id) && identities[id] ? identities[id] : ""; }
+int Cards_FindIdentity(const char *identity)
+{
+    int id;
+    if (!identity || !*identity) return 0;
+    for (id = CARD_ID_END; id <= gCard_nCount; id++) if (identities[id] && !strcmp(identities[id], identity)) return id;
+    return 0;
+}
+int Cards_ModelId(int id) { return Cards_Valid(id) && model_ids[id] ? model_ids[id] : Cards_BaseId(id); }
+int Cards_EffectId(int id) { return Cards_Valid(id) && effect_ids[id] ? effect_ids[id] : Cards_BaseId(id); }
+static int card_reference(const JsonValue *value)
+{
+    const char *name = Json_String(value, "");
+    return strchr(name, ':') ? Cards_FindIdentity(name) : (int)Json_Number(value, 0);
+}
+int Cards_Fusion(int a, int b, int *result)
+{
+    int side;
+    if (!Cards_Valid(a) || !Cards_Valid(b)) return 0;
+    for (side = 0; side < 2; side++) {
+        const JsonValue *fusions = Json_Member(definitions[side ? b : a], "fusions");
+        int i;
+        for (i = 0; i < Json_Count(fusions); i++) {
+            const JsonValue *rule = Json_At(fusions, i);
+            int with = card_reference(Json_Member(rule, "with"));
+            if (with == (side ? a : b)) {
+                int output = card_reference(Json_Member(rule, "result"));
+                if (output && !Cards_Valid(output)) return 0;
+                *result = output; return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static unsigned char *names[CARD_TABLE_ID_END];     /* own names, glyph codes */
 static unsigned char *descriptions[CARD_TABLE_ID_END];  /* own card text, glyph codes */
 /* Own artwork: an art record (art.h) shared by an entry's cards, which of its
@@ -369,7 +407,24 @@ static void add_entry(const char *mod, const char *directory, int index, const J
         }
     }
     for (n = 1; n <= count; n++) {
-        int id = ++gCard_nCount;
+        char identity[192], fallback[32];
+        const char *key = Json_String(Json_Member(entry, "id"), "");
+        int id;
+        if (!*key) { snprintf(fallback, sizeof(fallback), "entry-%d", index); key = fallback; }
+        if (strlen(key) > 80 || strspn(key, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != strlen(key)) {
+            Mods_Note(mod, "cards[%d]: invalid stable id", index); break;
+        }
+        snprintf(identity, sizeof(identity), "%s:%s:%d", mod, key, n);
+        if (Cards_FindIdentity(identity)) { Mods_Note(mod, "duplicate card identity %s", identity); break; }
+        id = gCard_nCount + 1;
+        identities[id] = strdup(identity);
+        if (!identities[id]) { Mods_Note(mod, "out of memory for card identity"); break; }
+        gCard_nCount = id;
+        definitions[id] = entry;
+        value = (int)Json_Number(Json_Member(entry, "model"), base);
+        model_ids[id] = (unsigned short)(value >= 1 && value <= CARD_COUNT ? value : base);
+        value = (int)Json_Number(Json_Member(entry, "effect"), base);
+        effect_ids[id] = (unsigned short)(value >= 1 && value <= CARD_COUNT ? value : base);
         gCard_awBaseId[id] = (unsigned short)base;
         gDuel_adwCardStats[id - 1] = (int)stats;
         gCard_asNameSortKey[id - 1] = gCard_asNameSortKey[base - 1];
@@ -432,6 +487,19 @@ void Cards_Build(void)
     context = calloc(1, sizeof(*context));
     if (!context) return;
     Mods_VisitCards(add_mod, context);
+    Mods_SetCardResolver(Cards_FindIdentity);
+    {
+        unsigned signature = 0;
+        if (gCard_nCount > CARD_COUNT) {
+            signature = 2166136261u;
+            for (int card = CARD_ID_END; card <= gCard_nCount; card++) {
+                const unsigned char *key = (const unsigned char *)identities[card];
+                while (*key) signature = (signature ^ *key++) * 16777619u;
+                signature = (signature ^ (unsigned)card) * 16777619u;
+            }
+        }
+        Mods_SetCardSignature(signature);
+    }
     /* The copies that take a base's place, grouped by base, for PickVariant. */
     for (use = 0; use < 2; use++) {
         int total = 0, base, fill[CARD_ID_END];
@@ -542,12 +610,13 @@ int Cards_PickVariant(int id, int use)
  * sequence, the newest KEPT_SAVES of them,
  *
  *     save <sequence>
- *     chest <id> <count>
- *     seen <id>
+ *     chest2 <identity> <count>
+ *     seen2 <identity>
+ *     deck2 <slot> <old-id> <base> <identity>
  *     end
  *
- * The ids are the ones this run gave the mods' cards, so a save only makes
- * sense with the same card mods applied in the same order. */
+ * Stable identities remap to this run's ids. Legacy numeric sections require
+ * explicit migration with the original mods and order; preserve them until then. */
 
 static int state_word(const void *state, int offset)
 {
@@ -566,7 +635,8 @@ static int sidecar_path(char *out, size_t size, int code)
 /* What a section says about the deck: slot, card id and its base. */
 typedef struct {
     int count;
-    unsigned short slot[DECK_SIZE], id[DECK_SIZE], base[DECK_SIZE];
+    unsigned short slot[DECK_SIZE], id[DECK_SIZE], base[DECK_SIZE], resolved[DECK_SIZE];
+    unsigned char stable[DECK_SIZE];
 } DeckNotes;
 
 /* Read the section for `sequence` into `chest` (and `seen` and `deck`, if
@@ -575,10 +645,11 @@ typedef struct {
  * had when they last played with the mod. Returns the sequence read, or -1. */
 static long read_section(int code, unsigned sequence, unsigned char *chest, unsigned char *seen, DeckNotes *deck)
 {
-    char path[1024], line[128];
+    char path[1024], line[512];
     FILE *file;
     long chosen = -1;
-    int inside = 0;
+    int inside = 0, legacy_warning = 0;
+    int migrate = getenv("MEMORIES_MIGRATE_CARD_IDS") && !strcmp(getenv("MEMORIES_MIGRATE_CARD_IDS"), "1");
     if (deck) deck->count = 0;
     if (sidecar_path(path, sizeof(path), code)) return -1;
     file = fopen(path, "r");
@@ -591,18 +662,35 @@ static long read_section(int code, unsigned sequence, unsigned char *chest, unsi
     while (chosen >= 0 && fgets(line, sizeof(line), file)) {
         unsigned value;
         int id, count, slot, base;
+        char identity[192];
         if (sscanf(line, "save %u", &value) == 1) {
             inside = (long)value == chosen;
         } else if (!inside) {
             continue;
+        } else if (sscanf(line, "chest2 %191s %d", identity, &count) == 2) {
+            id = Cards_FindIdentity(identity);
+            if (id) chest[id] = (unsigned char)clamp(count, 0, CARD_CHEST_QUANTITY_MAX);
+        } else if (sscanf(line, "seen2 %191s", identity) == 1) {
+            id = Cards_FindIdentity(identity);
+            if (seen && id) seen[id >> 3] |= (unsigned char)(1u << (id & 7));
+        } else if (sscanf(line, "deck2 %d %d %d %191s", &slot, &id, &base, identity) == 4) {
+            if (deck && deck->count < DECK_SIZE && slot >= 0 && slot < DECK_SIZE) {
+                int at = deck->count++;
+                deck->slot[at] = (unsigned short)slot; deck->id[at] = (unsigned short)id;
+                deck->base[at] = (unsigned short)base; deck->stable[at] = 1;
+                deck->resolved[at] = (unsigned short)Cards_FindIdentity(identity);
+            }
         } else if (sscanf(line, "chest %d %d", &id, &count) == 2) {
-            if (id > CARD_COUNT && Cards_Valid(id)) chest[id] = (unsigned char)clamp(count, 0, CARD_CHEST_QUANTITY_MAX);
+            if (!migrate && !legacy_warning++) fprintf(stderr, "memories-pc: legacy card IDs have no identities; restore the original card mods and use MEMORIES_MIGRATE_CARD_IDS=1 to migrate\n");
+            if (migrate && id > CARD_COUNT && Cards_Valid(id)) chest[id] = (unsigned char)clamp(count, 0, CARD_CHEST_QUANTITY_MAX);
         } else if (sscanf(line, "seen %d", &id) == 1) {
-            if (seen && id > CARD_COUNT && Cards_Valid(id)) seen[id >> 3] |= (unsigned char)(1u << (id & 7));
+            if (migrate && seen && id > CARD_COUNT && Cards_Valid(id)) seen[id >> 3] |= (unsigned char)(1u << (id & 7));
         } else if (sscanf(line, "deck %d %d %d", &slot, &id, &base) == 3) {
             if (deck && deck->count < DECK_SIZE && slot >= 0 && slot < DECK_SIZE) {
                 deck->slot[deck->count] = (unsigned short)slot;
                 deck->id[deck->count] = (unsigned short)id;
+                deck->stable[deck->count] = (unsigned char)!migrate;
+                deck->resolved[deck->count] = 0;
                 deck->base[deck->count++] = (unsigned short)base;
             }
         } else if (!strncmp(line, "end", 3)) {
@@ -621,7 +709,14 @@ static void repair_deck(unsigned short *cards, const DeckNotes *notes)
     int slot, i;
     for (slot = 0; slot < DECK_SIZE; slot++) {
         int id = cards[slot], base = 0;
-        if (id == 0 || Cards_Valid(id)) continue;
+        int remapped = 0;
+        for (i = 0; notes && i < notes->count; i++) {
+            if (notes->stable[i] && notes->slot[i] == slot && notes->id[i] == id) {
+                cards[slot] = notes->resolved[i] ? notes->resolved[i] : notes->base[i];
+                remapped = 1; break;
+            }
+        }
+        if (remapped || id == 0 || Cards_Valid(id)) continue;
         for (i = 0; notes && i < notes->count; i++) {
             if (notes->slot[i] == slot && notes->id[i] == id) base = notes->base[i];
         }
@@ -634,7 +729,7 @@ static void repair_deck(unsigned short *cards, const DeckNotes *notes)
 static void write_section(int code, unsigned sequence, const unsigned char *chest, const unsigned char *seen,
                           const unsigned short *deck)
 {
-    char path[1024], temporary[1040], line[128];
+    char path[1024], temporary[1040], line[512];
     unsigned kept[KEPT_SAVES];
     int kept_count = 0, i, id, keep = 0, any = 0;
     FILE *in, *out;
@@ -645,6 +740,33 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
     if (sidecar_path(path, sizeof(path), code)) return;
     in = fopen(path, "r");
     if (!in && !any) return;   /* nothing to say about a save without new cards */
+    /* Never overwrite an ambiguous legacy sidecar without explicit migration.
+     * The original remains available even if the player saves the retail game. */
+    if (in) {
+        int legacy = 0;
+        while (fgets(line, sizeof(line), in)) {
+            if (!strncmp(line, "chest ", 6) || !strncmp(line, "seen ", 5) || !strncmp(line, "deck ", 5)) legacy = 1;
+        }
+        rewind(in);
+        if (legacy && (!getenv("MEMORIES_MIGRATE_CARD_IDS") || strcmp(getenv("MEMORIES_MIGRATE_CARD_IDS"), "1"))) {
+            fprintf(stderr, "memories-pc: preserved legacy card sidecar %s pending identity migration\n", path);
+            fclose(in); return;
+        }
+        if (legacy) {
+            char backup[1040]; FILE *copy;
+            snprintf(backup, sizeof(backup), "%s.legacy", path);
+            copy = fopen(backup, "rb");
+            if (copy) fclose(copy);
+            else {
+                copy = fopen(backup, "wb");
+                if (!copy) { fclose(in); return; }
+                while (fgets(line, sizeof(line), in)) fputs(line, copy);
+                { int failed = ferror(copy); if (fclose(copy)) failed = 1;
+                  if (failed) { remove(backup); fclose(in); return; } }
+                rewind(in);
+            }
+        }
+    }
     /* The newest sections other than this one stay. */
     if (in) {
         while (fgets(line, sizeof(line), in)) {
@@ -681,17 +803,44 @@ static void write_section(int code, unsigned sequence, const unsigned char *ches
             keep = 0;
             for (i = 0; i < kept_count; i++) keep |= kept[i] == value;
         }
-        if (keep) fputs(line, out);
+        if (keep) {
+            int old_id, old_count, old_slot, old_base;
+            if (sscanf(line, "chest %d %d", &old_id, &old_count) == 2 && *Cards_Identity(old_id))
+                fprintf(out, "chest2 %s %d\n", Cards_Identity(old_id), old_count);
+            else if (sscanf(line, "seen %d", &old_id) == 1 && *Cards_Identity(old_id))
+                fprintf(out, "seen2 %s\n", Cards_Identity(old_id));
+            else if (sscanf(line, "deck %d %d %d", &old_slot, &old_id, &old_base) == 3 && *Cards_Identity(old_id))
+                fprintf(out, "deck2 %d %d %d %s\n", old_slot, old_id, old_base, Cards_Identity(old_id));
+            else if (strncmp(line, "chest ", 6) && strncmp(line, "seen ", 5) && strncmp(line, "deck ", 5)) fputs(line, out);
+        }
     }
     fprintf(out, "save %u\n", sequence);
+    /* Carry ownership of temporarily missing mods into the new section.
+     * Identity-based records cannot collide with another mod's live IDs. */
+    if (in) {
+        unsigned newest = 0; int have = 0, selected_section = 0;
+        rewind(in);
+        while (fgets(line, sizeof(line), in)) {
+            unsigned value;
+            if (sscanf(line, "save %u", &value) == 1 && value <= sequence && (!have || value > newest)) { newest = value; have = 1; }
+        }
+        rewind(in);
+        while (have && fgets(line, sizeof(line), in)) {
+            unsigned value; char identity[192];
+            if (sscanf(line, "save %u", &value) == 1) selected_section = value == newest;
+            else if (!strncmp(line, "end", 3)) selected_section = 0;
+            else if (selected_section && (sscanf(line, "chest2 %191s", identity) == 1 || sscanf(line, "seen2 %191s", identity) == 1) &&
+                     !Cards_FindIdentity(identity)) fputs(line, out);
+        }
+    }
     for (id = CARD_ID_END; id <= gCard_nCount; id++) {
-        if (chest[id]) fprintf(out, "chest %d %d\n", id, chest[id]);
+        if (chest[id]) fprintf(out, "chest2 %s %d\n", Cards_Identity(id), chest[id]);
     }
     for (id = CARD_ID_END; seen && id <= gCard_nCount; id++) {
-        if ((seen[id >> 3] >> (id & 7)) & 1) fprintf(out, "seen %d\n", id);
+        if ((seen[id >> 3] >> (id & 7)) & 1) fprintf(out, "seen2 %s\n", Cards_Identity(id));
     }
     for (i = 0; deck && i < DECK_SIZE; i++) {
-        if (deck[i] > CARD_COUNT && Cards_Valid(deck[i])) fprintf(out, "deck %d %d %d\n", i, deck[i], Cards_BaseId(deck[i]));
+        if (deck[i] > CARD_COUNT && Cards_Valid(deck[i])) fprintf(out, "deck2 %d %d %d %s\n", i, deck[i], Cards_BaseId(deck[i]), Cards_Identity(deck[i]));
     }
     fprintf(out, "end\n");
     if (in) fclose(in);

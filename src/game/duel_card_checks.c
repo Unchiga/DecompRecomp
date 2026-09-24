@@ -1,3 +1,6 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 #include "../types.h"
 #include "card_constants.h"
 #include "duel_card_checks.h"
@@ -51,7 +54,11 @@ s32 Duel_CheckEquip(s32 arg0, s32 arg1)
 }
 #endif
 
+#ifdef MEMORIES_PC
+static s32 Duel_CheckFusionRetail(s32 arg0, s32 arg1)
+#else
 s32 Duel_CheckFusion(s32 arg0, s32 arg1)
+#endif
 {
     u8 *base = FUSION_TABLE_BYTES(gDuel_aFusionTable);
     u8 *p;
@@ -96,3 +103,16 @@ s32 Duel_CheckFusion(s32 arg0, s32 arg1)
     } while (n > 0);
     return 0;
 }
+
+#ifdef MEMORIES_PC
+s32 Duel_CheckFusion(s32 a, s32 b)
+{
+    MemoriesModEvent event = {MEMORIES_EVENT_FUSION, MEMORIES_BEFORE, a, b, 0, 0, 0};
+    Mods_Dispatch(&event);
+    if (!event.handled && !Cards_Fusion(event.a, event.b, &event.result))
+        event.result = Cards_Valid(event.a) && Cards_Valid(event.b) ? Duel_CheckFusionRetail(event.a, event.b) : 0;
+    if (event.result && !Cards_Valid(event.result)) event.result = 0;
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+    return event.result;
+}
+#endif

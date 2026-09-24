@@ -54,6 +54,15 @@ int main(void)
     assert(contains(path, "volume=40\n"));
     assert(contains(path, "sfx_volume=65\n"));
     assert(contains(path, "unknown=7\n"));
+    for (int i = 0; i < 1024; i++) {
+        char key[200]; snprintf(key, sizeof(key), "mod.a_very_long_mod_id_that_used_to_exceed_the_old_key_limit.option_%d", i);
+        Settings_SetNamed(key, i);
+    }
+    assert(Settings_Save()); Settings_Load();
+    for (int i = 0; i < 1024; i++) {
+        char key[200]; snprintf(key, sizeof(key), "mod.a_very_long_mod_id_that_used_to_exceed_the_old_key_limit.option_%d", i);
+        assert(Settings_GetNamed(key, -1) == i);
+    }
     unlink(path);
     assert(!setenv("MEMORIES_SETTINGS", "/dev/null/settings", 1));
     assert(!Settings_Save());

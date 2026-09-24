@@ -45,14 +45,14 @@ static int hand_up(void)
 static void frame(void)
 {
     uint16_t pad = host->pad(host, 0);
-    int turn = (pad & 0x0800 ? 1 : 0) - (pad & 0x0400 ? 1 : 0); /* R1 - L1 */
-    int zoom = (pad & 0x0004 ? 1 : 0) - (pad & 0x0002 ? 1 : 0); /* R3 - L3: out - in */
+    int turn = (pad & host->setting(host, "turn_right", 0x0800) ? 1 : 0) - (pad & host->setting(host, "turn_left", 0x0400) ? 1 : 0); /* R1 - L1 */
+    int zoom = (pad & host->setting(host, "zoom_out", 0x0004) ? 1 : 0) - (pad & host->setting(host, "zoom_in", 0x0002) ? 1 : 0); /* R3 - L3: out - in */
     int distance;
     if (!hand_up() || (!turn && !zoom)) {
         return;
     }
-    D_800F2848.angle = (s16)(((D_800F2848.angle + turn * TURN_STEP) % TURN + TURN) % TURN);
-    distance = D_800F2848.field_00 + zoom * ZOOM_STEP;
+    D_800F2848.angle = (s16)(((D_800F2848.angle + turn * host->setting(host, "turn_speed", TURN_STEP)) % TURN + TURN) % TURN);
+    distance = D_800F2848.field_00 + zoom * host->setting(host, "zoom_speed", ZOOM_STEP);
     D_800F2848.field_00 = (s16)(distance < ZOOM_NEAR ? ZOOM_NEAR : distance > ZOOM_FAR ? ZOOM_FAR : distance);
     ViewState_ApplyOrbit();
 }

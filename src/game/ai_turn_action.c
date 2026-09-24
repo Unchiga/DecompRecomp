@@ -1,3 +1,6 @@
+#ifdef MEMORIES_PC
+#include "pc/mods/mods.h"
+#endif
 #include "../types.h"
 #include "../psyq/rand.h"
 #include "ai.h"
@@ -259,7 +262,11 @@ s32 func_800278A0(DuelSelectionSource *source)
  * then the zone scan. Its record, grid and give-up arithmetic are written
  * index-first through integer casts, which is the operand order retail's
  * addu instructions show. */
+#ifdef MEMORIES_PC
+static s32 func_800279BCRetail(void)
+#else
 s32 func_800279BC(void)
+#endif
 {
     DuelCardRecord *pool[6];
     DuelCardRecord *listb[6];
@@ -408,3 +415,16 @@ loop:
     }
     return 0;
 }
+
+#ifdef MEMORIES_PC
+s32 func_800279BC(void)
+{
+    MemoriesModEvent event = {MEMORIES_EVENT_AI, MEMORIES_BEFORE, 0, 0, 0, 0, 0};
+
+    Mods_Dispatch(&event);
+
+    if (!event.handled) { event.result = func_800279BCRetail(); }
+    event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
+    return event.result;
+}
+#endif
