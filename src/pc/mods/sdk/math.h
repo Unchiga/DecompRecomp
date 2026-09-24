@@ -11,6 +11,13 @@ double floor(double x);
 double ceil(double x);
 double fmod(double x, double y);
 double pow(double x, double y);
+double tan(double x);
+double asin(double x);
+double acos(double x);
+double atan(double x);
+double exp(double x);
+double log(double x);
+double log10(double x);
 float sqrtf(float x);
 float sinf(float x);
 float cosf(float x);
@@ -20,6 +27,9 @@ float floorf(float x);
 float ceilf(float x);
 float fmodf(float x, float y);
 float powf(float x, float y);
+float tanf(float x);
+float expf(float x);
+float logf(float x);
 
 #define sqrt(x) __builtin_sqrt(x)
 #define sqrtf(x) __builtin_sqrtf(x)

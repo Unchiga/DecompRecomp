@@ -111,7 +111,8 @@ def provided(build):
 def libc_names():
     """The C library list in src/pc/mods/mod_libc.c."""
     with open(os.path.join(ROOT, "src/pc/mods/mod_libc.c")) as handle:
-        return set(re.findall(r"\bF\((\w+)\)", handle.read()))
+        # F(name), or AS(name, function) for one the host implements itself.
+        return set(re.findall(r"\b(?:F\(|AS\()(\w+)\b", handle.read()))
 
 
 def library_name(directory):

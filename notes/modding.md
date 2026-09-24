@@ -502,6 +502,34 @@ jump through a pointer the host keeps and the two into a short jump back to
 it; see [`src/pc/mods/hooks.c`](../src/pc/mods/hooks.c). The game runs the
 same with no mod hooking anything (the smoke screenshots are unchanged).
 
+### Sharing with other mods, drawing, saves (API 4)
+
+* **Sharing.** `host->provide(host, "name", pointer)` offers a function or
+  data to other mods; another mod gets it with
+  `host->find(host, "<providing mod's id>:name")`, NULL when no loaded mod
+  offers it. A mod that lists the provider under `requires` is initialized
+  after it, so `find` works in its `MemoriesModInit`.
+* **Drawing over the picture.** Set `mod->overlay` (and
+  `mod->overlay_signature`, a number that changes whenever what you draw
+  does; without it the overlay is drawn every frame). Inside it,
+  `host->overlay_size` gives the window's size in pixels and the scale the
+  port draws its own menus at, `host->draw_text` writes ASCII text (its `y`
+  is the line's middle), `host->text_width` measures it and `host->fill`
+  blends a rectangle in. It is drawn at the window's resolution over the
+  game picture, under the port's save menu, and only while the mod is
+  applied.
+* **Save slots.** The events `MEMORIES_EVENT_SLOT_SAVE` and
+  `MEMORIES_EVENT_SLOT_LOAD` (after only) say that the running game was
+  saved to, or loaded from, slot `a` (from 0); `b` is the slot's token and
+  `c` the save's sequence number. A token is drawn afresh at every save, so
+  a mod that keeps something per save names its file after it
+  (`open_data`), and each slot has its own.
+* **More of the C library**: `strcpy`, `strcat`, `strncat`, `atoi`, `labs`,
+  `strtod`, `bsearch`, `tan`, `asin`, `acos`, `atan`, `exp`, `log`, `log10`,
+  `tanf`, `expf`, `logf`, `<ctype.h>` (ASCII, in the header) and `rand`/
+  `srand`, which give the same numbers on Linux and Windows and leave the
+  game's own random numbers (and so its duels) alone.
+
 ### Building one
 
 ```sh

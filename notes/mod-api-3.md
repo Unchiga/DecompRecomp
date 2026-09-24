@@ -109,6 +109,7 @@ input before managed input hooks, so inspecting it cannot recurse into a hook.
 | `SETTINGS` | After only: `a` manager mod index, `b` option index, `c` new value after applying the settings batch |
 | `SAVE` | Before registered mod buffers are serialized: pack pointer-free state into your registered buffer |
 | `LOAD` | After save-state restoration and legacy reset callbacks: rebuild runtime caches from the registered buffer |
+| `SLOT_SAVE`, `SLOT_LOAD` | API 4, after only: the save slot menu saved or loaded the running game; `a` slot (from 0), `b` the slot's token, `c` the save's sequence. The load is reported once the game holds the loaded save |
 
 These are concrete extension points, not an automatic replacement mechanism for
 every exported function. Other game code can still be called or data edited via

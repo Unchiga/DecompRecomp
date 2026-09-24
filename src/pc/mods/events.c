@@ -24,6 +24,9 @@ static int count, serial;
 static volatile int mutating;
 static State states[MODS_MAX];
 static unsigned dispatching;
+#define PROVIDED_MAX 1024
+static struct { int owner; char name[64]; void *pointer; } provided[PROVIDED_MAX];
+static int provided_count;
 
 int Mods_Subscribe(int owner, unsigned event, int priority, MemoriesModCallback callback)
 {
@@ -67,6 +70,40 @@ void Mods_ClearHooks(int owner)
             Mods_Unsubscribe(owner, hooks[i].token);
     Hooks_Clear(owner);
     memset(&states[owner], 0, sizeof(states[owner]));
+    for (i = provided_count - 1; i >= 0; i--)
+        if (provided[i].owner == owner)
+            provided[i] = provided[--provided_count];
+}
+int Mods_Provide(int owner, const char *name, void *pointer)
+{
+    int i;
+    if (owner < 0 || owner >= Mods_Count() || !Mods_SettingKeyValid(name) || strlen(name) >= sizeof(provided[0].name))
+        return 0;
+    for (i = 0; i < provided_count; i++)
+        if (provided[i].owner == owner && !strcmp(provided[i].name, name)) {
+            provided[i].pointer = pointer;
+            return 1;
+        }
+    if (provided_count == PROVIDED_MAX)
+        return 0;
+    provided[provided_count].owner = owner;
+    strcpy(provided[provided_count].name, name);
+    provided[provided_count++].pointer = pointer;
+    return 1;
+}
+void *Mods_Find(const char *qualified)
+{
+    const char *colon = qualified ? strchr(qualified, ':') : NULL;
+    int i;
+    if (!colon)
+        return NULL;
+    for (i = 0; i < provided_count; i++) {
+        const char *id = Mods_Id(provided[i].owner);
+        if (strlen(id) == (size_t)(colon - qualified) && !strncmp(id, qualified, (size_t)(colon - qualified)) &&
+            !strcmp(provided[i].name, colon + 1))
+            return provided[i].pointer;
+    }
+    return NULL;
 }
 int Mods_RegisterState(int owner, void *data, size_t size, unsigned version)
 {

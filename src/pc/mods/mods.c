@@ -34,6 +34,7 @@
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include "pc/platform/platform.h"
+#include "pc/platform/menu.h"
 #include "pc/debug/log.h"
 #include "pc/debug/symbols.h"
 #include "pc/sdk/disc.h"
@@ -365,12 +366,121 @@ static void host_unhook(const MemoriesModHost *host, int token)
 { if (owner(host)) Hooks_Remove((int)(owner(host) - mods), token); }
 static void *host_symbol(const MemoriesModHost *host, const char *name)
 { return owner(host) && name ? Mods_Lookup(name) : NULL; }
+static int host_provide(const MemoriesModHost *host, const char *name, void *pointer)
+{ return owner(host) ? Mods_Provide((int)(owner(host) - mods), name, pointer) : 0; }
+static void *host_find(const MemoriesModHost *host, const char *qualified)
+{ return owner(host) ? Mods_Find(qualified) : NULL; }
+
+/* --- drawing over the picture ------------------------------------------ */
+
+/* Only while Mods_DrawOverlay runs a mod's overlay callback. */
+static struct {
+    MenuCanvas *canvas;
+    int scale;
+    void (*text)(MenuCanvas *, int, int, const char *, uint32_t, int);
+    int (*width)(const char *, int);
+    int x0, y0, x1, y1;   /* what the mods drew, to report as the overlay's bounds */
+} overlay;
+
+static void overlay_touch(int x, int y, int w, int h)
+{
+    int x1 = x + w, y1 = y + h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x1 > overlay.canvas->width) x1 = overlay.canvas->width;
+    if (y1 > overlay.canvas->height) y1 = overlay.canvas->height;
+    if (x >= x1 || y >= y1) return;
+    if (overlay.x0 >= overlay.x1) { overlay.x0 = x; overlay.y0 = y; overlay.x1 = x1; overlay.y1 = y1; return; }
+    if (x < overlay.x0) overlay.x0 = x;
+    if (y < overlay.y0) overlay.y0 = y;
+    if (x1 > overlay.x1) overlay.x1 = x1;
+    if (y1 > overlay.y1) overlay.y1 = y1;
+}
+
+static void host_overlay_size(const MemoriesModHost *host, int *width, int *height, int *scale)
+{
+    int on = owner(host) && overlay.canvas;
+    if (width) *width = on ? overlay.canvas->width : 0;
+    if (height) *height = on ? overlay.canvas->height : 0;
+    if (scale) *scale = on ? overlay.scale : 1;
+}
+
+static int host_text_width(const MemoriesModHost *host, const char *text, int scale)
+{
+    return owner(host) && overlay.width && text ? overlay.width(text, scale < 1 ? 1 : scale) : 0;
+}
+
+static void host_draw_text(const MemoriesModHost *host, int x, int middle, const char *text, uint32_t rgb, int scale)
+{
+    if (!owner(host) || !overlay.canvas || !text) return;
+    if (scale < 1) scale = 1;
+    overlay.text(overlay.canvas, x, middle, text, rgb & 0xFFFFFFu, scale);
+    overlay_touch(x, middle - 10 * scale, overlay.width(text, scale), 20 * scale);
+}
+
+static void host_fill(const MemoriesModHost *host, int x, int y, int w, int h, uint32_t rgb, unsigned alpha)
+{
+    MenuCanvas *canvas = overlay.canvas;
+    unsigned inverse;
+    if (!owner(host) || !canvas || w <= 0 || h <= 0) return;
+    if (alpha > 255) alpha = 255;
+    inverse = 255 - alpha;
+    for (int row = y < 0 ? 0 : y; row < y + h && row < canvas->height; row++) {
+        for (int column = x < 0 ? 0 : x; column < x + w && column < canvas->width; column++) {
+            uint32_t *pixel = canvas->pixels + (size_t)row * (size_t)canvas->stride + (size_t)column, under = *pixel;
+            unsigned r = ((rgb >> 16 & 255) * alpha + (under >> 16 & 255) * inverse) / 255;
+            unsigned g = ((rgb >> 8 & 255) * alpha + (under >> 8 & 255) * inverse) / 255;
+            unsigned b = ((rgb & 255) * alpha + (under & 255) * inverse) / 255;
+            unsigned a = alpha + (under >> 24) * inverse / 255;
+            *pixel = a << 24 | r << 16 | g << 8 | b;
+        }
+    }
+    overlay_touch(x, y, w, h);
+}
+
+void Mods_DrawOverlay(MenuCanvas *canvas, int scale, void (*text)(MenuCanvas *, int, int, const char *, uint32_t, int),
+                      int (*width)(const char *, int), int *x, int *y, int *w, int *h)
+{
+    *x = *y = *w = *h = 0;
+    if (shut_down || !canvas || !canvas->pixels || !text || !width) return;
+    overlay.canvas = canvas;
+    overlay.scale = scale < 1 ? 1 : scale;
+    overlay.text = text;
+    overlay.width = width;
+    overlay.x0 = overlay.y0 = overlay.x1 = overlay.y1 = 0;
+    for (int i = 0; i < mod_count; i++) {
+        if (mods[i].active && mods[i].initialized && mods[i].hooks.overlay) mods[i].hooks.overlay();
+    }
+    overlay.canvas = NULL;
+    if (overlay.x0 < overlay.x1) {
+        *x = overlay.x0; *y = overlay.y0; *w = overlay.x1 - overlay.x0; *h = overlay.y1 - overlay.y0;
+    }
+}
+
+unsigned Mods_OverlaySignature(unsigned frame)
+{
+    unsigned signature = 0;
+    if (shut_down) return 0;
+    for (int i = 0; i < mod_count; i++) {
+        const MemoriesMod *hooks = &mods[i].hooks;
+        if (!mods[i].active || !mods[i].initialized || !hooks->overlay) continue;
+        signature = signature * 31u + (unsigned)i + 1u;
+        signature = signature * 2654435761u + (hooks->overlay_signature ? hooks->overlay_signature() : frame);
+    }
+    return signature;
+}
 
 static void fill_host(Mod *mod)
 {
     mod->host.hook = host_hook;
     mod->host.unhook = host_unhook;
     mod->host.symbol = host_symbol;
+    mod->host.provide = host_provide;
+    mod->host.find = host_find;
+    mod->host.overlay_size = host_overlay_size;
+    mod->host.draw_text = host_draw_text;
+    mod->host.text_width = host_text_width;
+    mod->host.fill = host_fill;
     mod->host.subscribe = host_subscribe;
     mod->host.unsubscribe = host_unsubscribe;
     mod->host.register_state = host_register_state;

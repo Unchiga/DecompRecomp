@@ -1,6 +1,7 @@
 #include "hud.h"
 #include "log.h"
 #include "pc/audio/spu.h"
+#include "pc/mods/mods.h"
 #include "pc/guest/state.h"
 #include "pc/platform/platform.h"
 #include "pc/platform/settings.h"
@@ -101,13 +102,9 @@ static void draw_stats(MenuCanvas *canvas)
     }
 }
 
-/* The statistics, then the save slot menu over them. */
-void Hud_Draw(MenuCanvas *canvas)
+/* One rectangle over what has been drawn so far and x, y, w, h. */
+static void cover(int x, int y, int w, int h)
 {
-    int x, y, w, h;
-    draw_stats(canvas);
-    SaveMenu_Draw(canvas, &x, &y, &w, &h);
-    if (!w || !h) DeckMenu_Draw(canvas, &x, &y, &w, &h);
     if (!w || !h) return;
     if (bounds.w && bounds.h) {
         int right = bounds.x + bounds.w > x + w ? bounds.x + bounds.w : x + w;
@@ -118,6 +115,18 @@ void Hud_Draw(MenuCanvas *canvas)
         h = bottom - y;
     }
     bounds.x = x; bounds.y = y; bounds.w = w; bounds.h = h;
+}
+
+/* The statistics, the mods' overlays, then the save slot or deck menu over them. */
+void Hud_Draw(MenuCanvas *canvas)
+{
+    int x, y, w, h;
+    draw_stats(canvas);
+    Mods_DrawOverlay(canvas, Menu_Scale(), Menu_DrawTextScaled, Menu_TextWidthScaled, &x, &y, &w, &h);
+    cover(x, y, w, h);
+    SaveMenu_Draw(canvas, &x, &y, &w, &h);
+    if (!w || !h) DeckMenu_Draw(canvas, &x, &y, &w, &h);
+    cover(x, y, w, h);
 }
 
 static unsigned stats_signature(void)
@@ -131,7 +140,8 @@ static unsigned stats_signature(void)
 
 unsigned Hud_Signature(void)
 {
-    return stats_signature() ^ SaveMenu_Signature() * 2654435761u ^ DeckMenu_Signature() * 40503u;
+    return stats_signature() ^ SaveMenu_Signature() * 2654435761u ^ DeckMenu_Signature() * 40503u ^
+           Mods_OverlaySignature(Memories_PresentedFrames()) * 2246822519u;
 }
 
 void Hud_Bounds(int *x, int *y, int *w, int *h)
