@@ -769,8 +769,10 @@ queries report a full frame, so the interpreter yields there as a slow machine
 would. `python3 tools/pc/ai_trace_check.py <traces> --listing <dir>` groups
 the trace into decisions and lists the `rand()` callers. It also lists the
 ones that drew while a decision was in progress. With `--listing` (the output
-of upstream's `tools/project/ai_script_disasm.py`), it checks every logged
-offset against the disassembly.
+of upstream's
+`ai_script_disasm.py`, from
+[krystalgamer/memories-decomp#6006](https://github.com/krystalgamer/memories-decomp/pull/6006)),
+it checks every logged offset against the disassembly.
 
 Measured on 2026-09-24: 16 deterministic sessions of 60,000 frames of the
 `duel-hand-camera` case, driven by random button presses. They covered 943
