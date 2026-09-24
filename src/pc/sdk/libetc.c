@@ -57,8 +57,9 @@ static void run_tick(uint64_t game_now, uint64_t real_now)
         late_over_5ms += late > 5000;
         late_over_20ms += late > 20000;
         if (++late_ticks == 1000) {
-            LOG(LOG_FRAMES, "sequencer lateness over 1000 ticks: mean %u us, max %u us, %u over 5 ms, %u over 20 ms",
-                (unsigned)(late_total / 1000), late_max, late_over_5ms, late_over_20ms);
+            /* Run from the timer's handler: Log_Signal (log.c). */
+            Log_Signal(LOG_FRAMES, "sequencer lateness over 1000 ticks: mean %ld us, max %ld us, %ld over 5 ms, %ld over 20 ms",
+                       (long)(late_total / 1000), (long)late_max, (long)late_over_5ms, (long)late_over_20ms, 0, 0);
             late_ticks = late_max = late_over_5ms = late_over_20ms = 0;
             late_total = 0;
         }
