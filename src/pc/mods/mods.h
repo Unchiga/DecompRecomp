@@ -76,6 +76,9 @@ int Mods_OptionCount(int mod);
 const struct JsonValue *Mods_Option(int mod, int option);
 int Mods_OptionValue(int mod, int option);
 int Mods_OptionValid(int mod, int option, int value);
+/* A key a mod's settings may use (mod.<id>.<key>): letters, digits, '_' and
+ * '-', and not one the manager keeps for itself ("order"). */
+int Mods_SettingKeyValid(const char *key);
 int Mods_OptionSet(int mod, int option, int value);
 /* Validate the whole proposed set, before saving/changing anything. */
 int Mods_CheckManifest(int mod, char *error, size_t size);

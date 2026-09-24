@@ -81,6 +81,10 @@ int main(void)
     assert(Mods_Validate(enabled, error, sizeof(error)));
     Settings_SetNamed("mod.b.order", -100);
     assert(Mods_Order(enabled, order, error, sizeof(error)) == 2 && order[0] == a && order[1] == b);
+    /* The keys a mod may write with host->set_setting, as a declared one. */
+    assert(Mods_SettingKeyValid("speed") && Mods_SettingKeyValid("turn_left-2"));
+    assert(!Mods_SettingKeyValid("order") && !Mods_SettingKeyValid("") && !Mods_SettingKeyValid(NULL));
+    assert(!Mods_SettingKeyValid("a.b") && !Mods_SettingKeyValid("a b") && !Mods_SettingKeyValid("x=1"));
     assert(!Mods_OptionSet(a, 0, 99));
     assert(Mods_OptionSet(a, 0, 7));
     assert(Mods_OptionValue(a, 0) == 7);

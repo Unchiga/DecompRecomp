@@ -248,7 +248,9 @@ static void host_set_setting(const MemoriesModHost *host, const char *key, int v
 {
     Mod *mod = owner(host);
     char name[256];
-    if (!mod || !key || !*key || !setting_key(name, sizeof(name), mod->id, key)) return;
+    /* The same keys a declared setting may have: a mod cannot write its own
+     * load order, or a key the manager would refuse to show. */
+    if (!mod || !Mods_SettingKeyValid(key) || !setting_key(name, sizeof(name), mod->id, key)) return;
     Settings_SetNamed(name, value);
 }
 

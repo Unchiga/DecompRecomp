@@ -193,6 +193,12 @@ int Mods_OptionValue(int mod, int option)
     return Mods_Setting(Mods_Id(mod), Json_String(Json_Member(spec, "key"), ""),
                         (int)Json_Number(Json_Member(spec, "default"), 0));
 }
+int Mods_SettingKeyValid(const char *key)
+{
+    /* "order" is the manager's own (mod.<id>.order, Mods_Order). */
+    return key && *key && strcmp(key, "order") &&
+           strspn(key, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") == strlen(key);
+}
 int Mods_OptionValid(int mod, int option, int value)
 {
     const JsonValue *spec = Mods_Option(mod, option);
@@ -211,9 +217,7 @@ int Mods_OptionValid(int mod, int option, int value)
         low = 0;
         high = 0xffff;
     }
-    if (!*key || !strcmp(key, "order") ||
-        strspn(key, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != strlen(key) || value < low ||
-        value > high || snprintf(setting, sizeof(setting), "mod.%s.%s", Mods_Id(mod), key) >= (int)sizeof(setting))
+    if (!Mods_SettingKeyValid(key) || value < low || value > high || snprintf(setting, sizeof(setting), "mod.%s.%s", Mods_Id(mod), key) >= (int)sizeof(setting))
         return 0;
     return 1;
 }

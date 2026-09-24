@@ -211,7 +211,8 @@ The host table is what a mod is given: `log`/`log_enabled`, `open_asset` (a
 file the mod ships), `open_data` (the mod's own file in the user directory,
 the only place it may write), `setting`/`set_setting` (whole numbers kept in
 the player's settings file as `mod.<id>.<key>`, and read from
-`MEMORIES_MOD_<ID>_<KEY>` first when that is set), `disc_file_start`/
+`MEMORIES_MOD_<ID>_<KEY>` first when that is set; a key is letters, digits,
+`_` and `-`, and `order` is the manager's), `disc_file_start`/
 `disc_read`, `pad`, and from mod API 2 `now_us` (a clock) and `map_fixed`
 (memory at an address the mod chooses, as 3D Monsters' model arenas need).
 A mod that uses an entry newer than API 1 should refuse to start when

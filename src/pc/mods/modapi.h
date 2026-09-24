@@ -78,7 +78,9 @@ struct MemoriesModHost {
      * From API 2, the environment variable MEMORIES_MOD_<ID>_<KEY> (both
      * uppercased, anything but letters and digits an underscore; decimal, or
      * hexadecimal after 0x) wins over the file for the run, which is how a
-     * knob is tried without writing it down. */
+     * knob is tried without writing it down. set_setting ignores a key that
+     * is not letters, digits, '_' and '-', and "order", which the manager
+     * keeps for the mod's load order. */
     int (*setting)(const MemoriesModHost *host, const char *key, int fallback);
     void (*set_setting)(const MemoriesModHost *host, const char *key, int value);
 
