@@ -513,6 +513,29 @@ save loaded through the save slot menu:
 - F6 and the menu item, which are off on the title's menu and with the
   setting off, and Esc closing the screen without quitting.
 
+### Present pass (Video > Color)
+
+The OpenGL presenter can draw the game picture through one fragment program
+(`src/pc/render/present_pass.c`), under the menu and the HUD, which are not
+filtered. The program runs where the picture's quad is drawn in `show()`
+(`sdl.c`), both for the OpenGL picture and for the one the CPU uploads, so
+it works at every internal resolution and in widescreen. The effects are
+settings that are off at their defaults:
+
+- Brightness, Contrast, Saturation and Gamma (percent, 100 leaves the
+  picture alone). They are applied in that order in the shader: gamma,
+  contrast about mid grey, brightness, then saturation against Rec. 601
+  luma. The sliders are in Video > Color, with Reset.
+- CRT scanlines (Video > Effects, `crt`). There is one scanline per line of
+  the console's picture: 240, the source height over its nearest multiple
+  of 240, so the lines match at every internal resolution. Each line is
+  darkened towards its edges, and an aperture grille is drawn over window
+  pixels, with the lost brightness given back.
+
+While every effect is at its default, the pass is not used, and the picture
+is drawn by the fixed-function quad exactly as before. The SDL_Render
+fallback (no OpenGL) has no pass.
+
 ### Speed, frame rate and vsync
 
 Three independent controls (`platform.h`, `platform_common.c`):

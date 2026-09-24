@@ -83,7 +83,7 @@ if PORTABLE:
 # (see notes/pc-build.md), else X11. --backend or MEMORIES_BACKEND picks.
 SDL_BUILD = "tmp/pc/sdl-m32-portable"   # build_linux_sysroot.py
 SDL_SOURCE = "tmp/pc/sdl-source/SDL3-3.4.16"
-BACKENDS = {"sdl": ["src/pc/platform/sdl.c", "src/pc/render/gl_picture.c"],
+BACKENDS = {"sdl": ["src/pc/platform/sdl.c", "src/pc/render/gl_picture.c", "src/pc/render/present_pass.c"],
             "x11": ["src/pc/platform/x11.c", "src/pc/platform/audio_alsa.c", "src/pc/platform/gamepad_evdev.c"]}
 BACKEND_SOURCES = sorted(sum(BACKENDS.values(), []))
 NATIVE = sorted(glob.glob("src/pc/guest/*.[cS]") + glob.glob("src/pc/sdk/*.c") +
