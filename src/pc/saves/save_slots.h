@@ -33,7 +33,9 @@ typedef struct SaveSlotInfo {
     unsigned sequence;
     unsigned starchips;
     int wins, losses, cards;
-    long long saved_at; /* the file's modification time, seconds since 1970 */
+    /* The file's modification time, seconds since 1970; aligned so i386
+     * Linux lays it out as Windows does. */
+    long long saved_at __attribute__((aligned(8)));
 } SaveSlotInfo;
 
 /* SaveData_ValidateIntegrity: nonzero when a 0x680-byte state is sound. */

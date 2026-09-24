@@ -149,14 +149,15 @@ int main(void)
         assert(Mods_DiscSector(7000, sector) && !memcmp(sector, "late", 4) && !sector[4]);
         Mods_SetEnabled(missing, 0);
         assert(!Mods_DiscSector(7000, sector));
-        /* A replacement bigger than what it replaces is cut, and says so. */
+        /* Raw extents cannot grow into the neighboring file. */
         {
             static char big[2050];
             memset(big, 'x', sizeof(big) - 1);
             write_text("mods/missing/late.bin", big);
         }
         Mods_SetEnabled(missing, 1);
-        assert(Mods_Active(missing) && !Mods_Failed(missing) && strstr(Mods_Status(missing), "larger than"));
+        assert(!Mods_Active(missing) && Mods_Failed(missing) && strstr(Mods_Status(missing), "capacity"));
+        assert(!Mods_DiscSector(7000, sector));
         Mods_SetEnabled(missing, 0);
     }
     {

@@ -76,6 +76,7 @@ typedef struct {
     int active;                  /* and whether it is in place right now */
     int failed;
     int initialized;
+    int data_prepared;
     int broken;                  /* it failed to load; it cannot be applied */
     int *runtime_options;
     unsigned sequence;
@@ -95,15 +96,25 @@ typedef struct {
  * so they are built before they are published and nothing frees them while
  * `overrides_live` is set. */
 typedef struct {
-    int mod, lba, sectors;
+    int mod, lba, sectors, file;
     unsigned char *image;    /* the replacement file, mapped read-only */
     size_t image_size, mapped;
+    unsigned hash;
 } Region;
 
 typedef struct {
-    int mod, lba, offset, length;
+    int mod, lba, offset, length, file;
     unsigned char *bytes;
 } Patch;
+
+/* File identities remain retail LBAs; only readers see the virtual positions.
+ * A patch's lba is file-relative when file >= 0, physical otherwise. */
+typedef struct {
+    int retail_lba, retail_sectors, lba, sectors, reserved;
+    unsigned retail_size, size;
+} DiscFile;
+static DiscFile disc_files[REGIONS_MAX];
+static int disc_file_count, disc_layout_frozen, preparing_data;
 
 static Mod mods[MODS_MAX];
 static int mod_count;
@@ -118,6 +129,14 @@ static int patch_count;
 static int published_regions, published_patches;
 static volatile int overrides_live;
 static int override_low, override_high;
+static void activate(int index, int on);
+
+static unsigned hash_bytes(unsigned hash, const void *data, size_t size)
+{
+    const unsigned char *bytes = data;
+    for (size_t i = 0; i < size; i++) hash = (hash ^ bytes[i]) * 16777619u;
+    return hash;
+}
 
 static void say(const char *format, ...)
 {
@@ -362,16 +381,147 @@ static void fill_host(Mod *mod)
 
 /* --- data overrides -------------------------------------------------- */
 
+static int disc_file(int lba, unsigned size)
+{
+    int i;
+    for (i = 0; i < disc_file_count; i++)
+        if (disc_files[i].retail_lba == lba) return i;
+    if (i == REGIONS_MAX || !size || size > (unsigned)INT_MAX - SECTOR) return -1;
+    disc_files[i] = (DiscFile){lba, (int)((size + SECTOR - 1) / SECTOR), lba,
+                             (int)((size + SECTOR - 1) / SECTOR), 0, size, size};
+    disc_file_count++;
+    return i;
+}
+
+/* Prepare all data before any mod initializer may cache a position. After
+ * publication, even a failed code mod must not move another mod's file. */
+static int layout_disc_files(void)
+{
+    int order[REGIONS_MAX], next = -1;
+    for (int i = 0; i < disc_file_count; i++) {
+        DiscFile *file = &disc_files[i];
+        int maximum = file->retail_sectors, sectors;
+        unsigned size = file->retail_size; /* readers never see a partial value */
+        for (int j = 0; j < region_count; j++) if (regions[j].file == i) {
+            sectors = (int)((regions[j].image_size + SECTOR - 1) / SECTOR);
+            if (sectors > maximum) maximum = sectors;
+            size = (unsigned)regions[j].image_size;
+        }
+        sectors = (int)(((size_t)size + SECTOR - 1) / SECTOR);
+        file->size = size;
+        file->sectors = sectors < file->retail_sectors ? file->retail_sectors : sectors;
+        if (!disc_layout_frozen) {
+            file->lba = file->retail_lba;
+            file->reserved = maximum > file->retail_sectors ? maximum : 0;
+        }
+        order[i] = i;
+        for (int j = i; j > 0 && disc_files[order[j]].retail_lba < disc_files[order[j - 1]].retail_lba; j--) {
+            int swap = order[j]; order[j] = order[j - 1]; order[j - 1] = swap;
+        }
+    }
+    if (disc_layout_frozen) return 1;
+    for (int i = 0; i < disc_file_count; i++) {
+        DiscFile *file = &disc_files[order[i]];
+        if (!file->reserved) continue;
+        if (next < 0) next = Memories_DiscSectorCount();
+        /* One guard sector, and room for the drive's one-past-end position. */
+        if (next < 0 || next >= MEMORIES_DISC_MAX_LBA ||
+            file->reserved > MEMORIES_DISC_MAX_LBA - next - 1) return 0;
+        file->lba = next;
+        next += file->reserved + 1;
+    }
+    return 1;
+}
+
+int Mods_DiscFileInfo(int retail_lba, int *lba, unsigned *size)
+{
+    if (!overrides_live) return 0;
+    for (int i = 0; i < disc_file_count; i++) if (disc_files[i].retail_lba == retail_lba) {
+        if (lba) *lba = disc_files[i].lba;
+        if (size) *size = disc_files[i].size;
+        return 1;
+    }
+    return 0;
+}
+
+static int virtual_file(int lba)
+{
+    if (!overrides_live) return -1;
+    for (int i = 0; i < disc_file_count; i++) {
+        const DiscFile *file = &disc_files[i];
+        if (file->reserved && lba >= file->lba && lba - file->lba < file->sectors) return i;
+    }
+    return -1;
+}
+
+int Mods_DiscSource(int lba, int *source)
+{
+    int i = virtual_file(lba);
+    if (i < 0) return 0;
+    *source = lba - disc_files[i].lba < disc_files[i].retail_sectors
+        ? disc_files[i].retail_lba + lba - disc_files[i].lba : -1;
+    return 1;
+}
+
+int Mods_DiscOrigin(int lba)
+{
+    if (!overrides_live) return lba;
+    for (int i = 0; i < disc_file_count; i++) {
+        const DiscFile *file = &disc_files[i];
+        if (file->reserved && lba >= file->retail_lba && lba - file->retail_lba < file->retail_sectors)
+            return file->lba + lba - file->retail_lba;
+    }
+    return lba;
+}
+
+unsigned Mods_DiscSignature(void)
+{
+    unsigned hash = 2166136261u;
+    int relocated = 0;
+    for (int i = 0; i < disc_file_count; i++) relocated |= disc_files[i].reserved != 0;
+    if (!region_count && !patch_count && !relocated) return 0;
+    for (int i = 0; i < disc_file_count; i++) {
+        const DiscFile *file = &disc_files[i];
+        hash = hash_bytes(hash, &file->retail_lba, sizeof(file->retail_lba));
+        hash = hash_bytes(hash, &file->lba, sizeof(file->lba));
+        hash = hash_bytes(hash, &file->size, sizeof(file->size));
+    }
+    for (int i = 0; i < region_count; i++) {
+        hash = hash_bytes(hash, &regions[i].hash, sizeof(regions[i].hash));
+        hash = hash_bytes(hash, &regions[i].lba, sizeof(regions[i].lba));
+        hash = hash_bytes(hash, &regions[i].sectors, sizeof(regions[i].sectors));
+    }
+    for (int i = 0; i < patch_count; i++) {
+        hash = hash_bytes(hash, &patches[i].lba, sizeof(patches[i].lba));
+        hash = hash_bytes(hash, &patches[i].offset, sizeof(patches[i].offset));
+        hash = hash_bytes(hash, patches[i].bytes, (size_t)patches[i].length);
+    }
+    return hash;
+}
+
 static void publish_overrides(void)
 {
     int i, low = 0x7fffffff, high = -1;
+    layout_disc_files(); /* capacity is checked before adding a region */
     for (i = 0; i < region_count; i++) {
         if (regions[i].lba < low) low = regions[i].lba;
         if (regions[i].lba + regions[i].sectors - 1 > high) high = regions[i].lba + regions[i].sectors - 1;
     }
     for (i = 0; i < patch_count; i++) {
+        if (patches[i].file >= 0) {
+            const DiscFile *file = &disc_files[patches[i].file];
+            if (file->retail_lba < low) low = file->retail_lba;
+            if (file->retail_lba + file->retail_sectors - 1 > high)
+                high = file->retail_lba + file->retail_sectors - 1;
+            continue;
+        }
         if (patches[i].lba < low) low = patches[i].lba;
         if (patches[i].lba > high) high = patches[i].lba;
+    }
+    for (i = 0; i < disc_file_count; i++) if (disc_files[i].reserved) {
+        if (disc_files[i].lba < low) low = disc_files[i].lba;
+        if (disc_files[i].lba + disc_files[i].sectors - 1 > high)
+            high = disc_files[i].lba + disc_files[i].sectors - 1;
     }
     published_regions = region_count;
     published_patches = patch_count;
@@ -384,8 +534,7 @@ static void publish_overrides(void)
 
 /* A replacement file, read-only, for as long as the mod is applied. Linux
  * maps it; Windows has no mmap of a file the port could declare by hand
- * without <windows.h>, and a replacement is at most a few MiB, so it is read
- * into memory. */
+ * without <windows.h>, so it is read into memory. */
 static void *map_file(int file, size_t size)
 {
 #ifdef _WIN32
@@ -416,7 +565,13 @@ static void unmap_file(void *image, size_t size)
 
 static void drop_overrides(int mod)
 {
-    int i, kept = 0;
+    int i, kept = 0, owned = 0;
+    mods[mod].data_prepared = 0;
+    /* Many failure paths call this for mods with no data. Unpublishing for
+     * them would briefly hide every relocated file from the drive. */
+    for (i = 0; i < region_count; i++) owned |= regions[i].mod == mod;
+    for (i = 0; i < patch_count; i++) owned |= patches[i].mod == mod;
+    if (!owned) return;
     overrides_live = 0;   /* the drive model stops looking before anything goes */
     __asm__ volatile("" ::: "memory");
     for (i = 0; i < region_count; i++) {
@@ -459,7 +614,7 @@ static int read_bytes(const char *text, unsigned char **out)
 }
 
 /* One patch, split at the sector boundaries it crosses. */
-static int add_patch(Mod *mod, int index, int lba, int offset, const unsigned char *bytes, int length)
+static int add_patch(Mod *mod, int index, int file, int lba, int offset, const unsigned char *bytes, int length)
 {
     while (length > 0) {
         int here = SECTOR - offset;
@@ -472,6 +627,7 @@ static int add_patch(Mod *mod, int index, int lba, int offset, const unsigned ch
         if (!patches[patch_count].bytes) return 0;
         memcpy(patches[patch_count].bytes, bytes, (size_t)here);
         patches[patch_count].mod = index;
+        patches[patch_count].file = file;
         patches[patch_count].lba = lba;
         patches[patch_count].offset = offset;
         patches[patch_count].length = here;
@@ -484,7 +640,7 @@ static int add_patch(Mod *mod, int index, int lba, int offset, const unsigned ch
     return 1;
 }
 
-static int add_region(Mod *mod, int index, int lba, int sectors, const char *replacement)
+static int add_region(Mod *mod, int index, int named, int lba, int sectors, const char *replacement)
 {
     char path[PATH_MAX_];
     struct stat info;
@@ -509,12 +665,12 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
         note(mod, "cannot read %s", replacement);
         return 0;
     }
-    /* The game reaches a file through sector numbers it worked out from the
-     * disc's own tables, so a replacement may fill the original's sectors
-     * and no more: the sectors past them belong to the next file. */
-    if ((size_t)info.st_size > (size_t)sectors * SECTOR) {
-        warn(mod, 0, "%s is larger than the file it replaces; only its first %lu bytes are used", replacement,
-             (unsigned long)sectors * SECTOR);
+    if ((uint64_t)info.st_size > (uint64_t)MEMORIES_DISC_MAX_LBA * SECTOR ||
+        (named < 0 && (uint64_t)info.st_size > (uint64_t)sectors * SECTOR)) {
+        close(file);
+        note(mod, "%s exceeds %s capacity; replacement rejected", replacement,
+             named < 0 ? "the raw sector region" : "the virtual disc address");
+        return 0;
     }
     image = map_file(file, (size_t)info.st_size);
     close(file);
@@ -523,12 +679,22 @@ static int add_region(Mod *mod, int index, int lba, int sectors, const char *rep
         return 0;
     }
     regions[region_count].mod = index;
+    regions[region_count].file = named;
     regions[region_count].lba = lba;
     regions[region_count].sectors = sectors;
     regions[region_count].image = image;
     regions[region_count].image_size = (size_t)info.st_size;
     regions[region_count].mapped = (size_t)info.st_size;
+    regions[region_count].hash = hash_bytes(2166136261u, image, (size_t)info.st_size);
+    for (int i = 0; named >= 0 && i < region_count; i++) if (regions[i].file == named) {
+        warn(mod, 0, "%s replaces the same disc file as %s; later replacement wins", replacement, mods[regions[i].mod].id);
+        break;
+    }
     region_count++;
+    if (!layout_disc_files()) {
+        note(mod, "virtual disc address space exhausted by %s; replacement rejected", replacement);
+        return 0; /* apply_overrides rolls back every contribution of this mod */
+    }
     return 1;
 }
 
@@ -541,29 +707,38 @@ static int apply_overrides(Mod *mod, int index)
         const char *file = Json_String(Json_Member(entry, "file"), NULL);
         const JsonValue *replace = Json_Member(entry, "replace");
         const JsonValue *patch = Json_Member(entry, "patch");
-        int lba = (int)Json_Number(Json_Member(entry, "lba"), -1);
+        long lba_number = Json_Number(Json_Member(entry, "lba"), -1);
+        int lba = lba_number >= 0 && lba_number <= INT_MAX ? (int)lba_number : -1;
         unsigned size = 0;
+        int named = -1;
         if ((replace && Json_TypeOf(replace) != JSON_STRING) ||
             (patch && Json_TypeOf(patch) != JSON_ARRAY) || (!replace && !patch)) {
             note(mod, "a data entry needs a string \"replace\" or an array \"patch\"");
             goto failed;
         }
         if (file) {
-            if (Memories_DiscFileInfo(file, &lba, &size) || lba < 0) {
+            if (Memories_DiscOriginalFileInfo(file, &lba, &size) || lba < 0) {
                 note(mod, "%s is not on the disc", file);
                 goto failed;
             }
+            named = disc_file(lba, size);
+            if (named < 0) { note(mod, "cannot register disc file %s", file); goto failed; }
         } else if (lba < 0) {
             note(mod, "a data entry names neither \"file\" nor \"lba\"");
             goto failed;
         }
         if (Json_String(replace, NULL)) {
-            int sectors = size ? (int)((size + SECTOR - 1) / SECTOR) : (int)Json_Number(Json_Member(entry, "sectors"), 0);
+            long sector_number = size ? (long)(((uint64_t)size + SECTOR - 1) / SECTOR)
+                : Json_Number(Json_Member(entry, "sectors"), 0);
+            int sectors = sector_number > 0 && sector_number <= INT_MAX ? (int)sector_number : 0;
             if (sectors <= 0 || lba > INT_MAX - sectors) {
                 note(mod, "\"replace\" at sector %d needs a \"sectors\" count", lba);
                 goto failed;
             } else {
-                if (!add_region(mod, index, lba, sectors, Json_String(replace, NULL))) goto failed;
+                /* Existing in-place streaming overrides keep their raw
+                 * headers. Growth cannot synthesize XA/STR metadata. */
+                int backing_file = file && (strstr(file, ".XA") || strstr(file, ".STR")) ? -1 : named;
+                if (!add_region(mod, index, backing_file, lba, sectors, Json_String(replace, NULL))) goto failed;
             }
         }
         if (patch) {
@@ -583,13 +758,17 @@ static int apply_overrides(Mod *mod, int index)
                     note(mod, "\"bytes\": %s is not hexadecimal", text);
                     goto failed;
                 }
-                if (file && size && ((unsigned long)at > size || (unsigned long)length > size - (unsigned long)at)) {
+                if (named >= 0) {
+                    size = disc_files[named].size;
+                    if (size < disc_files[named].retail_size) size = disc_files[named].retail_size;
+                }
+                if (!preparing_data && file && size && ((unsigned long)at > size || (unsigned long)length > size - (unsigned long)at)) {
                     note(mod, "a patch at 0x%lX reaches past %s", at, file);
                     free(bytes);
                     goto failed;
                 }
                 if (at > INT_MAX - length || at / SECTOR > INT_MAX - lba - (length + SECTOR - 1) / SECTOR ||
-                    !add_patch(mod, index, lba + (int)(at / SECTOR), (int)(at % SECTOR), bytes, length)) {
+                    !add_patch(mod, index, named, (named < 0 ? lba : 0) + (int)(at / SECTOR), (int)(at % SECTOR), bytes, length)) {
                     free(bytes);
                     goto failed;
                 }
@@ -609,18 +788,46 @@ failed:
     return 0;
 }
 
+static int validate_disc_patches(void)
+{
+    for (int i = 0; i < patch_count; i++) if (patches[i].file >= 0) {
+        const Patch *patch = &patches[i];
+        const DiscFile *file = &disc_files[patch->file];
+        uint64_t end = (uint64_t)patch->lba * SECTOR + patch->offset + patch->length;
+        unsigned size = file->size > file->retail_size ? file->size : file->retail_size;
+        if (end > size) {
+            int mod = patch->mod;
+            note(&mods[mod], "a patch reaches past the final replacement (size %u)", size);
+            mods[mod].failed = 1;
+            mods[mod].data_prepared = 0;
+            if (mods[mod].active) activate(mod, 0);
+            else drop_overrides(mod);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int Mods_DiscSector(int lba, void *user_data)
 {
     unsigned char *out = user_data;
-    int changed = 0, i;
+    int changed = 0, i, named, relative = -1, physical = lba;
     if (!overrides_live) return 0;
     __asm__ volatile("" ::: "memory");
     if (lba < override_low || lba > override_high) return 0;
+    named = virtual_file(lba);
+    if (named >= 0) {
+        relative = lba - disc_files[named].lba;
+        physical = relative < disc_files[named].retail_sectors ? disc_files[named].retail_lba + relative : -1;
+    }
     for (i = 0; i < published_regions; i++) {
         const Region *region = &regions[i];
         size_t at, have;
-        if (lba < region->lba || lba >= region->lba + region->sectors) continue;
-        at = (size_t)(lba - region->lba) * SECTOR;
+        if (named >= 0 && region->file == named) at = (size_t)relative * SECTOR;
+        else {
+            if (physical < region->lba || physical - region->lba >= region->sectors) continue;
+            at = (size_t)(physical - region->lba) * SECTOR;
+        }
         have = at < region->image_size ? region->image_size - at : 0;
         if (have > SECTOR) have = SECTOR;
         if (have) memcpy(out, region->image + at, have);
@@ -628,7 +835,14 @@ int Mods_DiscSector(int lba, void *user_data)
         changed = 1;
     }
     for (i = 0; i < published_patches; i++) {
-        if (patches[i].lba != lba) continue;
+        const Patch *patch = &patches[i];
+        if (patch->file >= 0) {
+            const DiscFile *file = &disc_files[patch->file];
+            if (named == patch->file) {
+                if (patch->lba != relative) continue;
+            } else if (physical < file->retail_lba || physical - file->retail_lba >= file->retail_sectors ||
+                       patch->lba != physical - file->retail_lba) continue;
+        } else if (patch->lba != physical) continue;
         memcpy(out + patches[i].offset, patches[i].bytes, (size_t)patches[i].length);
         changed = 1;
     }
@@ -893,6 +1107,10 @@ static int read_manifest(Mod *mod, const char *directory, const char *origin)
      * only whole while the game starts with them in place; the cards a mod
      * adds are counted once, when the game starts. */
     if (Json_Count(mod->data)) mod->restart = Json_Bool(Json_Member(root, "restart"), 1);
+    for (int i = 0; i < Json_Count(mod->data); i++) {
+        const JsonValue *entry = Json_At(mod->data, i);
+        if (Json_Member(entry, "file") && Json_Member(entry, "replace")) mod->restart = 1;
+    }
     if (Json_Count(mod->cards)) mod->restart = 1;
     {   /* The key this mod's choice was stored under before it was a mod. */
         const char *legacy = Json_String(Json_Member(root, "legacy_setting"), NULL);
@@ -1031,16 +1249,20 @@ static void activate(int index, int on)
         int option_count = Mods_OptionCount(index);
         if (option_count && !mod->runtime_options) {
             mod->runtime_options = malloc((size_t)option_count * sizeof(int));
-            if (!mod->runtime_options) { mod->failed = 1; note(mod, "out of memory for settings"); return; }
+            if (!mod->runtime_options) {
+                mod->failed = 1; note(mod, "out of memory for settings"); drop_overrides(index); return;
+            }
         }
         /* A mod that cannot load keeps the player's choice and its reason:
          * the window shows both, and removing it still works. */
         if (mod->broken || !load_library(mod)) {
             mod->broken = 1;
+            drop_overrides(index);
             return;
         }
-        copy_text(mod->status, sizeof(mod->status), mod->warnings);
-        if (!apply_overrides(mod, index)) { mod->failed = 1; return; }
+        if (!mod->data_prepared) copy_text(mod->status, sizeof(mod->status), mod->warnings);
+        if (!mod->data_prepared && !apply_overrides(mod, index)) { mod->failed = 1; return; }
+        mod->data_prepared = 1;
         if (mod->textures[0]) {
             char problems[STATUS_MAX] = "";
             if (!texture_pack_load || !texture_pack_unload || !load_texture_packs(index, -1, problems, sizeof(problems))) {
@@ -1132,12 +1354,41 @@ void Mods_Load(void)
         for (count = 0; order[count] >= 0; count++) placed[order[count]] = 1;
         for (i = 0; i < mod_count; i++) if (enabled[i] && !placed[i]) { note(&mods[i], "%s", error); enabled[i] = 0; }
     }
+    if (first) {
+        preparing_data = 1;
+        for (i = 0; i < count; i++) {
+            int current = order[i];
+            if (!enabled[current] || mods[current].broken) continue;
+            if (!apply_overrides(&mods[current], current)) mods[current].failed = 1;
+            else mods[current].data_prepared = 1;
+        }
+        preparing_data = 0;
+        for (;;) {
+            int changed = 0;
+            while (!validate_disc_patches()) changed = 1;
+            /* Failed preparations and their dependents cannot contribute data. */
+            for (i = 0; i < count; i++) {
+                int current = order[i];
+                if (!enabled[current]) continue;
+                if (mods[current].failed || mods[current].broken) enabled[current] = 0;
+                if (enabled[current] && !Mods_Compatible(current, enabled, error, sizeof(error))) {
+                    note(&mods[current], "%s", error);
+                    mods[current].failed = 1;
+                    enabled[current] = 0;
+                }
+                if (!enabled[current]) { drop_overrides(current); changed = 1; }
+            }
+            if (!changed) break;
+        }
+        disc_layout_frozen = 1;
+    }
     /* After the first load (a settings reload) a mod that wants a restart is
      * only recorded, as Mods_SetEnabled does, and a live one that requires
      * it waits for the same restart. */
     for (i = mod_count - 1; i >= 0; i--) if (!enabled[i] && (first || !mods[i].restart)) activate(i, 0);
     for (i = 0; i < count; i++) {
         int current = order[i], j, active[MODS_MAX];
+        if (!enabled[current] || (first && mods[current].failed)) continue;
         if (!first && mods[current].restart) continue;
         if (!first && !mods[current].active && (j = Mods_WaitsForRestart(current, enabled)) >= 0) {
             note(&mods[current], "waits for a restart: %s, which it requires, is applied at the next launch", mods[j].name);
@@ -1145,8 +1396,28 @@ void Mods_Load(void)
         }
         for (j = 0; j < mod_count; j++) active[j] = mods[j].active;
         active[current] = 1;
-        if (!Mods_Compatible(current, active, error, sizeof(error))) { note(&mods[current], "%s", error); continue; }
+        if (!Mods_Compatible(current, active, error, sizeof(error))) {
+            note(&mods[current], "%s", error); drop_overrides(current); continue;
+        }
         activate(current, 1);
+    }
+    /* A code/texture initializer can still fail after data preparation.
+     * Recheck tail patches and dependencies against the surviving files. */
+    for (;;) {
+        int changed = 0, active[MODS_MAX];
+        while (!validate_disc_patches()) changed = 1;
+        for (i = 0; i < mod_count; i++) active[i] = mods[i].active;
+        for (i = 0; i < count; i++) {
+            int current = order[i];
+            if (active[current] && !Mods_Compatible(current, active, error, sizeof(error))) {
+                note(&mods[current], "%s", error);
+                activate(current, 0);
+                mods[current].failed = 1;
+                active[current] = 0;
+                changed = 1;
+            }
+        }
+        if (!changed) break;
     }
 }
 

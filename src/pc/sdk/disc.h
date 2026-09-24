@@ -3,6 +3,8 @@
 /* Complete queued drive commands and deliver ready sectors. Interrupt
  * context: called from the 1 kHz interrupt tick. */
 #include <stdint.h>
+/* 99:59:74 in the SDK's BCD position, minus the 150-sector lead-in. */
+#define MEMORIES_DISC_MAX_LBA 449849
 void Memories_DiscService(uint64_t now_us);
 /* Complete one pending DecDCTout request and run its callback. */
 void Memories_MdecService(void);
@@ -15,8 +17,11 @@ int Memories_DiscReadSectors(int lba, int sectors, void *out);
 /* The first sector of a file, by its retail path ("\\DATA\\MODEL.MRG;1"),
  * or -1. */
 int Memories_DiscFileStart(const char *path);
-/* The same lookup, with the file's length in bytes as well. 0 when the file
- * is there. Mod data overrides use it to size a replacement. */
+/* The same effective lookup, with the file's length in bytes as well.
+ * 0 when the file is there, including a mod's larger virtual replacement. */
 int Memories_DiscFileInfo(const char *path, int *lba, unsigned *size);
+/* Physical metadata only, used while preparing replacements. */
+int Memories_DiscOriginalFileInfo(const char *path, int *lba, unsigned *size);
+int Memories_DiscSectorCount(void);
 void Memories_DiscStats(int *head_lba, unsigned *bytes_per_second);
 #endif

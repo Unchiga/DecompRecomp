@@ -69,6 +69,12 @@ void Mods_Reset(void);
  * and copies; nothing is allocated or opened here. Returns nonzero when the
  * sector was changed. */
 int Mods_DiscSector(int lba, void *user_data);
+/* Effective named-file metadata, virtual backing and texture provenance.
+ * These lookups allocate nothing and are safe in the drive callback. */
+int Mods_DiscFileInfo(int retail_lba, int *lba, unsigned *size);
+int Mods_DiscSource(int lba, int *physical_lba);
+int Mods_DiscOrigin(int lba);
+unsigned Mods_DiscSignature(void);
 
 /* Manager metadata and configuration. Borrowed strings live until exit. */
 const struct JsonValue *Mods_Manifest(int mod);
