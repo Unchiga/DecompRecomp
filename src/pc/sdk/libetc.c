@@ -185,10 +185,24 @@ int VSyncCallback(void (*callback)(void))
 int Memories_VSync(int mode)
 {
     unsigned now, elapsed;
+    /* The game's time between two calls here, whatever the mode: the
+     * longest it runs without reaching a point where the clock could be
+     * serviced (MEMORIES_TRACE=frames reports each over 20 ms). */
+    static struct timespec service_left;
+    struct timespec service_entry;
+    clock_gettime(CLOCK_MONOTONIC, &service_entry);
+    if (service_left.tv_sec && Log_Enabled(LOG_FRAMES)) {
+        unsigned gap = (unsigned)((service_entry.tv_sec - service_left.tv_sec) * 1000000 +
+                                  (service_entry.tv_nsec - service_left.tv_nsec) / 1000);
+        if (gap > 20000) {
+            LOG(LOG_FRAMES, "service gap at frame %u: %u us before VSync(%d)", Memories_PresentedFrames(), gap, mode);
+        }
+    }
     if (mode < 0 || mode == 1) Platform_PollTime();
     now = Platform_VBlankCount();
     Platform_VSyncHeartbeat();
     if (mode < 0) {
+        clock_gettime(CLOCK_MONOTONIC, &service_left);
         return (int)now;
     }
     if (mode == 0) {
@@ -269,6 +283,7 @@ int Memories_VSync(int mode)
         Platform_StopTimers();
         exit(0);
     }
+    clock_gettime(CLOCK_MONOTONIC, &service_left);
     return (int)(elapsed * 263u);
 }
 

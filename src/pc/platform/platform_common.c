@@ -68,7 +68,7 @@ static void deliver_vblank(void)
     if (vblank_handler) vblank_handler();
 }
 
-static void advance(uint64_t real_now)
+static void advance(uint64_t real_now, uintptr_t eip)
 {
     uint64_t elapsed = real_prev ? real_now - real_prev : 0;
     real_prev = real_now;
@@ -77,10 +77,23 @@ static void advance(uint64_t real_now)
         /* Time passes in Platform_WaitVBlank. Only a game that has spun for
          * a second without waiting for a VBlank gets steps from the timer,
          * so that it cannot hang; no loop the game runs does that today, and
-         * no frame takes that long to compute. */
+         * no frame takes that long to compute. Such a step is reported, with
+         * where the game was: a loop that polls the clock without a wait. */
         if (deterministic_last_wait && real_now - deterministic_last_wait > DETERMINISTIC_SPIN) {
+            static uintptr_t reported[16];
+            static unsigned reported_count, steps;
+            unsigned i;
             virtual_now += DETERMINISTIC_STEP;
             if (tick_handler) tick_handler(virtual_now, virtual_now);
+            steps++;
+            for (i = 0; i < reported_count && reported[i] != eip; i++) {}
+            if (i == reported_count && reported_count < 16) {
+                reported[reported_count++] = eip;
+                LOG(LOG_FRAMES, "clock: the game spun a second without a wait, at 0x%lx (%u steps so far)",
+                    (unsigned long)eip, steps);
+                fprintf(stderr, "memories-pc: clock: the game spun a second without a wait, at 0x%lx\n",
+                        (unsigned long)eip);
+            }
         }
         return;
     }
@@ -105,6 +118,17 @@ static void on_tick(uintptr_t eip, void *context)
     while (CrashTest_TickHang) {
     }
     Profile_Sample(eip);
+    {
+        /* MEMORIES_TRACE=frames: where the game is when it has run 30 ms
+         * past its last VSync, once per such stretch. */
+        static uint64_t reported_stretch;
+        if (last_vsync_real && real_now - last_vsync_real > 30000 && reported_stretch != last_vsync_real &&
+            Log_Wanted(LOG_FRAMES)) {
+            reported_stretch = last_vsync_real;
+            LOG(LOG_FRAMES, "long stretch without a VSync: %llu us so far, at 0x%lx",
+                (unsigned long long)(real_now - last_vsync_real), (unsigned long)eip);
+        }
+    }
 #ifndef _WIN32 /* Windows watches from the clock thread (Win32_SetStallReporter) */
     if (watchdog_seconds && rate != 0 && !watchdog_reported &&
         real_now - last_vsync_real >= (uint64_t)watchdog_seconds * 1000000u) {
@@ -114,7 +138,7 @@ static void on_tick(uintptr_t eip, void *context)
 #else
     (void)context;
 #endif
-    advance(real_now);
+    advance(real_now, eip);
 }
 
 #ifndef _WIN32
@@ -361,11 +385,11 @@ void Platform_WaitVBlank(unsigned count_at_entry)
             sigaddset(&set, SIGALRM);
             sigprocmask(SIG_BLOCK, &set, &previous);
             real_now = now_us();
-            advance(real_now);
+            advance(real_now, 0);
             if (vblank_count == count_at_entry) {
                 if (!next_vblank) next_vblank = virtual_now;
                 virtual_now = next_vblank;
-                advance(real_now);
+                advance(real_now, 0);
             }
             sigprocmask(SIG_SETMASK, &previous, NULL);
         } else {
