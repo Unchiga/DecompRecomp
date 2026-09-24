@@ -1,5 +1,10 @@
 # AI Subsystem Structures
 
+For actual turn priorities, deck-to-hand swapping, opponent parameters and
+hard-mode extension points, see [AI hard-mode research](ai-hard-mode-research.md).
+That note distinguishes handlers present in the VM from those the retail
+scripts actually execute.
+
 `src/game/ai.h` contains shared layouts corroborated across multiple matching
 functions. The field names are mechanical project names, not recovered
 original symbols.

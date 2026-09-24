@@ -103,7 +103,7 @@ input before managed input hooks, so inspecting it cannot recurse into a hook.
 | `REWARD` | `a` awarded card ID; edit it to replace the reward, or handle to cancel; invalid IDs are rejected |
 | `FUSION` | `a`, `b` input card IDs before base-card mapping; handled `result` is the resulting card, or zero to forbid a fusion. Unhandled, the mods' `fusions` rules ([gameplay tables](gameplay-tables.md)) come next |
 | `EFFECT` | Start: `a` presented card ID, `b` second-handler flag, `c=0`; update: `a` current effect card, `b` effect flags, `c=1`, `result` is returned flags. A custom multi-frame effect owns its flags and completion |
-| `AI` | Wraps the final `func_800279BC` turn-action decision. A replacement owns the AI selection record and returns its decision in `result` |
+| `AI` | Wraps the legacy `func_800279BC` selector; normal hand/field AI calls `AiScript_Run` directly. This event alone does not replace those decisions; see [AI hook research](ai-hard-mode-research.md#7-implementing-a-hard-mode-mod-in-this-port). A handled legacy call owns the selection record and supplies `result` |
 | `SCENE` | Wraps `Main_ApplyMenuSelection`: `a` menu selection, `b` prior main mode; modify `a`, or handle the transition yourself |
 | `EQUIP` | `a` equip card, `b` monster; handled `result` nonzero lets the equip apply, zero refuses it. Unhandled, the mods' `equips` rules and then the disc's table decide |
 | `SETTINGS` | After only: `a` manager mod index, `b` option index, `c` new value after applying the settings batch |
