@@ -53,6 +53,11 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_INTERNAL_SCALE] = {"internal_scale", NULL, "MEMORIES_INTERNAL_SCALE", NULL, 1, 1, 8},
     /* 1: the title three seconds after the credits end (credits.c); 0: a black screen, as the console. */
     [SET_RETURN_AFTER_CREDITS] = {"return_after_credits", NULL, "MEMORIES_RETURN_AFTER_CREDITS", NULL, 1, 0, 1},
+    /* Percent, the present pass's colour (src/pc/render/present_pass.c); 100 leaves the picture alone. */
+    [SET_BRIGHTNESS] = {"brightness", NULL, "MEMORIES_BRIGHTNESS", NULL, 100, 50, 150},
+    [SET_CONTRAST] = {"contrast", NULL, "MEMORIES_CONTRAST", NULL, 100, 50, 150},
+    [SET_SATURATION] = {"saturation", NULL, "MEMORIES_SATURATION", NULL, 100, 0, 200},
+    [SET_GAMMA] = {"gamma", NULL, "MEMORIES_GAMMA", NULL, 100, 50, 200},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

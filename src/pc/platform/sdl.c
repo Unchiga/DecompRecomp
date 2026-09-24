@@ -11,6 +11,7 @@
 #include "platform.h"
 #include "paths.h"
 #include "menu.h"
+#include "pc/render/present_pass.h"
 #include "mods_window.h"
 #include "controls_window.h"
 #include "controls_linux.h"
@@ -1080,7 +1081,7 @@ static void show(void)
 {
     SDL_FRect physical;
     if (use_gl) {
-        int output_w, output_h;
+        int output_w, output_h, effects;
         if (!gl_picture || !gl_overlay || !SDL_GetWindowSizeInPixels(window, &output_w, &output_h)) return;
         glViewport(0, 0, output_w, output_h);
         glMatrixMode(GL_PROJECTION);
@@ -1099,13 +1100,17 @@ static void show(void)
             glBindTexture(GL_TEXTURE_2D, texture);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
+            effects = PresentPass_Wanted() &&
+                      PresentPass_Begin(gl_pass_rect[2], gl_pass_rect[3], output_w, output_h);
             gl_quad_part(texture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h,
                          (float)gl_pass_rect[0] / (float)pw, (float)gl_pass_rect[1] / (float)ph,
                          (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
                          (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
         } else {
+            effects = PresentPass_Wanted() && PresentPass_Begin(picture_w, picture_h, output_w, output_h);
             gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);
         }
+        if (effects) PresentPass_End(); /* the menu and the HUD are not filtered */
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         gl_quad(gl_overlay, 0, 0, (float)layout.win_w, (float)layout.win_h);

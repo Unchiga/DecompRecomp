@@ -439,6 +439,24 @@ is disabled at the title. 2P Duel setup forced by `MEMORIES_MODE_AT` stops
 presenting frames right after the switch, with or without this change.
 Reached from the menu with no saves, it stays in the title's loop.
 
+### Present pass (Video > Color)
+
+The OpenGL presenter can draw the game picture through one fragment program
+(`src/pc/render/present_pass.c`), under the menu and the HUD, which are not
+filtered. The program runs where the picture's quad is drawn in `show()`
+(`sdl.c`), both for the OpenGL picture and for the one the CPU uploads, so
+it works at every internal resolution and in widescreen. The effects are
+settings that are off at their defaults:
+
+- Brightness, Contrast, Saturation and Gamma (percent, 100 leaves the
+  picture alone). They are applied in that order in the shader: gamma,
+  contrast about mid grey, brightness, then saturation against Rec. 601
+  luma. The sliders are in Video > Color, with Reset.
+
+While every effect is at its default, the pass is not used, and the picture
+is drawn by the fixed-function quad exactly as before. The SDL_Render
+fallback (no OpenGL) has no pass.
+
 ### Speed, frame rate and vsync
 
 Three independent controls (`platform.h`, `platform_common.c`):
