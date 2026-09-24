@@ -1,0 +1,17 @@
+{
+    "id": "audio-replace",
+    "name": "Audio replacement example",
+    "version": "1.0",
+    "author": "YFM Re-Decomp",
+    "description": "Replaces the title and main-menu songs and the Start sound with sine tones. Run make_tone.py first.",
+    "enabled": false,
+    "audio": {
+        "music": {
+            "0x000": "title.wav",
+            "0x010": { "file": "menu.wav", "loop": true, "loop_start": 0, "volume": 80 }
+        },
+        "sfx": {
+            "0x007": { "file": "click.wav", "volume": 100 }
+        }
+    }
+}

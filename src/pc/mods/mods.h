@@ -10,6 +10,7 @@
 #define MODS_MAX 256
 #include <stddef.h>
 #include "mod_types.h"
+struct JsonValue;
 
 /* Find every mod and apply the ones the settings say are applied. Safe to
  * call again (settings reload): the directories are only scanned once. */
@@ -17,6 +18,13 @@ void Mods_Load(void);
 /* The texture pack loader a "textures" mod goes through (src/pc/render/texture_pack.h);
  * without one, such a mod notes that this build has no texture packs. */
 void Mods_SetTexturePack(int (*load)(const char *directory), void (*unload)(void));
+/* The audio replacement an "audio" mod goes through (src/pc/audio/replace.h):
+ * `load` decodes a mod's files and returns how many it added, or -1 when the
+ * object is malformed, with the first failure in `error`; `unload` drops
+ * them. Without one, such a mod notes that this build has no audio. */
+void Mods_SetAudio(int (*load)(int mod, const char *id, const char *directory, const struct JsonValue *audio,
+                               char *error, size_t size),
+                   void (*unload)(int mod));
 void Mods_Shutdown(void);
 
 int Mods_Count(void);

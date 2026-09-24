@@ -3,6 +3,9 @@
 #include "sound.h"
 #include "sound_spatialization.h"
 #include "sound_sequence_timing.h"
+#ifdef MEMORIES_PC
+#include "pc/audio/replace.h"
+#endif
 
 void SD_SetSecondarySpatialLevels(s32 arg0, s32 arg1)
 {
@@ -21,6 +24,9 @@ void SD_SetSecondaryMasterLevels(s16 left, s16 right)
 
     state->field_0514 = left;
     state->field_0516 = right;
+#ifdef MEMORIES_PC
+    AudioReplace_MusicLevel(left, right, g_SDValue != 0 ? g_SDValue->field_0044 : 0); /* fades included */
+#endif
     if (state->field_07E2 != 2)
         SD_UpdateSecondaryObjectVolumes();
 }

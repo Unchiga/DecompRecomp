@@ -5,6 +5,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "pc/mods/mods.h"
 #include "pc/mods/exports.h"
+#include "pc/mods/json.h"
 #include "pc/debug/symbols.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
@@ -84,6 +85,20 @@ static void make_dir(const char *relative)
     assert(!mkdir(path, 0777));
 }
 
+/* The audio replacement an "audio" mod goes through (src/pc/audio/replace.h). */
+static int audio_loads, audio_unloads, audio_mod = -1;
+static int fake_audio_load(int mod, const char *id, const char *directory, const struct JsonValue *audio,
+                           char *error, size_t size)
+{
+    (void)directory;
+    assert(!strcmp(id, "sounds") && Json_Count(Json_Member(audio, "music")) == 1);
+    audio_loads++;
+    audio_mod = mod;
+    snprintf(error, size, "audio: gone.wav cannot be read");
+    return 1;
+}
+static void fake_audio_unload(int mod) { assert(mod == audio_mod); audio_unloads++; }
+
 static int find(const char *id)
 {
     int i;
@@ -97,7 +112,7 @@ int main(void)
 {
     unsigned char sector[2048], replacement[3000];
     char settings[1024];
-    int patcher, replacer, broken, camera, i;
+    int patcher, replacer, broken, camera, sounds, i;
 
     /* A relative path may not leave the directory it is relative to. */
     assert(Paths_Contained("card.mrg") && Paths_Contained("art/monster.tim"));
@@ -144,6 +159,12 @@ int main(void)
                "{ \"id\": \"camera\", \"name\": \"Camera\", \"library\": \"camera\","
                "  \"legacy_setting\": \"hand_camera\" }");
 
+    /* Replacement sounds, which apply without a restart. */
+    make_dir("mods/sounds");
+    write_text("mods/sounds/mod.json",
+               "{ \"id\": \"sounds\", \"enabled\": true, \"audio\": { \"music\": { \"0x2D0\": \"gone.wav\" } } }");
+    Mods_SetAudio(fake_audio_load, fake_audio_unload);
+
     snprintf(settings, sizeof(settings), "%s/settings.txt", root);
     write_text("settings.txt", "hand_camera=1\nmod.replacer=1\n");
     assert(!setenv("MEMORIES_SETTINGS", settings, 1));
@@ -157,7 +178,15 @@ int main(void)
     camera = find("camera");
     assert(patcher >= 0 && replacer >= 0 && broken >= 0 && camera >= 0);
     assert(find("not-a-mod") < 0);          /* no manifest, no mod */
-    assert(Mods_Count() == 4);
+    sounds = find("sounds");
+    assert(Mods_Count() == 5);
+    /* An audio mod is live: applied now, its skipped files noted beside it. */
+    assert(sounds >= 0 && Mods_Active(sounds) && !Mods_RequiresRestart(sounds));
+    assert(audio_loads == 1 && audio_mod == sounds && strstr(Mods_Status(sounds), "gone.wav"));
+    Mods_SetEnabled(sounds, 0);
+    assert(audio_unloads == 1 && !Mods_Active(sounds));
+    Mods_SetEnabled(sounds, 1);
+    assert(audio_loads == 2 && Mods_Active(sounds));
     assert(!strcmp(Mods_Name(patcher), "Patcher"));
     assert(!strcmp(Mods_Name(broken), "broken") && Mods_Status(broken)[0]);
     /* The manifest's own default, and what the settings say instead. */

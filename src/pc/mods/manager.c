@@ -372,6 +372,31 @@ unsigned Mods_Signature(void)
     return hash ^ Mods_CardSignature();
 }
 
+/* An "audio" id as replace.c reads it: 0x-prefixed hexadecimal, else decimal. */
+static long audio_id(const char *text)
+{
+    char *end;
+    long value;
+    if (!text || !*text) return -1;
+    value = text[0] == '0' && (text[1] == 'x' || text[1] == 'X') ? strtol(text + 2, &end, 16) : strtol(text, &end, 10);
+    return *end ? -1 : value;
+}
+
+/* Whether two mods replace one sound: the one applied later is heard. */
+static int audio_overlap(int a, int b)
+{
+    static const char *const kinds[] = {"music", "xa", "sfx"};
+    for (int k = 0; k < 3; k++) {
+        const JsonValue *x = Json_Member(member(a, "audio"), kinds[k]), *y = Json_Member(member(b, "audio"), kinds[k]);
+        for (int i = 0; i < Json_Count(x); i++)
+            for (int j = 0; j < Json_Count(y); j++) {
+                long id = audio_id(Json_Name(Json_At(x, i)));
+                if (id >= 0 && id == audio_id(Json_Name(Json_At(y, j)))) return 1;
+            }
+    }
+    return 0;
+}
+
 int Mods_ConflictText(int mod, char *out, size_t size)
 {
     const JsonValue *data = member(mod, "data");
@@ -393,6 +418,11 @@ int Mods_ConflictText(int mod, char *out, size_t size)
                         return 1;
                     }
                 }
+            if (audio_overlap(mod, i)) {
+                snprintf(out, size, "Replaces some of the same sounds as %s; the mod applied later is heard.",
+                         Mods_Name(i));
+                return 1;
+            }
             if (*Mods_Metadata(mod, "textures") && *Mods_Metadata(i, "textures")) {
                 snprintf(out, size,
                          "Multiple texture packs enabled. Overlapping images depend on "
