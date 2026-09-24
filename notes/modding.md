@@ -143,7 +143,14 @@ its sheets at a guessed reading; to be sure of one, play it once with
 run read a sheet with becomes a PNG of it. `--assets <dir>/assets.txt`
 instead writes what such a run drew, as it cut it, for whatever no family
 covers. Keep the scale in proportion: the game holds a pack's images in
-memory at full size, and a 128x256 sheet at 4x is 2 MB.
+memory at full size, and a 128x256 sheet at 4x is 2 MB. `--cuts
+<dir>/assets.txt` makes the upscale treat each piece the game cuts from a
+sheet (a box's slices, the field's tiles, glyphs) as its own picture, so
+no line shows where pieces meet.
+
+The first attempt at a full HD pack, the problems it met and why its
+result was not published are in `notes/image-remaster.md`: read it before
+making another.
 
 ## Cards: more than the disc has
 
