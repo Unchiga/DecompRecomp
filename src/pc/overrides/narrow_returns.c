@@ -19,6 +19,8 @@
 #include "game/ai_opponent_data.h"
 #include "game/mem_card_directory.h"
 
+/* This replaces a game function and must retain API 4's hook entry layout. */
+__attribute__((patchable_function_entry(8, 6), noinline))
 s32 Ai_GetHandSize(void)
 {
     return (s8)gDuel_aOpponentData[gDuel_bOpponentID].values[0];

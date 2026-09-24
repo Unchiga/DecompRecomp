@@ -1,0 +1,154 @@
+{
+  "id": "ai-hard-mode",
+  "name": "AI Hard Mode",
+  "version": "0.1.0",
+  "author": "DecompRecomp",
+  "description": "Configurable hand planning, fusions, guardian stars, attacks, defense, spells and information advantages.",
+  "min_api": 4,
+  "game": "slus_01411",
+  "library": "ai-hard-mode",
+  "enabled": false,
+  "settings": [
+    {
+      "key": "hand_planning",
+      "label": "Plan hand plays",
+      "type": "bool",
+      "default": 1,
+      "description": "Score the resulting field and preserve materials. Off uses the original hand strategy."
+    },
+    {
+      "key": "fusion_search",
+      "label": "Search fusion chains",
+      "type": "bool",
+      "default": 1,
+      "description": "Include hand and field fusion chains in planned hand plays."
+    },
+    {
+      "key": "guardian_stars",
+      "label": "Choose guardian stars",
+      "type": "bool",
+      "default": 1,
+      "description": "Evaluate both guardian stars when playing monsters."
+    },
+    {
+      "key": "attack_planning",
+      "label": "Plan attack sequences",
+      "type": "bool",
+      "default": 1,
+      "description": "Search bounded sequences for damage, removals and winning plays."
+    },
+    {
+      "key": "defensive_positions",
+      "label": "Situational defense",
+      "type": "bool",
+      "default": 1,
+      "description": "Choose defense from visible threats instead of fixed card lists."
+    },
+    {
+      "key": "spell_timing",
+      "label": "Smarter spell timing",
+      "type": "bool",
+      "default": 1,
+      "description": "Evaluate removal, healing, burn, equips, rituals and terrain."
+    },
+    {
+      "key": "effective_stats",
+      "label": "Use effective stats",
+      "type": "bool",
+      "default": 1,
+      "description": "Use current field stats and terrain in tactical scoring."
+    },
+    {
+      "key": "equal_trades",
+      "label": "Allow equal-power trades",
+      "type": "bool",
+      "default": 1,
+      "description": "Allow trades when the resulting attack sequence is worthwhile."
+    },
+    {
+      "key": "preserve_hand",
+      "label": "Preserve valuable hand cards",
+      "type": "bool",
+      "default": 1,
+      "description": "When swapping with the deck, keep valuable cards that are not selected for this play."
+    },
+    {
+      "key": "deck_access",
+      "label": "Deck access",
+      "type": "choice",
+      "default": 0,
+      "choices": [
+        "Original opponent limits",
+        "Five-card hand only",
+        "Custom window"
+      ]
+    },
+    {
+      "key": "deck_window",
+      "label": "Custom card window",
+      "type": "int",
+      "default": 20,
+      "min": 5,
+      "max": 20,
+      "step": 1,
+      "description": "Hand plus upcoming deck cards, used with Custom window."
+    },
+    {
+      "key": "hidden_cards",
+      "label": "Hidden-card knowledge",
+      "type": "choice",
+      "default": 0,
+      "choices": [
+        "Original opponent knowledge",
+        "No hidden stats",
+        "See hidden stats"
+      ]
+    },
+    {
+      "key": "fusion_materials",
+      "label": "Maximum hand materials",
+      "type": "int",
+      "default": 4,
+      "min": 2,
+      "max": 5,
+      "step": 1
+    },
+    {
+      "key": "search_budget",
+      "label": "Search budget",
+      "type": "int",
+      "default": 6000,
+      "min": 128,
+      "max": 20000,
+      "step": 1,
+      "description": "Limits fusion probes and attack-search nodes; higher values can take longer."
+    },
+    {
+      "key": "blind_risk",
+      "label": "Face-down attack risk",
+      "type": "int",
+      "default": 50,
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "suffix": "%",
+      "description": "Willingness to attack unknown monsters. Zero avoids blind attacks."
+    },
+    {
+      "key": "material_cost",
+      "label": "Material preservation",
+      "type": "int",
+      "default": 150,
+      "min": 0,
+      "max": 1000,
+      "step": 25,
+      "description": "Higher values favor using fewer cards in hand plays."
+    },
+    {
+      "key": "trace",
+      "label": "Log AI decisions",
+      "type": "bool",
+      "default": 0
+    }
+  ]
+}
