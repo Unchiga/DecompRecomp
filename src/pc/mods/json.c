@@ -335,6 +335,8 @@ const JsonValue *Json_At(const JsonValue *value, int index)
     return NULL;
 }
 
+const JsonValue *Json_Next(const JsonValue *value) { return value ? value->next : NULL; }
+
 const char *Json_String(const JsonValue *value, const char *fallback)
 {
     return value && value->type == JSON_STRING ? value->text : fallback;

@@ -309,15 +309,15 @@ static unsigned hash_text(unsigned hash, const char *s)
 }
 static unsigned hash_json(unsigned hash, const JsonValue *value)
 {
-    int i;
+    const JsonValue *child;
     char number[40];
     hash = (hash ^ (unsigned)Json_TypeOf(value)) * 16777619u;
     hash = hash_text(hash, Json_Name(value) ? Json_Name(value) : "");
     hash = hash_text(hash, Json_String(value, ""));
     snprintf(number, sizeof(number), "%ld", Json_Number(value, Json_Bool(value, 0)));
     hash = hash_text(hash, number);
-    for (i = 0; i < Json_Count(value); i++)
-        hash = hash_json(hash, Json_At(value, i));
+    for (child = Json_At(value, 0); child; child = Json_Next(child))
+        hash = hash_json(hash, child);
     return hash;
 }
 static void hash_setting(const char *key, int value, void *context)

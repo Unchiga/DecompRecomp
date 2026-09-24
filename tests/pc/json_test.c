@@ -50,6 +50,8 @@ int main(void)
     assert(!strcmp(Json_String(Json_Member(Json_At(patch, 0), "bytes"), ""), "26 25"));
     assert(!Json_Count(Json_Member(root, "id")));
     assert(!Json_At(data, 2) && !Json_At(data, -1));
+    /* Walking the children one after another sees what Json_At does. */
+    assert(Json_Next(Json_At(data, 0)) == Json_At(data, 1) && !Json_Next(Json_At(data, 1)) && !Json_Next(NULL));
     Json_Free(document);
 
     /* Malformed manifests fail with a reason rather than a crash. */

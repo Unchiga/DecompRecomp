@@ -468,8 +468,9 @@ static void add_entry(const char *mod, const char *directory, int index, const J
 
 static void add_mod(const char *mod, const char *directory, const struct JsonValue *cards, void *context)
 {
+    const struct JsonValue *entry;
     int i;
-    for (i = 0; i < Json_Count(cards); i++) add_entry(mod, directory, i, Json_At(cards, i), context);
+    for (i = 0, entry = Json_At(cards, 0); entry; i++, entry = Json_Next(entry)) add_entry(mod, directory, i, entry, context);
 }
 
 void Cards_Build(void)

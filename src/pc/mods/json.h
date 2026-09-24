@@ -26,6 +26,10 @@ JsonType Json_TypeOf(const JsonValue *value);
 const JsonValue *Json_Member(const JsonValue *object, const char *name);
 int Json_Count(const JsonValue *value);
 const JsonValue *Json_At(const JsonValue *value, int index);
+/* The element or member after this one, NULL after the last. Json_At walks
+ * from the start every time, so a loop over a long array goes this way:
+ * for (item = Json_At(list, 0); item; item = Json_Next(item)). */
+const JsonValue *Json_Next(const JsonValue *value);
 const char *Json_Name(const JsonValue *member);
 
 const char *Json_String(const JsonValue *value, const char *fallback);

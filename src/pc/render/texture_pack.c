@@ -398,8 +398,8 @@ int TexturePack_Load(const char *from)
 {
     char path[1200], error[256];
     JsonDocument *manifest;
-    const JsonValue *list;
-    int i, count, before = entry_count;
+    const JsonValue *list, *item;
+    int count, before = entry_count;
     Entry *more;
     /* Packs add up: each enabled mod's joins the entries already loaded. */
     snprintf(path, sizeof(path), "%s/manifest.json", from);
@@ -415,8 +415,9 @@ int TexturePack_Load(const char *from)
         entries = more;
         memset(entries + entry_count, 0, (size_t)(count ? count : 1) * sizeof(*entries));
     }
-    for (i = 0; more && i < count; i++) {
-        const JsonValue *item = Json_At(list, i), *rows = Json_Member(item, "row_offsets");
+    /* Walked in one pass: a pack can list tens of thousands of images. */
+    for (item = more ? Json_At(list, 0) : NULL; item; item = Json_Next(item)) {
+        const JsonValue *rows = Json_Member(item, "row_offsets"), *row;
         const char *file = Json_String(Json_Member(item, "file"), NULL);
         const char *archive = Json_String(Json_Member(item, "archive"), NULL);
         Entry *entry = &entries[entry_count];
@@ -457,8 +458,8 @@ int TexturePack_Load(const char *from)
         if (rows && Json_Count(rows) == entry->rows) {
             int r;
             entry->row_offsets = malloc(sizeof(int32_t) * (size_t)entry->rows);
-            for (r = 0; entry->row_offsets && r < entry->rows; r++) {
-                entry->row_offsets[r] = (int32_t)Json_Number(Json_At(rows, r), 0);
+            for (r = 0, row = Json_At(rows, 0); entry->row_offsets && row; r++, row = Json_Next(row)) {
+                entry->row_offsets[r] = (int32_t)Json_Number(row, 0);
             }
             entry->stride = 0;
         }
