@@ -193,7 +193,8 @@ static Menu submenus[SUB_COUNT] = {
                {"Gamma", 0, ITEM_SLIDER, 0, SET_GAMMA},
                {"Reset", 0, ITEM_ACTION, ACT_RESET_COLOR, -1, 0, ITEM_GROUP_BREAK}}, 5},
     {"Effects", {{"CRT scanlines", 0, ITEM_CHECK, 0, SET_CRT},
-                 {"Reduce flashes", 0, ITEM_CHECK, 0, SET_FLASH}}, 2},
+                 {"Reduce flashes", 0, ITEM_CHECK, 0, SET_FLASH},
+                 {"xBR pixel smoothing", 0, ITEM_CHECK, 0, SET_XBR}}, 3},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;

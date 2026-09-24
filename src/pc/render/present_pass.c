@@ -4,6 +4,10 @@
  * profile the presenter already draws with (immediate mode, glOrtho), so the
  * quad's own texture coordinates and the bound picture texture are what it
  * samples. Effects, each a setting that is off at its default:
+ *   xBR pixel smoothing (Video > Effects): the picture is read through xBR
+ *   (XBR_SOURCE below) instead of one texel at a time. It works on the
+ *   texels of the texture shown, so it does most at internal resolution 1x;
+ *   at 4x the picture's texels are already small.
  *   Reduce flashes (Video > Effects): when the picture's average brightness
  *   would rise faster than FLASH_RISE per second, the whole picture is
  *   darkened to that rise, as a camera's exposure would follow it. A flash
@@ -69,14 +73,74 @@ static const char *vertex_source =
     "    gl_TexCoord[0] = gl_MultiTexCoord0;\n"
     "}\n";
 
+/* xBR, level 2, written from the published rules: for each corner of a
+ * texel E (here the one towards F, H and I; the others are mirrors), an edge
+ * across that corner is found when the colours along the anti-diagonal
+ * differ less than along the diagonal, weighted as xBR does, and a 2:1
+ * shallow or steep edge when the next texels continue it. The corner is then
+ * cut by that edge's line and filled with F or H, whichever is closer to E;
+ * the line is antialiased over one window pixel. Colour distance is in YUV
+ * weighted 48:7:6, and colours closer than EQUAL count as the same. Texels
+ * outside the picture's rectangle repeat its edge. The neighbourhood (x
+ * right, y down):
+ *        B  C
+ *     D  E  F  F4
+ *     G  H  I  I4
+ *        H5 I5 */
+#define XBR_SOURCE \
+    "uniform vec2 size;\n" \
+    "uniform vec4 rect;\n" \
+    "vec3 texel(vec2 p) {\n" \
+    "    return texture2D(picture, (clamp(p, rect.xy, rect.zw - 1.0) + 0.5) / size).rgb;\n" \
+    "}\n" \
+    "float dist(vec3 a, vec3 b) {\n" \
+    "    vec3 k = a - b;\n" \
+    "    vec3 yuv = abs(vec3(dot(k, vec3(0.299, 0.587, 0.114)), dot(k, vec3(-0.169, -0.331, 0.5)),\n" \
+    "                        dot(k, vec3(0.5, -0.419, -0.081))));\n" \
+    "    return dot(yuv, vec3(48.0, 7.0, 6.0)) / 48.0;\n" \
+    "}\n" \
+    "bool same(vec3 a, vec3 b) { return dist(a, b) < 0.06; }\n" \
+    "float cover(float f, float slope, float w) { return clamp(f / (slope * w) + 0.5, 0.0, 1.0); }\n" \
+    "vec4 corner(vec2 e, vec2 d, vec2 q, float w) {\n" \
+    "    vec3 E = texel(e), B = texel(e + vec2(0, -1) * d), C = texel(e + vec2(1, -1) * d);\n" \
+    "    vec3 D = texel(e + vec2(-1, 0) * d), F = texel(e + vec2(1, 0) * d), G = texel(e + vec2(-1, 1) * d);\n" \
+    "    vec3 H = texel(e + vec2(0, 1) * d), I = texel(e + d), F4 = texel(e + vec2(2, 0) * d);\n" \
+    "    vec3 I4 = texel(e + vec2(2, 1) * d), H5 = texel(e + vec2(0, 2) * d), I5 = texel(e + vec2(1, 2) * d);\n" \
+    "    bool may = !same(E, F) && !same(E, H) &&\n" \
+    "               (!same(F, B) && !same(H, D) || same(E, I) && !same(F, I4) && !same(H, I5) ||\n" \
+    "                same(E, G) || same(E, C));\n" \
+    "    float across = dist(E, C) + dist(E, G) + dist(I, F4) + dist(I, H5) + 4.0 * dist(H, F);\n" \
+    "    float along = dist(H, D) + dist(H, I5) + dist(F, I4) + dist(F, B) + 4.0 * dist(E, I);\n" \
+    "    if (!may || across >= along) return vec4(E, 0.0);\n" \
+    "    float cut = cover(q.x + q.y - 1.5, 1.4142, w);\n" \
+    "    if (2.0 * dist(F, G) <= dist(H, C) && !same(E, G) && !same(D, G))\n" \
+    "        cut = max(cut, cover(0.5 * q.x + q.y - 1.0, 1.118, w));\n" \
+    "    if (dist(F, G) >= 2.0 * dist(H, C) && !same(E, C) && !same(B, C))\n" \
+    "        cut = max(cut, cover(q.x + 0.5 * q.y - 1.0, 1.118, w));\n" \
+    "    return vec4(dist(E, F) <= dist(E, H) ? F : H, cut);\n" \
+    "}\n" \
+    "vec3 xbr(vec2 uv) {\n" \
+    "    vec2 p = uv * size, e = floor(p), f = p - e;\n" \
+    "    float w = max(fwidth(p.x), fwidth(p.y));\n" \
+    "    vec4 best = corner(e, vec2(1, 1), f, w);\n" \
+    "    vec4 k = corner(e, vec2(-1, 1), vec2(1.0 - f.x, f.y), w);\n" \
+    "    if (k.a > best.a) best = k;\n" \
+    "    k = corner(e, vec2(1, -1), vec2(f.x, 1.0 - f.y), w);\n" \
+    "    if (k.a > best.a) best = k;\n" \
+    "    k = corner(e, vec2(-1, -1), 1.0 - f, w);\n" \
+    "    if (k.a > best.a) best = k;\n" \
+    "    return mix(texel(e), best.rgb, best.a);\n" \
+    "}\n"
+
 static const char *fragment_source =
     "#version 120\n"
     "uniform sampler2D picture, level;\n"
     "uniform float brightness, contrast, saturation, gamma;\n"
-    "uniform int crt, flash;\n"
+    "uniform int crt, flash, scaler;\n"
     "uniform float lines, t0, t1;\n"
+    XBR_SOURCE
     "void main() {\n"
-    "    vec3 c = texture2D(picture, gl_TexCoord[0].xy).rgb;\n"
+    "    vec3 c = scaler != 0 ? xbr(gl_TexCoord[0].xy) : texture2D(picture, gl_TexCoord[0].xy).rgb;\n"
     "    if (flash != 0) c *= texture2D(level, vec2(0.5)).g;\n"
     "    c = pow(c, vec3(1.0 / gamma));\n"
     "    c = (c - 0.5) * contrast + 0.5;\n"
@@ -113,7 +177,7 @@ static const char *measure_source =
 
 static int state; /* 0 not tried, 1 ready, -1 unavailable */
 static GLuint program;
-static GLint u_picture, u_level, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_flash, u_lines, u_t0,
+static GLint u_picture, u_level, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_flash, u_scaler, u_size, u_rect, u_lines, u_t0,
     u_t1;
 
 static int flash_state; /* as state, for the flash reduction */
@@ -179,6 +243,9 @@ static int build(void)
     u_gamma = pp_GetUniformLocation(program, "gamma");
     u_crt = pp_GetUniformLocation(program, "crt");
     u_flash = pp_GetUniformLocation(program, "flash");
+    u_scaler = pp_GetUniformLocation(program, "scaler");
+    u_size = pp_GetUniformLocation(program, "size");
+    u_rect = pp_GetUniformLocation(program, "rect");
     u_lines = pp_GetUniformLocation(program, "lines");
     u_t0 = pp_GetUniformLocation(program, "t0");
     u_t1 = pp_GetUniformLocation(program, "t1");
@@ -274,7 +341,8 @@ static void measure_level(GLuint picture, GLint unit, float s0, float t0, float 
 static int others_wanted(void)
 {
     return Settings_Get(SET_BRIGHTNESS) != 100 || Settings_Get(SET_CONTRAST) != 100 ||
-           Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT);
+           Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT) ||
+           Settings_Get(SET_XBR);
 }
 
 int PresentPass_Wanted(void)
@@ -319,6 +387,18 @@ int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float 
     pp_Uniform1f(u_saturation, (float)Settings_Get(SET_SATURATION) / 100.0f);
     pp_Uniform1f(u_gamma, (float)Settings_Get(SET_GAMMA) / 100.0f);
     pp_Uniform1i(u_crt, Settings_Get(SET_CRT));
+    pp_Uniform1i(u_scaler, Settings_Get(SET_XBR));
+    if (Settings_Get(SET_XBR)) {
+        /* xBR works on the texture's own texels, inside the picture's
+         * rectangle of them. */
+        GLint w = 1, h = 1;
+        glBindTexture(GL_TEXTURE_2D, (GLuint)texture);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+        pp_Uniform2f(u_size, (float)w, (float)h);
+        pp_Uniform4f(u_rect, (float)(int)(s0 * w + 0.5f), (float)(int)(t0 * h + 0.5f), (float)(int)(s1 * w + 0.5f),
+                     (float)(int)(t1 * h + 0.5f));
+    }
     pp_Uniform1f(u_lines, (float)source_h / (float)(multiple > 0 ? multiple : 1));
     pp_Uniform1f(u_t0, t0);
     pp_Uniform1f(u_t1, t1);
