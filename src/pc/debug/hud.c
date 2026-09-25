@@ -1,5 +1,6 @@
 #include "hud.h"
 #include "log.h"
+#include "pc/cards/fusion_helper.h"
 #include "pc/audio/spu.h"
 #include "pc/mods/mods.h"
 #include "pc/guest/state.h"
@@ -122,6 +123,8 @@ void Hud_Draw(MenuCanvas *canvas)
 {
     int x, y, w, h;
     draw_stats(canvas);
+    FusionHelper_Draw(canvas, &x, &y, &w, &h);
+    cover(x, y, w, h);
     Mods_DrawOverlay(canvas, Menu_Scale(), Menu_DrawTextScaled, Menu_TextWidthScaled, &x, &y, &w, &h);
     cover(x, y, w, h);
     SaveMenu_Draw(canvas, &x, &y, &w, &h);
@@ -141,7 +144,7 @@ static unsigned stats_signature(void)
 unsigned Hud_Signature(void)
 {
     return stats_signature() ^ SaveMenu_Signature() * 2654435761u ^ DeckMenu_Signature() * 40503u ^
-           Mods_OverlaySignature(Memories_PresentedFrames()) * 2246822519u;
+           FusionHelper_Signature() * 16777619u ^ Mods_OverlaySignature(Memories_PresentedFrames()) * 2246822519u;
 }
 
 void Hud_Bounds(int *x, int *y, int *w, int *h)

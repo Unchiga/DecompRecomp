@@ -4,7 +4,7 @@
  * the OpenGL picture (gl_picture.c) draws the text's glyphs from pictures
  * set in a font at that resolution instead of the retail 8x12 and 16x16
  * cells. The pictures are 4-bit indices like the cells, with the cells'
- * dark outline (index 1) and their shading row by row, so they go through
+ * dark outline and their shading row by row, so they go through
  * the text's own palettes: colours, fades, flashes and semi-transparency are
  * the game's. func_80035E20 marks the glyph primitives (HD_TEXT_MARK), and
  * only those are drawn from the pictures; a glyph no font can set (an icon)

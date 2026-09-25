@@ -39,6 +39,7 @@ typedef enum {
     SET_FLASH,
     SET_XBR,
     SET_HD_TEXT,
+    SET_FUSION_HELPER,
     SET_COUNT
 } SettingId;
 

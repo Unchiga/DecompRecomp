@@ -109,6 +109,12 @@ int main(void)
             CHECK(SoftGpu_Gp0(triangle, 4) == 4);
             CHECK(SoftGpu_WideFrame(0, 256, 320, 240, &words, &x, &w) && w == 428);
             pic = SoftGpu_WidePicture(0, 256, 320, 240);
+            if (recorded) {
+                /* The recorder draws the widened picture too (gl_picture.c);
+                 * the 1x target is still kept here. */
+                CHECK(!pic);
+                continue;
+            }
             CHECK(pic);
             CHECK(pic[(size_t)(270 * scale) * stride + 36 * scale] == 0xff0000);
             /* The diagonal x+y=330 is red just before the edge and black

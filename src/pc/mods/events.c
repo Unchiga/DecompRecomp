@@ -176,3 +176,11 @@ int Mods_DamageLife(int side, int life, int damage, int kind)
     Mods_Dispatch(&event);
     return event.result;
 }
+
+int Mods_HasSubscribers(unsigned event)
+{
+    int i;
+    for (i = 0; i < count; i++)
+        if (hooks[i].event == event && Mods_Active(hooks[i].owner)) return 1;
+    return 0;
+}

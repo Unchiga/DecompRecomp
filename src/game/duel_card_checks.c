@@ -7,6 +7,7 @@
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
 #include "pc/cards/tables.h"
+#include "pc/cards/rules.h"
 #endif
 
 #define FUSION_TABLE_BYTES(table) ((u8 *)(table))
@@ -48,15 +49,19 @@ s32 Duel_CheckEquip(s32 arg0, s32 arg1)
 #ifdef MEMORIES_PC
 /* An equip answers with the monster it was asked about, so a copy stays
    itself. The mods' rules come before the disc's table (tables.h). */
+int CardRules_Equip(int a, int b)
+{
+    int ruled;
+    if (!Cards_Valid(a) || !Cards_Valid(b)) return 0;
+    ruled = Tables_Equip(a, b);
+    return (ruled >= 0 ? ruled : Duel_CheckEquipRetail(Cards_BaseId(a), Cards_BaseId(b)) != 0) ? b : 0;
+}
+
 s32 Duel_CheckEquip(s32 arg0, s32 arg1)
 {
     MemoriesModEvent event = {MEMORIES_EVENT_EQUIP, MEMORIES_BEFORE, arg0, arg1, 0, 0, 0};
     Mods_Dispatch(&event);
-    if (!event.handled) {
-        s32 ruled = Tables_Equip(event.a, event.b);
-        event.result = ruled >= 0 ? ruled
-            : Duel_CheckEquipRetail(Cards_BaseId(event.a), Cards_BaseId(event.b)) != 0;
-    }
+    if (!event.handled) event.result = CardRules_Equip(event.a, event.b) != 0;
     event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
     return event.result ? arg1 : 0;
 }
@@ -113,14 +118,20 @@ s32 Duel_CheckFusion(s32 arg0, s32 arg1)
 }
 
 #ifdef MEMORIES_PC
+int CardRules_Fusion(int a, int b)
+{
+    int result = 0;
+    if (!Tables_Fusion(a, b, &result) && !Cards_Fusion(a, b, &result))
+        result = Cards_Valid(a) && Cards_Valid(b)
+            ? Tables_FilterFusion(Duel_CheckFusionRetail(a, b)) : 0;
+    return Cards_Valid(result) ? result : 0;
+}
+
 s32 Duel_CheckFusion(s32 a, s32 b)
 {
     MemoriesModEvent event = {MEMORIES_EVENT_FUSION, MEMORIES_BEFORE, a, b, 0, 0, 0};
     Mods_Dispatch(&event);
-    if (!event.handled && !Tables_Fusion(event.a, event.b, &event.result) &&
-        !Cards_Fusion(event.a, event.b, &event.result))
-        event.result = Cards_Valid(event.a) && Cards_Valid(event.b)
-            ? Tables_FilterFusion(Duel_CheckFusionRetail(event.a, event.b)) : 0;
+    if (!event.handled) event.result = CardRules_Fusion(event.a, event.b);
     if (event.result && !Cards_Valid(event.result)) event.result = 0;
     event.phase = MEMORIES_AFTER; Mods_Dispatch(&event);
     return event.result;

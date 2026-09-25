@@ -30,10 +30,12 @@ int main(void)
     int first, second, third;
     memcpy(entry, (void *)Game_Add, 2);
     CHECK(call_add(2, 3) == 5);
+    CHECK(!Hooks_IsHooked((const void *)Game_Add));
     CHECK(!Hooks_Add(0, (void *)Port_Function, (void *)replaced, NULL));   /* no room: refused */
 
     first = Hooks_Add(0, (void *)Game_Add, (void *)doubled, &first_original);
     CHECK(first);
+    CHECK(Hooks_IsHooked((const void *)Game_Add));
     CHECK(call_add(2, 3) == 10);
     second = Hooks_Add(1, (void *)Game_Add, (void *)plus_hundred, &second_original);
     CHECK(second && second != first);
@@ -49,12 +51,14 @@ int main(void)
     CHECK(call_add(2, 3) == 10);
     Hooks_Clear(0);
     CHECK(call_add(2, 3) == 5);
+    CHECK(!Hooks_IsHooked((const void *)Game_Add));
     CHECK(!memcmp(entry, (void *)Game_Add, 2));   /* its own nops are back */
 
     third = Hooks_Add(2, (void *)Game_Other, (void *)replaced, NULL);
     CHECK(third && Game_Other(4) == -7);
     active[2] = 0; Hooks_Relink();
     CHECK(Game_Other(4) == 12);
+    CHECK(!Hooks_IsHooked((const void *)Game_Other));
     printf("hooks: passed\n");
     return 0;
 }

@@ -10,4 +10,5 @@ void Hooks_Remove(int owner, int token);
 void Hooks_Clear(int owner);
 /* Rebuild every chain from the mods now applied (Mods_Active). */
 void Hooks_Relink(void);
+int Hooks_IsHooked(const void *function);
 #endif

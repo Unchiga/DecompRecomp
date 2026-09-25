@@ -20,6 +20,7 @@
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/cards/cards.h"
+#include "pc/cards/fusion_helper.h"
 #include "pc/debug/log.h"
 #include "pc/debug/monitor.h"
 #include "pc/debug/hud.h"
@@ -40,7 +41,11 @@ static SDL_Renderer *renderer;
 static SDL_Texture *picture, *overlay;
 static SDL_GLContext gl_context;
 static GLuint gl_picture, gl_overlay;
-static int gl_pass_shown, gl_pass_rect[4]; /* this frame shows the OpenGL picture pass's texture, this part of it */
+static int gl_pass_shown, gl_pass_rect[4];
+/* A widened picture shown instead of the pass's own (0 for that one), and
+ * its size in texels. */
+static GLuint gl_pass_texture;
+static int gl_pass_size[2]; /* this frame shows the OpenGL picture pass's texture, this part of it */
 static int use_gl;
 static int picture_w, picture_h;
 static uint32_t *picture_pixels, *overlay_pixels;
@@ -1064,7 +1069,8 @@ static void gl_quad(GLuint texture, float x, float y, float w, float h)
 static void draw_overlay(int *x, int *y, int *w, int *h)
 {
     int hx, hy, hw, hh;
-    if (Settings_Get(SET_SHOW_HUD) == 2) {
+    FusionHelper_Viewport((int)layout.dst.x, (int)layout.dst.y, (int)layout.dst.w, (int)layout.dst.h);
+    if (Settings_Get(SET_SHOW_HUD) == 2 || Menu_IsOpen()) {
         Hud_Draw(&canvas);
         Menu_Draw(&canvas); /* dropdowns stay above the full statistics panel */
     } else {
@@ -1102,8 +1108,8 @@ static void show(void)
         glDisable(GL_BLEND);
         glColor4f(1, 1, 1, 1);
         if (gl_pass_shown) {
-            int pw, ph;
-            GLuint texture = (GLuint)GlPicture_Texture(&pw, &ph);
+            int pw = gl_pass_size[0], ph = gl_pass_size[1];
+            GLuint texture = gl_pass_texture ? gl_pass_texture : (GLuint)GlPicture_Texture(&pw, &ph);
             glBindTexture(GL_TEXTURE_2D, texture);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
@@ -1682,6 +1688,39 @@ int Platform_ReadPicture(uint32_t *out, int x, int y, int w, int h)
     if (!use_gl) return 0;
     GlPicture_Replay(); /* what was recorded since the last present */
     return GlPicture_Read(x, y, w, h, out);
+}
+
+int Platform_PresentWidePicture(int x, int y, int w, int h, int wide_w, int at_scale)
+{
+    GLuint texture;
+    int pw, ph;
+    if (!use_gl || at_scale < 2) return 0;
+    begin_present(wide_w * at_scale, h * at_scale, at_scale);
+    if (!GlPicture_Replay() || GlPicture_Scale() != at_scale ||
+        !(texture = (GLuint)GlPicture_WideTexture(x, y, w, h, &pw, &ph))) {
+        pumped = 1; /* the caller shows another picture: one pump a frame */
+        return 0;
+    }
+    gl_pass_shown = 1;
+    gl_pass_texture = texture;
+    gl_pass_size[0] = pw;
+    gl_pass_size[1] = ph;
+    gl_pass_rect[0] = 0;
+    gl_pass_rect[1] = 0;
+    gl_pass_rect[2] = pw;
+    gl_pass_rect[3] = h * at_scale;
+    compose_menu_if_changed();
+    show();
+    gl_pass_shown = 0;
+    gl_pass_texture = 0;
+    return 1;
+}
+
+int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h, int wide_w, int scale)
+{
+    if (!use_gl) return 0;
+    GlPicture_Replay();
+    return GlPicture_ReadWide(x, y, w, h, wide_w, scale, out);
 }
 
 int Platform_ShouldQuit(void) { return quit; }
