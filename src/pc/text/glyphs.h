@@ -23,7 +23,7 @@
 /* The glyph code for a Unicode character: a retail one, or an added one
  * made now; -1 when the port can make none. */
 int Glyphs_Code(uint32_t character);
-/* The character a retail glyph code writes, 0 for none. */
+/* The Unicode character a retail or added glyph writes, 0 for none. */
 uint32_t Glyphs_Character(int code);
 /* The glyph table's word for a code (retail or added), as TextBox_BuildStep
  * reads it: Shift-JIS in the low half, the small font's index and the

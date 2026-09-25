@@ -142,3 +142,11 @@ void Hooks_Clear(int owner)
     hook_count = kept;
     Hooks_Relink();
 }
+
+int Hooks_IsHooked(const void *function)
+{
+    int i;
+    for (i = 0; i < target_count; i++)
+        if (targets[i].entry == function) return targets[i].patched;
+    return 0;
+}

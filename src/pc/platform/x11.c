@@ -5,6 +5,7 @@
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/cards/cards.h"
+#include "pc/cards/fusion_helper.h"
 #include "pc/debug/log.h"
 #include "pc/debug/monitor.h"
 #include "pc/debug/hud.h"
@@ -327,7 +328,8 @@ static void present_frame(void)
 {
     int hx, hy, hw, hh;
     scale_game(0, image_h);
-    if (Settings_Get(SET_SHOW_HUD) == 2) {
+    FusionHelper_Viewport(0, Menu_Height(), last.w * scale, last.h * scale);
+    if (Settings_Get(SET_SHOW_HUD) == 2 || Menu_IsOpen()) {
         Hud_Draw(&canvas);
         Menu_Draw(&canvas);
     } else {
@@ -358,7 +360,7 @@ static void repaint_menu(void)
     if (old_w && old_h) {
         scale_game(old_y, old_y + old_h);
     }
-    if (Settings_Get(SET_SHOW_HUD) == 2) {
+    if (Settings_Get(SET_SHOW_HUD) == 2 || Menu_IsOpen()) {
         Hud_Draw(&canvas);
         Menu_Draw(&canvas);
     } else {
