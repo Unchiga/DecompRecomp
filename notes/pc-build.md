@@ -1102,6 +1102,14 @@ panel is one texture for every opponent.
 - It is drawn over the panel whatever drew the panel: the retail panel, HD
   numbers and labels, or a texture pack's image.
 - A 2P duel (no opponent id) and a panel other than the retail one keep COM.
+- YOU's box shows You, in the name's case, made the same way.
+- The result screens name the sides too (You, and the opponent over COM's
+  column). They call the dialogue bank's YOU and COM labels by their place,
+  which `Text_Retarget` points at the names. Their small font has no full
+  stop and odd digits, so there the name is the panel's when it is letters
+  only and at most 9 of them, else its longest word of letters (G. Sebek:
+  Sebek, Teana 2nd: Teana, Simon Muran: Simon). A copy of the result
+  strings steps less before COM, so the name ends where COM did.
 
 Not covered yet: the sword and shield icons (pictures, not lettering).
 
