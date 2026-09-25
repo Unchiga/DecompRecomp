@@ -48,6 +48,7 @@
  * draw-mode word and one closed polyline per triangle, two per quad. */
 #include "types.h"
 #include "pc/compat/gte.h"
+#include "pc/compat/pgxp.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -68,6 +69,23 @@ static void load_vector(unsigned slot, const u8 *vectors, unsigned index)
 {
     Memories_GteLoad(slot * 2, vectors + index * 8);
     Memories_GteLoad(slot * 2 + 1, vectors + index * 8 + 4);
+}
+
+/* PGXP (pgxp.h): each vertex's precise position and depth travel with its
+ * screen word, from the GTE (or the pre-pass's result) to the packet word. */
+typedef struct Exact {
+    float xyw[3];
+    int known;
+} Exact;
+
+static uint32_t packet_address(const u32 *word)
+{
+    return (uint32_t)(uintptr_t)word & 0x00ffffffu; /* physical, as packets link */
+}
+
+static void exact_from_gte(Exact *exact, unsigned slot)
+{
+    exact->known = Memories_GtePrecise(slot, &exact->xyw[0], &exact->xyw[1], &exact->xyw[2]);
 }
 
 static u32 *draw(u32 *scratch, const Driver *kind)
@@ -119,6 +137,7 @@ static u32 *draw(u32 *scratch, const Driver *kind)
         const u32 *words = (const u32 *)record;
         unsigned vertex[4], normal[4], i, packet_words, at;
         u32 uv[4], shade[4], screen[4], *entry, *out;
+        Exact exact[4] = {{{0}, 0}};
         if (kind->gouraud) {
             for (i = 0; i < (unsigned)corners; i++) {
                 normal[i] = half[kind->quad && i == 0 ? 5 : 6 + i * 2];
@@ -140,6 +159,8 @@ static u32 *draw(u32 *scratch, const Driver *kind)
                 const u32 *result = (const u32 *)(normals + vertex[i] * 8); /* scratch[7]: projected vertices */
                 failed |= result[1] == 0xffffffffu;
                 screen[i] = result[0];
+                exact[i].known = Pgxp_Active && Pgxp_FindAt((uint32_t)(uintptr_t)result, result[0], &exact[i].xyw[0],
+                                                            &exact[i].xyw[1], &exact[i].xyw[2]) > 0;
                 Memories_GteWriteData((kind->quad ? 16 : 17) + i, result[1]);
             }
             if (failed) {
@@ -184,6 +205,7 @@ static u32 *draw(u32 *scratch, const Driver *kind)
         }
         for (i = 0; i < 3; i++) {
             screen[i] = Memories_GteReadData(12 + i);
+            exact_from_gte(&exact[i], i);
         }
         if (kind->quad) {
             load_vector(0, vertices, vertex[3]);
@@ -192,6 +214,7 @@ static u32 *draw(u32 *scratch, const Driver *kind)
                 continue;
             }
             screen[3] = Memories_GteReadData(14);
+            exact_from_gte(&exact[3], 2);
         }
         Memories_GteCommand(kind->quad ? AVSZ4 : AVSZ3);
         if (mode != 0) {
@@ -240,6 +263,9 @@ static u32 *draw(u32 *scratch, const Driver *kind)
             for (i = 0; i < (unsigned)corners; i++) {
                 if (i < (unsigned)lit) {
                     *out++ = shade[i];
+                }
+                if (Pgxp_Active) {
+                    Pgxp_StoreAt(packet_address(out), screen[i], exact[i].known ? exact[i].xyw : NULL);
                 }
                 *out++ = screen[i];
                 *out++ = uv[i];
@@ -347,6 +373,14 @@ u32 *func_80067220(u32 *scratch)
             if (mode == 1 || (s32)Memories_GteReadControl(31) >= 0) {
                 result[0] = Memories_GteReadData(14);
                 result[1] = (Memories_GteReadData(8) << 16) | Memories_GteReadData(19);
+            }
+            if (Pgxp_Active) {
+                /* For the polygon drivers that pick the result up; keyed by
+                 * the result's own address (it can lie outside guest RAM). */
+                Exact exact;
+                exact_from_gte(&exact, 2);
+                Pgxp_StoreAt((uint32_t)(uintptr_t)result, result[0],
+                             exact.known && result[1] != 0xffffffffu ? exact.xyw : NULL);
             }
         }
     }

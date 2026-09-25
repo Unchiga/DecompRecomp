@@ -32,6 +32,7 @@ static DRAWENV draw_env;
 static DISPENV disp_env;
 static int display_enabled, frames_presented, frames_shown;
 static uint32_t frame_words[MAX_FRAME_WORDS];
+static uint32_t frame_addresses[MAX_FRAME_WORDS]; /* where each was in guest RAM (PGXP) */
 static size_t pending_words;
 static void flush_drawing(void);
 #define MAX_FRAME_PRECISE 65536
@@ -352,8 +353,8 @@ void DrawOTag(u32 *list)
     size_t count;
     MemoriesGpuResult result;
     flush_drawing();
-    result = Memories_GpuCollect(IMAGE, (uint32_t)(uintptr_t)list, frame_words, MAX_FRAME_WORDS, MAX_CHAIN_HOPS,
-                                 &count);
+    result = Memories_GpuCollectAt(IMAGE, (uint32_t)(uintptr_t)list, frame_words, frame_addresses, MAX_FRAME_WORDS,
+                                   MAX_CHAIN_HOPS, &count);
     if (result != MEMORIES_GPU_OK) {
         char detail[160];
         snprintf(detail, sizeof(detail), "DrawOTag(%p): %s", (void *)list, Memories_GpuResultName(result));
@@ -362,32 +363,39 @@ void DrawOTag(u32 *list)
     }
     pending_words = count;
     /* PGXP (pgxp.h): the frame's words that are vertices projected since the
-     * last DrawOTag, with where they really are; then the next frame's.
-     * Below level 2 a vertex keeps the console's whole-pixel position and
-     * only its depth is used (textures in perspective): on the small
-     * monster models, precise positions open dark gaps. */
+     * last DrawOTag, with where they really are: those the game's drawing
+     * wrote by address, the rest by value; then the next frame's. Below
+     * level 2 a vertex keeps the console's whole-pixel position and only its
+     * depth is used (textures in perspective): on the small monster models,
+     * precise positions open dark gaps. */
     pending_precise = 0;
     if (Pgxp_Active) {
+        static unsigned frames, placed, matched;
         int positions = Settings_Get(SET_PGXP) >= 2;
         size_t i;
         for (i = 0; i < count && pending_precise < MAX_FRAME_PRECISE; i++) {
             PgxpVertex *vertex = &frame_precise[pending_precise];
-            if (Pgxp_Find(frame_words[i], &vertex->x, &vertex->y, &vertex->w)) {
-                if (!positions) {
-                    vertex->x = (float)(int16_t)(frame_words[i] & 0xffffu);
-                    vertex->y = (float)(int16_t)(frame_words[i] >> 16);
-                }
-                vertex->index = (uint32_t)i;
-                pending_precise++;
+            int at = Pgxp_FindAt(frame_addresses[i], frame_words[i], &vertex->x, &vertex->y, &vertex->w);
+            if (at > 0) {
+                placed++;
+            } else if (at < 0) {
+                continue;
+            } else if (Pgxp_Find(frame_words[i], &vertex->x, &vertex->y, &vertex->w)) {
+                matched++;
+            } else {
+                continue;
             }
+            if (!positions) {
+                vertex->x = (float)(int16_t)(frame_words[i] & 0xffffu);
+                vertex->y = (float)(int16_t)(frame_words[i] >> 16);
+            }
+            vertex->index = (uint32_t)i;
+            pending_precise++;
         }
-    }
-    if (Pgxp_Active) {
-        static unsigned frames, vertices;
-        vertices += (unsigned)pending_precise;
         if (++frames == 120) {
-            LOG(LOG_FRAMES, "pgxp: %u precise vertex words per DrawOTag", vertices / 120);
-            frames = vertices = 0;
+            LOG(LOG_FRAMES, "pgxp: %u precise vertex words per DrawOTag (%u by address, %u by value)",
+                (placed + matched) / 120, placed / 120, matched / 120);
+            frames = placed = matched = 0;
         }
     }
     Pgxp_NextFrame();
