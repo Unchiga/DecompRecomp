@@ -1,6 +1,6 @@
 [
     {
-        "file": "00 - Deck Build.png",
+        "file": "00-deck-build.png",
         "alias": "free duel portrait 0: Deck Build",
         "archive": "WA_MRG.MRG",
         "offset": 16076800,
@@ -16,7 +16,7 @@
         "row_offsets": null
     },
     {
-        "file": "01 - Simon Muran.png",
+        "file": "01-simon-muran.png",
         "alias": "free duel portrait 1: Simon Muran",
         "archive": "WA_MRG.MRG",
         "offset": 16079232,
@@ -32,7 +32,7 @@
         "row_offsets": null
     },
     {
-        "file": "02 - Teana.png",
+        "file": "02-teana.png",
         "alias": "free duel portrait 2: Teana",
         "archive": "WA_MRG.MRG",
         "offset": 16081664,
@@ -48,7 +48,7 @@
         "row_offsets": null
     },
     {
-        "file": "03 - Jono.png",
+        "file": "03-jono.png",
         "alias": "free duel portrait 3: Jono",
         "archive": "WA_MRG.MRG",
         "offset": 16084096,
@@ -64,7 +64,7 @@
         "row_offsets": null
     },
     {
-        "file": "04 - Vallager #1.png",
+        "file": "04-vallager-1.png",
         "alias": "free duel portrait 4: Vallager #1",
         "archive": "WA_MRG.MRG",
         "offset": 16086528,
@@ -80,7 +80,7 @@
         "row_offsets": null
     },
     {
-        "file": "05 - Vallager #2.png",
+        "file": "05-vallager-2.png",
         "alias": "free duel portrait 5: Vallager #2",
         "archive": "WA_MRG.MRG",
         "offset": 16088960,
@@ -96,7 +96,7 @@
         "row_offsets": null
     },
     {
-        "file": "06 - Vallager #3.png",
+        "file": "06-vallager-3.png",
         "alias": "free duel portrait 6: Vallager #3",
         "archive": "WA_MRG.MRG",
         "offset": 16091392,
@@ -112,7 +112,7 @@
         "row_offsets": null
     },
     {
-        "file": "07 - Seto.png",
+        "file": "07-seto.png",
         "alias": "free duel portrait 7: Seto",
         "archive": "WA_MRG.MRG",
         "offset": 16093824,
@@ -128,7 +128,7 @@
         "row_offsets": null
     },
     {
-        "file": "08 - Heishin 1st.png",
+        "file": "08-heishin-1st.png",
         "alias": "free duel portrait 8: Heishin 1st",
         "archive": "WA_MRG.MRG",
         "offset": 16096256,
@@ -144,7 +144,7 @@
         "row_offsets": null
     },
     {
-        "file": "09 - Rex Raptor.png",
+        "file": "09-rex-raptor.png",
         "alias": "free duel portrait 9: Rex Raptor",
         "archive": "WA_MRG.MRG",
         "offset": 16098688,
@@ -160,7 +160,7 @@
         "row_offsets": null
     },
     {
-        "file": "10 - Weevil Underwood.png",
+        "file": "10-weevil-underwood.png",
         "alias": "free duel portrait 10: Weevil Underwood",
         "archive": "WA_MRG.MRG",
         "offset": 16101120,
@@ -176,7 +176,7 @@
         "row_offsets": null
     },
     {
-        "file": "11 - Mai Valentine.png",
+        "file": "11-mai-valentine.png",
         "alias": "free duel portrait 11: Mai Valentine",
         "archive": "WA_MRG.MRG",
         "offset": 16103552,
@@ -192,7 +192,7 @@
         "row_offsets": null
     },
     {
-        "file": "12 - Bandit Keith.png",
+        "file": "12-bandit-keith.png",
         "alias": "free duel portrait 12: Bandit Keith",
         "archive": "WA_MRG.MRG",
         "offset": 16105984,
@@ -208,7 +208,7 @@
         "row_offsets": null
     },
     {
-        "file": "13 - Shadi.png",
+        "file": "13-shadi.png",
         "alias": "free duel portrait 13: Shadi",
         "archive": "WA_MRG.MRG",
         "offset": 16108416,
@@ -224,7 +224,7 @@
         "row_offsets": null
     },
     {
-        "file": "14 - Yami Bakura.png",
+        "file": "14-yami-bakura.png",
         "alias": "free duel portrait 14: Yami Bakura",
         "archive": "WA_MRG.MRG",
         "offset": 16110848,
@@ -240,7 +240,7 @@
         "row_offsets": null
     },
     {
-        "file": "15 - Pegasus.png",
+        "file": "15-pegasus.png",
         "alias": "free duel portrait 15: Pegasus",
         "archive": "WA_MRG.MRG",
         "offset": 16113280,
@@ -256,7 +256,7 @@
         "row_offsets": null
     },
     {
-        "file": "16 - Isis.png",
+        "file": "16-isis.png",
         "alias": "free duel portrait 16: Isis",
         "archive": "WA_MRG.MRG",
         "offset": 16115712,
@@ -272,7 +272,7 @@
         "row_offsets": null
     },
     {
-        "file": "17 - Kaiba.png",
+        "file": "17-kaiba.png",
         "alias": "free duel portrait 17: Kaiba",
         "archive": "WA_MRG.MRG",
         "offset": 16118144,
@@ -288,7 +288,7 @@
         "row_offsets": null
     },
     {
-        "file": "18 - Mage Soldier.png",
+        "file": "18-mage-soldier.png",
         "alias": "free duel portrait 18: Mage Soldier",
         "archive": "WA_MRG.MRG",
         "offset": 16120576,
@@ -304,7 +304,7 @@
         "row_offsets": null
     },
     {
-        "file": "19 - Jono 2nd.png",
+        "file": "19-jono-2nd.png",
         "alias": "free duel portrait 19: Jono 2nd",
         "archive": "WA_MRG.MRG",
         "offset": 16123008,
@@ -320,7 +320,7 @@
         "row_offsets": null
     },
     {
-        "file": "20 - Teana 2nd.png",
+        "file": "20-teana-2nd.png",
         "alias": "free duel portrait 20: Teana 2nd",
         "archive": "WA_MRG.MRG",
         "offset": 16125440,
@@ -336,7 +336,7 @@
         "row_offsets": null
     },
     {
-        "file": "21 - Ocean Mage.png",
+        "file": "21-ocean-mage.png",
         "alias": "free duel portrait 21: Ocean Mage",
         "archive": "WA_MRG.MRG",
         "offset": 16127872,
@@ -352,7 +352,7 @@
         "row_offsets": null
     },
     {
-        "file": "22 - High Mage Secmeton.png",
+        "file": "22-high-mage-secmeton.png",
         "alias": "free duel portrait 22: High Mage Secmeton",
         "archive": "WA_MRG.MRG",
         "offset": 16130304,
@@ -368,7 +368,7 @@
         "row_offsets": null
     },
     {
-        "file": "23 - Low Forest Mage.png",
+        "file": "23-low-forest-mage.png",
         "alias": "free duel portrait 23: Low Forest Mage",
         "archive": "WA_MRG.MRG",
         "offset": 16132736,
@@ -384,7 +384,7 @@
         "row_offsets": null
     },
     {
-        "file": "24 - High Mage Anubisius.png",
+        "file": "24-high-mage-anubisius.png",
         "alias": "free duel portrait 24: High Mage Anubisius",
         "archive": "WA_MRG.MRG",
         "offset": 16135168,
@@ -400,7 +400,7 @@
         "row_offsets": null
     },
     {
-        "file": "25 - Mountain Mage.png",
+        "file": "25-mountain-mage.png",
         "alias": "free duel portrait 25: Mountain Mage",
         "archive": "WA_MRG.MRG",
         "offset": 16137600,
@@ -416,7 +416,7 @@
         "row_offsets": null
     },
     {
-        "file": "26 - High Mage Atenza.png",
+        "file": "26-high-mage-atenza.png",
         "alias": "free duel portrait 26: High Mage Atenza",
         "archive": "WA_MRG.MRG",
         "offset": 16140032,
@@ -432,7 +432,7 @@
         "row_offsets": null
     },
     {
-        "file": "27 - Desert Mage.png",
+        "file": "27-desert-mage.png",
         "alias": "free duel portrait 27: Desert Mage",
         "archive": "WA_MRG.MRG",
         "offset": 16142464,
@@ -448,7 +448,7 @@
         "row_offsets": null
     },
     {
-        "file": "28 - High Mage Martis.png",
+        "file": "28-high-mage-martis.png",
         "alias": "free duel portrait 28: High Mage Martis",
         "archive": "WA_MRG.MRG",
         "offset": 16144896,
@@ -464,7 +464,7 @@
         "row_offsets": null
     },
     {
-        "file": "29 - Meadow Mage.png",
+        "file": "29-meadow-mage.png",
         "alias": "free duel portrait 29: Meadow Mage",
         "archive": "WA_MRG.MRG",
         "offset": 16147328,
@@ -480,7 +480,7 @@
         "row_offsets": null
     },
     {
-        "file": "30 - High Mage Kepura.png",
+        "file": "30-high-mage-kepura.png",
         "alias": "free duel portrait 30: High Mage Kepura",
         "archive": "WA_MRG.MRG",
         "offset": 16149760,
@@ -496,7 +496,7 @@
         "row_offsets": null
     },
     {
-        "file": "31 - Labyrinth Mage.png",
+        "file": "31-labyrinth-mage.png",
         "alias": "free duel portrait 31: Labyrinth Mage",
         "archive": "WA_MRG.MRG",
         "offset": 16152192,
@@ -512,7 +512,7 @@
         "row_offsets": null
     },
     {
-        "file": "32 - Seto 2nd.png",
+        "file": "32-seto-2nd.png",
         "alias": "free duel portrait 32: Seto 2nd",
         "archive": "WA_MRG.MRG",
         "offset": 16154624,
@@ -528,7 +528,7 @@
         "row_offsets": null
     },
     {
-        "file": "33 - Guardian Sebek.png",
+        "file": "33-guardian-sebek.png",
         "alias": "free duel portrait 33: Guardian Sebek",
         "archive": "WA_MRG.MRG",
         "offset": 16157056,
@@ -544,7 +544,7 @@
         "row_offsets": null
     },
     {
-        "file": "34 - Guardian Neku.png",
+        "file": "34-guardian-neku.png",
         "alias": "free duel portrait 34: Guardian Neku",
         "archive": "WA_MRG.MRG",
         "offset": 16159488,
@@ -560,7 +560,7 @@
         "row_offsets": null
     },
     {
-        "file": "35 - Heishin 2nd.png",
+        "file": "35-heishin-2nd.png",
         "alias": "free duel portrait 35: Heishin 2nd",
         "archive": "WA_MRG.MRG",
         "offset": 16161920,
@@ -576,7 +576,7 @@
         "row_offsets": null
     },
     {
-        "file": "36 - Seto 3rd.png",
+        "file": "36-seto-3rd.png",
         "alias": "free duel portrait 36: Seto 3rd",
         "archive": "WA_MRG.MRG",
         "offset": 16164352,
@@ -592,7 +592,7 @@
         "row_offsets": null
     },
     {
-        "file": "37 - DarkNite.png",
+        "file": "37-darknite.png",
         "alias": "free duel portrait 37: DarkNite",
         "archive": "WA_MRG.MRG",
         "offset": 16166784,
@@ -608,7 +608,7 @@
         "row_offsets": null
     },
     {
-        "file": "38 - Nitemare.png",
+        "file": "38-nitemare.png",
         "alias": "free duel portrait 38: Nitemare",
         "archive": "WA_MRG.MRG",
         "offset": 16169216,
@@ -624,7 +624,7 @@
         "row_offsets": null
     },
     {
-        "file": "39 - Duel Master K.png",
+        "file": "39-duel-master-k.png",
         "alias": "free duel portrait 39: Duel Master K",
         "archive": "WA_MRG.MRG",
         "offset": 16171648,
