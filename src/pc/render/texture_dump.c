@@ -17,6 +17,8 @@ uint32_t *TextureDump_Tags;
 uint16_t *TextureDump_Shadow;
 void (*TextureDump_Paint)(int x, int y, int w, int h);
 int (*TextureDump_Prepare)(int page_x, int page_y, int depth, int clut_x, int clut_y, int u, int v);
+uint32_t (*TextureDump_Recall)(const uint16_t *pixels, size_t words);
+void (*TextureDump_Restored)(void);
 int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
 void (*TextureDump_Forget)(int x, int y, int w, int h);
 void (*TextureDump_Follow)(int sx, int sy, int dx, int dy, int w, int h);
@@ -299,6 +301,7 @@ void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
     if (!delivered((uintptr_t)pixels, (uintptr_t)(pixels + (size_t)w * h)) ||
         (!provenance((uintptr_t)pixels) && !provenance((uintptr_t)&pixels[(size_t)w * h - 1]))) {
         disc = found_by_content(pixels, (size_t)w * h);
+        if (!disc && TextureDump_Recall) disc = TextureDump_Recall(pixels, (size_t)w * h);
         if (!disc) {
             TextureDump_Cleared(x, y, w, h);
             return;

@@ -5,6 +5,7 @@
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
 #include "pc/compat/signal.h"
+#include "pc/sdk/disc.h"
 #include <png.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +32,7 @@ static int entry_count, resolved; /* offsets are absolute on the disc, entries s
 /* An upload can arrive from the interrupt tick (a LoadImage in the disc
  * callback), where reading a PNG or the disc's directory is not safe: paint
  * only notes what it needs, and TexturePack_Service does it between frames. */
-static volatile int wanted_resolve, wanted_images;
+static volatile int wanted_resolve, wanted_images, wanted_rediscover;
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
 /* The uploads that asked for an image not read yet: once it is, only they
@@ -255,6 +256,70 @@ static int locate(uint32_t offset, int *row, int *word)
     return -1;
 }
 
+/* Recall: the first bytes on the disc of every image and palette the pack
+ * replaces, read once the entries are resolved and sorted by them. The
+ * disc layer traces an upload through its ring of recent reads
+ * (texture_dump.c); an upload it cannot trace is known by these instead:
+ * the duel's card thumbnails come from a table filled when the duel
+ * starts, whose sectors have left the ring after a long duel (3D models
+ * read since) or were never in it (a state loaded). Only images whose
+ * rows follow each other on the disc: an upload is one block. */
+#define RECALL_BYTES 32
+typedef struct {
+    unsigned char head[RECALL_BYTES]; /* first: compare_recalled */
+    uint32_t disc;
+} Recalled;
+static Recalled *recalled;
+static int recalled_count;
+
+static int compare_recalled(const void *a, const void *b) { return memcmp(a, b, RECALL_BYTES); }
+
+/* 1 with the bytes at a disc offset, 0 when unreadable or one value
+ * throughout (a fill would be found anywhere). */
+static int read_head(uint32_t offset, unsigned char *out)
+{
+    unsigned char sectors[2 * 2048];
+    int at = (int)(offset % 2048), count = at + RECALL_BYTES > 2048 ? 2 : 1, i;
+    if (Memories_DiscReadSectors((int)(offset / 2048), count, sectors) != count) return 0;
+    memcpy(out, sectors + at, RECALL_BYTES);
+    for (i = 1; i < RECALL_BYTES && out[i] == out[0]; i++) {}
+    return i < RECALL_BYTES;
+}
+
+static void recall_heads(void)
+{
+    int i, n = 0;
+    free(recalled);
+    recalled_count = 0;
+    recalled = malloc(sizeof(*recalled) * (size_t)entry_count * 2 + 1);
+    if (!recalled) return;
+    for (i = 0; i < entry_count; i++) {
+        const Entry *entry = &entries[i];
+        int whole = !entry->row_offsets && (entry->stride == (uint32_t)entry->words || entry->rows == 1);
+        if (whole && entry->words * entry->rows * 2 >= RECALL_BYTES && (i == 0 || entry->offset != entries[i - 1].offset) &&
+            read_head(entry->offset, recalled[n].head))
+            recalled[n++].disc = entry->offset;
+        if (entry->clut_entries * 2 >= RECALL_BYTES && read_head(entry->clut_offset, recalled[n].head))
+            recalled[n++].disc = entry->clut_offset;
+    }
+    qsort(recalled, (size_t)n, sizeof(*recalled), compare_recalled);
+    recalled_count = n;
+}
+
+/* The disc offset of an upload's first byte, 0 unknown. Any context. */
+static uint32_t recall(const uint16_t *pixels, size_t words)
+{
+    int low = 0, high = recalled_count;
+    if (words * 2 < RECALL_BYTES) return 0;
+    while (low < high) {
+        int middle = (low + high) / 2, order = memcmp(pixels, recalled[middle].head, RECALL_BYTES);
+        if (!order) return recalled[middle].disc;
+        if (order > 0) low = middle + 1;
+        else high = middle;
+    }
+    return 0;
+}
+
 /* The disc is open after the mods are applied, so the archives' places are
  * looked up on first use; an archive the disc lacks drops its images.
  * 1 resolved, 0 nothing left to resolve, -1 no disc yet. */
@@ -288,6 +353,7 @@ static int resolve(void)
         return 0;
     }
     qsort(entries, (size_t)entry_count, sizeof(*entries), compare);
+    recall_heads();
     resolved = 1;
     fprintf(stderr, "memories-pc: texture packs: %d images\n", entry_count);
     return 1;
@@ -440,6 +506,9 @@ static void free_entries(void)
     free(entries);
     entries = NULL;
     entry_count = 0;
+    free(recalled);
+    recalled = NULL;
+    recalled_count = 0;
 }
 
 /* What was wrong with a pack's entries, kind by kind: how many, and the
@@ -476,6 +545,71 @@ static int is_png(const char *path)
     fclose(file);
     return same;
 }
+
+/* The size of the block an upload of the image or palette starting at a
+ * disc offset covers: 0 when the pack has none there. */
+static int block_at(uint32_t disc, int *words, int *rows)
+{
+    int i;
+    for (i = 0; i < entry_count; i++) {
+        const Entry *entry = &entries[i];
+        if (entry->offset == disc && !entry->row_offsets && (entry->stride == (uint32_t)entry->words || entry->rows == 1)) {
+            *words = entry->words;
+            *rows = entry->rows;
+            return 1;
+        }
+        if (entry->clut_entries && entry->clut_offset == disc) {
+            *words = entry->clut_entries;
+            *rows = 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Whether VRAM's block at x,y holds the disc's bytes from `disc` on. */
+static int holds_disc(const uint16_t *vram, uint32_t disc, int x, int y, int words, int rows)
+{
+    size_t bytes = (size_t)words * rows * 2, first = disc % 2048;
+    int sectors = (int)((first + bytes + 2047) / 2048), j, same = 1;
+    unsigned char *data = malloc((size_t)sectors * 2048);
+    if (!data) return 0;
+    if (Memories_DiscReadSectors((int)(disc / 2048), sectors, data) != sectors) same = 0;
+    for (j = 0; same && j < rows; j++)
+        same = memcmp(vram + (size_t)(y + j) * SOFT_GPU_WIDTH + x, data + first + (size_t)j * words * 2,
+                      (size_t)words * 2) == 0;
+    free(data);
+    return same;
+}
+
+/* After a state load VRAM holds its pictures without their tags (what the
+ * disc delivered is not in a state): a block that starts with a recalled
+ * head and matches the disc throughout is tagged as its upload was, and
+ * painted. Between frames, with the entries resolved. */
+static void rediscover(void)
+{
+    const uint16_t *vram = SoftGpu_Vram();
+    int x, y, i, j;
+    if (!recalled_count || !vram || !TextureDump_Tags) return;
+    for (y = 0; y < SOFT_GPU_HEIGHT; y++) {
+        for (x = 0; x + RECALL_BYTES / 2 <= SOFT_GPU_WIDTH; x++) {
+            uint32_t disc;
+            int words, rows;
+            if (TextureDump_Tags[(size_t)y * SOFT_GPU_WIDTH + x]) continue;
+            disc = recall(vram + (size_t)y * SOFT_GPU_WIDTH + x, RECALL_BYTES / 2);
+            if (!disc || !block_at(disc, &words, &rows) || x + words > SOFT_GPU_WIDTH || y + rows > SOFT_GPU_HEIGHT ||
+                !holds_disc(vram, disc, x, y, words, rows))
+                continue;
+            for (j = 0; j < rows; j++)
+                for (i = 0; i < words; i++)
+                    TextureDump_Tags[(size_t)(y + j) * SOFT_GPU_WIDTH + x + i] = disc + (uint32_t)(j * words + i) * 2 + 1;
+            paint(x, y, words, rows);
+            x += words - 1;
+        }
+    }
+}
+
+static void restored(void) { wanted_rediscover = 1; }
 
 int TexturePack_Load(const char *from, unsigned rank, int (*part)(const char *setting, void *context), void *context,
                      char *problems, size_t problems_size)
@@ -639,6 +773,8 @@ int TexturePack_Load(const char *from, unsigned rank, int (*part)(const char *se
     TextureDump_Sample = sample;
     TextureDump_Forget = forget;
     TextureDump_Follow = follow;
+    TextureDump_Recall = recall;
+    TextureDump_Restored = restored;
     /* The disc's directory and the images wait for TexturePack_Service,
      * between frames: a mod is applied while the game starts, before the
      * disc is open, and an upload can ask for an image from the interrupt
@@ -657,7 +793,7 @@ void TexturePack_Service(void)
 {
     sigset_t held, previous;
     int i, painted = 0, everywhere = 0;
-    if (!entries || (!wanted_resolve && !wanted_images)) return;
+    if (!entries || (!wanted_resolve && !wanted_images && !wanted_rediscover)) return;
     sigemptyset(&held);
     sigaddset(&held, SIGALRM);
     sigprocmask(SIG_BLOCK, &held, &previous);
@@ -666,6 +802,10 @@ void TexturePack_Service(void)
         int got = resolve();
         if (got > 0) everywhere = 1;          /* uploads since the load were skipped */
         else if (got < 0) wanted_resolve = 1; /* no disc yet: again next frame */
+    }
+    if (wanted_rediscover && resolved) {
+        wanted_rediscover = 0;
+        rediscover();
     }
     if (wanted_images && resolved) {
         wanted_images = 0;
@@ -697,13 +837,15 @@ void TexturePack_Unload(void)
     TextureDump_Sample = NULL;
     TextureDump_Forget = NULL;
     TextureDump_Follow = NULL;
+    TextureDump_Recall = NULL;
+    TextureDump_Restored = NULL;
     if (TextureDump_Shadow) {
         memset(TextureDump_Shadow, 0, (size_t)TEXTURE_SHADOW_WIDTH * SOFT_GPU_HEIGHT * sizeof(*TextureDump_Shadow));
     }
     if (entry_of) memset(entry_of, 0, (size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT * sizeof(*entry_of));
     free_entries();
     resolved = 0;
-    wanted_resolve = wanted_images = 0;
+    wanted_resolve = wanted_images = wanted_rediscover = 0;
     waiting_count = 0;
     generation++;
     map_generation++;

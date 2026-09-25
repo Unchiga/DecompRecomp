@@ -1,6 +1,7 @@
 #ifndef MEMORIES_PC_TEXTURE_DUMP_H
 #define MEMORIES_PC_TEXTURE_DUMP_H
 #include <stdint.h>
+#include <stddef.h>
 #include "soft_gpu.h"
 
 /* Every texture the software GPU draws, as a PNG named by its hash, for
@@ -64,6 +65,13 @@ extern int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v
  * moved. NULL: no pack. */
 extern void (*TextureDump_Forget)(int x, int y, int w, int h);
 extern void (*TextureDump_Follow)(int sx, int sy, int dx, int dy, int w, int h);
+/* The disc offset of an upload's first byte by its content, for an upload
+ * the recent reads cannot trace (texture_pack.c, recall); 0 unknown. NULL:
+ * no pack. */
+extern uint32_t (*TextureDump_Recall)(const uint16_t *pixels, size_t words);
+/* VRAM restored from a state, its tags cleared: the pack finds what it can
+ * of its pictures there again. NULL: no pack. */
+extern void (*TextureDump_Restored)(void);
 static inline uint16_t *TextureDump_Cell(int x, int y, int sub)
 {
     return &TextureDump_Shadow[(y & (SOFT_GPU_HEIGHT - 1)) * TEXTURE_SHADOW_WIDTH + (x & (SOFT_GPU_WIDTH - 1)) * 4 + sub];
