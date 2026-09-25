@@ -10,6 +10,7 @@
 #include "pc/cards/tables.h"
 #include "pc/debug/log.h"
 #include "game/card_constants.h"
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,6 +154,49 @@ void Text_Build(void)
 #define TEXT_YOU_FIRST_AT 0x0504
 #define TEXT_YOU_AT 0x050E
 #define TEXT_COM_AT 0x051C
+/* The result screens' strings, and how far a letter of their font goes. */
+#define TEXT_RESULTS_FIRST 0x40
+#define TEXT_RESULTS_LAST 0x45
+/* The bank's bytes the result strings lie in (YOU and COM, 0x3D-0x3F, then
+ * 0x40-0x45 to 0x9A5): copied whole, as 0x41 and 0x42 jump into 0x40's
+ * tail, where COM's column is set. */
+#define TEXT_RESULTS_FROM 0x0500
+#define TEXT_RESULTS_SIZE 0x0500
+#define TEXT_RESULTS_LETTER 7
+
+/* The opponent's name as the result screens' small font can show it in
+ * COM's column: the panel's name when it is letters and spaces only and at
+ * most TEXT_RESULTS_WIDE of them, else its longest word of letters alone
+ * (G. Sebek: Sebek, Teana 2nd: Teana, Simon Muran: Simon); the font has no
+ * full stop and other digits. NULL when even that is too long. */
+#define TEXT_RESULTS_WIDE 9
+
+static const char *results_name(void)
+{
+    static char name[TEXT_RESULTS_WIDE + 1];
+    const char *whole = Tables_DuelistShortName(Tables_OpponentId()), *c, *best = NULL;
+    int plain = 1, best_length = 0;
+    if (!whole) return NULL;
+    for (c = whole; *c; c++) plain &= isalpha((unsigned char)*c) || *c == ' ';
+    if (plain && strlen(whole) <= TEXT_RESULTS_WIDE) return whole;
+    for (c = whole; *c;) {
+        const char *start = c;
+        int letters = 1;
+        while (*c && *c != ' ') letters &= isalpha((unsigned char)*c++) != 0;
+        if (letters && c - start > best_length) best = start, best_length = (int)(c - start);
+        while (*c == ' ') c++;
+    }
+    if (!best || best_length > TEXT_RESULTS_WIDE) return NULL;
+    memcpy(name, best, (size_t)best_length);
+    name[best_length] = '\0';
+    return name;
+}
+
+static int side_letters(void)
+{
+    const char *name = results_name();
+    return name ? (int)strlen(name) : 0;
+}
 
 static const unsigned char *side_name(int id)
 {
@@ -161,9 +205,9 @@ static const unsigned char *side_name(int id)
     unsigned char *out;
     int i, n = 0;
     if (id < TEXT_YOU_FIRST || id > TEXT_COM || !Settings_Get(SET_OPPONENT_NAME)) return NULL;
-    name = Tables_DuelistShortName(Tables_OpponentId());
+    if (!Tables_DuelistShortName(Tables_OpponentId())) return NULL;
+    name = id == TEXT_COM ? results_name() : "You";
     if (!name) return NULL;
-    if (id != TEXT_COM) name = "You";
     out = texts[id == TEXT_COM];
     for (i = 0; name[i] && n < (int)sizeof(texts[0]) - 1; i++) {
         int code = Glyphs_Code((unsigned char)name[i]);
@@ -174,23 +218,78 @@ static const unsigned char *side_name(int id)
     return out;
 }
 
+/* The result screens set COM's column with {f8 02 NN}, a step right from
+ * the end of YOU's, then call COM. For a longer name the copy of the
+ * strings steps that much less, so the name ends where COM did; a name the
+ * step cannot make room for stays COM (results_room). */
+static unsigned char results[TEXT_RESULTS_SIZE];
+static int results_room = 0x7FFF;
+
+/* Where the string at `retail` starts in the copy, or NULL. */
+static const unsigned char *results_copy(const unsigned char *retail)
+{
+    unsigned char *copy = results;
+    uintptr_t offset = (uintptr_t)retail & 0xFFFF;
+    int shift = (side_letters() - 3) * TEXT_RESULTS_LETTER, i, room = 0x7FFF;
+    if (!side_name(TEXT_COM) || shift <= 0 || ((uintptr_t)retail & 0xFFFF0000u) != bases[TEXT_BANK_DIALOG] ||
+        offset < TEXT_RESULTS_FROM || offset >= TEXT_RESULTS_FROM + TEXT_RESULTS_SIZE) {
+        results_room = 0x7FFF;
+        return NULL;
+    }
+    memcpy(copy, (const unsigned char *)(uintptr_t)(bases[TEXT_BANK_DIALOG] + TEXT_RESULTS_FROM), TEXT_RESULTS_SIZE);
+    /* {f8 02 NN} with a call to COM in the bytes after it. */
+    for (i = 0; i + 8 < TEXT_RESULTS_SIZE; i++) {
+        int k, calls = 0;
+        if (copy[i] != 0xF8 || copy[i + 1] != 0x02) continue;
+        for (k = i + 3; k < i + 8; k++) {
+            if ((copy[k] == (TEXT_COM_AT & 0xFF) && copy[k + 1] == TEXT_COM_AT >> 8) ||
+                (copy[k] == TEXT_COM_AT >> 8 && copy[k + 1] == (TEXT_COM_AT & 0xFF))) {
+                calls = 1;
+            }
+        }
+        if (!calls) continue;
+        if (copy[i + 2] < room) room = copy[i + 2];
+        copy[i + 2] = (unsigned char)(copy[i + 2] > shift ? copy[i + 2] - shift : 0);
+    }
+    results_room = room;
+    return room >= shift ? copy + (offset - TEXT_RESULTS_FROM) : NULL;
+}
+
 const unsigned char *Text_Resolve(int id, const unsigned char *retail)
 {
     const unsigned char *own = overrides && id >= 0 && id <= 0xFFFF ? overrides[id] : NULL;
     const unsigned char *side = side_name(id);
     if (side) return side;
+    if (!own && id >= TEXT_RESULTS_FIRST && id <= TEXT_RESULTS_LAST) {
+        const unsigned char *copy = results_copy(retail);
+        if (copy) return copy;
+    }
     return own ? own : retail;
 }
 
 unsigned char *Text_Retarget(unsigned char *cursor, unsigned target)
 {
     int i;
-    if (((uintptr_t)cursor & 0xFFFF0000u) == bases[TEXT_BANK_DIALOG]) {
-        /* The retail result screens calling YOU or COM. */
+    int copied = cursor >= results && cursor < results + sizeof(results);
+    if (copied || ((uintptr_t)cursor & 0xFFFF0000u) == bases[TEXT_BANK_DIALOG]) {
+        /* The retail result screens calling YOU or COM (COM only when its
+         * column made room for the name). */
         const unsigned char *side = side_name(target == TEXT_COM_AT ? TEXT_COM
                                               : target == TEXT_YOU_AT || target == TEXT_YOU_FIRST_AT ? TEXT_YOU_FIRST
                                                                                                     : -1);
-        if (side) return (unsigned char *)side;
+        if (side && (target != TEXT_COM_AT || side_letters() <= 3 ||
+                     results_room >= (side_letters() - 3) * TEXT_RESULTS_LETTER)) {
+            return (unsigned char *)side;
+        }
+        /* A jump from the copy stays in it where the copy has the place,
+         * else lands in the bank it was copied from. */
+        if (copied) {
+            unsigned place = target & 0xFFFF;
+            if (place >= TEXT_RESULTS_FROM && place < TEXT_RESULTS_FROM + TEXT_RESULTS_SIZE) {
+                return results + (place - TEXT_RESULTS_FROM);
+            }
+            return (unsigned char *)(uintptr_t)(bases[TEXT_BANK_DIALOG] | place);
+        }
     }
     for (i = 0; i < unit_count; i++) {
         TextUnit *unit = units[i];
