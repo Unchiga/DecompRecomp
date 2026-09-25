@@ -671,9 +671,9 @@ static void triangle(const Vertex *a, const Vertex *b, const Vertex *c, int flag
     if (max_x - min_x > 1023 || max_y - min_y > 511) return;
     out = push_vertices(3, (flags & 2) && state.blend == 2);
     if (!out) return;
-    /* PGXP: a textured triangle with all three depths is drawn in
-     * perspective (flag 32); a precise vertex stands where it really is. */
-    if ((flags & 4) && a->precise && b->precise && c->precise) flags |= 32;
+    /* PGXP: a textured polygon with all its depths is drawn in perspective
+     * (flag 32, set by polygon()); a precise vertex stands where it really is. */
+    if (!(a->precise && b->precise && c->precise)) flags &= ~32;
     for (i = 0; i < 3; i++) {
         float x = v[i]->precise ? v[i]->fx * (float)scale + 0.5f : (float)(v[i]->x * scale) + 0.5f;
         float y = v[i]->precise ? v[i]->fy * (float)scale + 0.5f : (float)(v[i]->y * scale) + 0.5f;
@@ -790,6 +790,8 @@ static size_t polygon(const uint32_t *words, size_t count)
             flags |= 16;
         }
     }
+    /* Both halves of a quad or neither, or its diagonal would show. */
+    if (textured && v[0].precise && v[1].precise && v[2].precise && (!quad || v[3].precise)) flags |= 32;
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
     return need;
@@ -1612,6 +1614,7 @@ int GlPicture_Replay(void)
         resync(SoftGpu_Scale(), words);
         count = 0;
     }
+    batch_precise_count = 0; /* a list left from a record cut short */
     for (at = 0; at + 1 < count;) {
         const uint32_t *op = taken + at;
         size_t used = 1;
@@ -1653,6 +1656,7 @@ int GlPicture_Replay(void)
             at = count; /* not a record: stop */
             continue;
         }
+        if (op[0] != OP_PRECISE) batch_precise_count = 0; /* only for the batch right after it */
         at += used;
     }
     if (scale >= 2) {
