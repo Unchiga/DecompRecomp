@@ -157,7 +157,11 @@ void Text_Build(void)
 /* The result screens' strings, and how far a letter of their font goes. */
 #define TEXT_RESULTS_FIRST 0x40
 #define TEXT_RESULTS_LAST 0x45
-#define TEXT_RESULTS_COPY 1024
+/* The bank's bytes the result strings lie in (YOU and COM, 0x3D-0x3F, then
+ * 0x40-0x45 to 0x9A5): copied whole, as 0x41 and 0x42 jump into 0x40's
+ * tail, where COM's column is set. */
+#define TEXT_RESULTS_FROM 0x0500
+#define TEXT_RESULTS_SIZE 0x0500
 #define TEXT_RESULTS_LETTER 7
 
 /* The opponent's name as the result screens' small font can show it in
@@ -216,23 +220,25 @@ static const unsigned char *side_name(int id)
 
 /* The result screens set COM's column with {f8 02 NN}, a step right from
  * the end of YOU's, then call COM. For a longer name the copy of the
- * string steps that much less, so the name ends where COM did; a name the
+ * strings steps that much less, so the name ends where COM did; a name the
  * step cannot make room for stays COM (results_room). */
-static unsigned char results[TEXT_RESULTS_LAST - TEXT_RESULTS_FIRST + 1][TEXT_RESULTS_COPY];
-static int results_room;
+static unsigned char results[TEXT_RESULTS_SIZE];
+static int results_room = 0x7FFF;
 
-static const unsigned char *results_copy(int id, const unsigned char *retail)
+/* Where the string at `retail` starts in the copy, or NULL. */
+static const unsigned char *results_copy(const unsigned char *retail)
 {
-    unsigned char *copy = results[id - TEXT_RESULTS_FIRST];
+    unsigned char *copy = results;
+    uintptr_t offset = (uintptr_t)retail & 0xFFFF;
     int shift = (side_letters() - 3) * TEXT_RESULTS_LETTER, i, room = 0x7FFF;
     if (!side_name(TEXT_COM) || shift <= 0 || ((uintptr_t)retail & 0xFFFF0000u) != bases[TEXT_BANK_DIALOG] ||
-        ((uintptr_t)retail & 0xFFFF) + TEXT_RESULTS_COPY > 0x10000) {
+        offset < TEXT_RESULTS_FROM || offset >= TEXT_RESULTS_FROM + TEXT_RESULTS_SIZE) {
         results_room = 0x7FFF;
         return NULL;
     }
-    memcpy(copy, retail, TEXT_RESULTS_COPY);
+    memcpy(copy, (const unsigned char *)(uintptr_t)(bases[TEXT_BANK_DIALOG] + TEXT_RESULTS_FROM), TEXT_RESULTS_SIZE);
     /* {f8 02 NN} with a call to COM in the bytes after it. */
-    for (i = 0; i + 7 < TEXT_RESULTS_COPY; i++) {
+    for (i = 0; i + 8 < TEXT_RESULTS_SIZE; i++) {
         int k, calls = 0;
         if (copy[i] != 0xF8 || copy[i + 1] != 0x02) continue;
         for (k = i + 3; k < i + 8; k++) {
@@ -246,7 +252,7 @@ static const unsigned char *results_copy(int id, const unsigned char *retail)
         copy[i + 2] = (unsigned char)(copy[i + 2] > shift ? copy[i + 2] - shift : 0);
     }
     results_room = room;
-    return room >= shift ? copy : NULL;
+    return room >= shift ? copy + (offset - TEXT_RESULTS_FROM) : NULL;
 }
 
 const unsigned char *Text_Resolve(int id, const unsigned char *retail)
@@ -255,7 +261,7 @@ const unsigned char *Text_Resolve(int id, const unsigned char *retail)
     const unsigned char *side = side_name(id);
     if (side) return side;
     if (!own && id >= TEXT_RESULTS_FIRST && id <= TEXT_RESULTS_LAST) {
-        const unsigned char *copy = results_copy(id, retail);
+        const unsigned char *copy = results_copy(retail);
         if (copy) return copy;
     }
     return own ? own : retail;
@@ -264,7 +270,7 @@ const unsigned char *Text_Resolve(int id, const unsigned char *retail)
 unsigned char *Text_Retarget(unsigned char *cursor, unsigned target)
 {
     int i;
-    int copied = cursor >= results[0] && cursor < results[0] + sizeof(results);
+    int copied = cursor >= results && cursor < results + sizeof(results);
     if (copied || ((uintptr_t)cursor & 0xFFFF0000u) == bases[TEXT_BANK_DIALOG]) {
         /* The retail result screens calling YOU or COM (COM only when its
          * column made room for the name). */
@@ -275,8 +281,15 @@ unsigned char *Text_Retarget(unsigned char *cursor, unsigned target)
                      results_room >= (side_letters() - 3) * TEXT_RESULTS_LETTER)) {
             return (unsigned char *)side;
         }
-        /* A jump from a copy lands in the bank it was copied from. */
-        if (copied) return (unsigned char *)(uintptr_t)(bases[TEXT_BANK_DIALOG] | (target & 0xFFFF));
+        /* A jump from the copy stays in it where the copy has the place,
+         * else lands in the bank it was copied from. */
+        if (copied) {
+            unsigned place = target & 0xFFFF;
+            if (place >= TEXT_RESULTS_FROM && place < TEXT_RESULTS_FROM + TEXT_RESULTS_SIZE) {
+                return results + (place - TEXT_RESULTS_FROM);
+            }
+            return (unsigned char *)(uintptr_t)(bases[TEXT_BANK_DIALOG] | place);
+        }
     }
     for (i = 0; i < unit_count; i++) {
         TextUnit *unit = units[i];
