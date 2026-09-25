@@ -259,7 +259,9 @@ static void measure_retail(Retail *r, const uint16_t *words, int page_x, int pag
         else if (k == 5) r->stem = median(run_list, count);
         else r->bar = median(run_list, count);
     }
-    r->page = page_x / 64 + page_y / 256 * 16;
+    /* A page with no letters on it yet (blank, or half loaded) is measured
+     * again next time. */
+    r->page = r->cap < r->base && r->x_height < r->base && r->stem > 0 ? page_x / 64 + page_y / 256 * 16 : -1;
 }
 
 /* The character's outline at FONT_SIZE in the face's slot. */
@@ -401,6 +403,7 @@ static int render(int slot, const unsigned char cell[CELL][CELL], int large, uin
         if (ey < -font->bar * sv / 2) ey = -font->bar * sv / 2;
     }
     for (i = 0; i < n; i++) to[i] += tops[i] ? ey / 2 : -ey / 2;
+    if (sv <= 0 || to[main + 1] >= to[main]) return 0;
     /* As wide as the cell's glyph, stems and all, but no more than a
      * quarter wider than the font's own proportions; a bare stem, like an
      * l, keeps them, narrowed only to fit. */
@@ -510,15 +513,13 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
     unsigned char cell[CELL][CELL];
     uint32_t key, sum;
     unsigned at;
+    int seen = 1;
     Entry *entry;
     if (wanted < 2 || wanted > MAX_FACTOR || !words || (bank && bank != GLYPHS_BANK)) return 0;
     if (wanted != factor && !make_atlas(wanted)) return 0;
     key = 0x8000000u | (uint32_t)bank << 22 | (uint32_t)(page_x / 64) << 18 | (uint32_t)(page_y / 256) << 17 |
           (uint32_t)(large != 0) << 16 | (uint32_t)(u & 255) << 8 | (uint32_t)(v & 255);
     sum = read_cell(words, page_x, page_y, large, u, v, cell);
-    if (!bank && retail[large != 0].page != page_x / 64 + page_y / 256 * 16) {
-        measure_retail(&retail[large != 0], words, page_x, page_y, large);
-    }
     for (at = (key * 2654435761u) >> 20;; at = (at + 1) & (TABLE_SIZE - 1)) {
         entry = &entries[at & (TABLE_SIZE - 1)];
         if (entry->key == key || !entry->key) break;
@@ -530,14 +531,23 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
         entry->slot = -1;
         entry->drawn = 0;
         entry->sum = ~sum;
+        seen = 0;
     }
+    /* Measured again when a retail cell changes too: another font loaded
+     * on the page. */
+    if (!bank && (retail[large != 0].page != page_x / 64 + page_y / 256 * 16 || (seen && entry->sum != sum))) {
+        measure_retail(&retail[large != 0], words, page_x, page_y, large);
+    }
+    /* Added glyphs follow the retail font, so they wait until it is
+     * measured. */
+    if (retail[large != 0].page < 0) return 0;
     if (entry->sum != sum) {
         /* New, or the cell holds something else now (an added glyph made
          * since, another font loaded). */
         uint32_t character = Glyphs_CellCharacter(bank != 0, page_x / 64, large, u, v);
         int slot = entry->slot >= 0 ? entry->slot : slots_used < SLOT_COUNT ? slots_used : -1;
         entry->sum = sum;
-        entry->drawn = character && slot >= 0 && retail[large != 0].page >= 0 &&
+        entry->drawn = character && slot >= 0 &&
                        render(slot, (const unsigned char (*)[CELL])cell, large, character, &retail[large != 0]);
         if (entry->drawn && entry->slot < 0) {
             /* The place stays the cell's when it later holds no letter, to
