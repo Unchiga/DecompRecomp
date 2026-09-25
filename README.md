@@ -59,3 +59,12 @@ _Generated from `config/slus_01411/functions.csv` and `config/slus_01411/overlay
 
 - [Fusion helper](notes/fusion-helper.md)
 - [Setup](notes/setup.md) · [Build](notes/build.md) · [PC build](notes/pc-build.md) · [Modding](notes/modding.md)
+
+## License
+
+The PC port (`src/pc/`, `tools/pc/`, `tests/pc/`, `mods/`, `examples/` and the
+build and play scripts) is under the [MIT License](LICENSE). Use it, but credit
+this project: keep the copyright notice in anything that copies or builds on
+it, and please link back here. The upstream decompilation belongs to
+[its authors](https://github.com/krystalgamer/memories-decomp); the game and
+its data belong to Konami.
