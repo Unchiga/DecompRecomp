@@ -17,9 +17,12 @@ alike, so they stay one style.
                        texels at 4x), one per palette row 8-11; rows 12
                        and 13 (purple, orange) are the monster frame
                        recoloured as the game's rows recolour it
-  backcard/Back.png    the card back: 128x128 texels at the foot of the
-                       frame sheet's second column and 128x64 at the head
-                       of the package's third, drawn through every row
+  backcard/Back.png    the card back, 144x200 pixels as the card view
+                       draws it from five pieces (BACK_PIECES): most of it
+                       at the foot of the frame sheet's second column and
+                       the head of the package's third, its right edge and
+                       bottom rows in slices at the head of the second;
+                       drawn through every row
   attributes/<a>.png   the attribute balls, 16x16 texels at (16k, 128) of
                        the package's fourth column, ball k through palette
                        row 15 entry 16k: light, dark, earth, water, fire,
@@ -132,6 +135,44 @@ class Pack:
 def load(path, size=None):
     image = Image.open(path).convert("RGBA")
     return image.resize(size, Image.LANCZOS) if size and image.size != size else image
+
+
+# The card back as the card view draws it (Password, Library, Build Deck):
+# 144x200 pixels, cut into pieces of the sheets. Each piece is (its pixels in
+# the back, where its texels start, sheet: 1 the frame sheet's second column,
+# 2 the package's third column). A run of texels is drawn one pixel longer
+# than it is, its first texel twice: 127 texels make 128 pixels.
+BACK_SIZE = (144, 200)
+BACK_PIECES = [
+    ((0, 0, 128, 128), (0, 128), 1),     # most of it: v 128-254
+    ((128, 0, 144, 128), (16, 0), 1),    # its right edge, in 2-texel slices
+    ((128, 128, 144, 200), (48, 0), 1),  # the edge beside the foot
+    ((0, 192, 64, 200), (64, 0), 1),     # the bottom rows, left half
+    ((64, 192, 128, 200), (64, 8), 1),   # and right half
+    ((0, 128, 128, 192), (0, 0), 2),     # the foot
+]
+
+
+def first_twice(image, axis):
+    """Pixels to texels along an axis, n + 1 pixels to n texels (at S): the
+    first texel takes the first two pixels, as the game draws it twice."""
+    length = image.size[axis] // S
+    head = image.crop((0, 0, 2 * S, image.height) if axis == 0 else (0, 0, image.width, 2 * S))
+    rest = image.crop((2 * S, 0, image.width, image.height) if axis == 0 else (0, 2 * S, image.width, image.height))
+    head = head.resize((S, head.height) if axis == 0 else (head.width, S), Image.LANCZOS)
+    out = Image.new("RGBA", (image.width - S, image.height) if axis == 0 else (image.width, image.height - S))
+    out.paste(head, (0, 0))
+    out.paste(rest, (S, 0) if axis == 0 else (0, S))
+    assert out.size[axis] == (length - 1) * S
+    return out
+
+
+def paste_back(sheet, back, column):
+    """The back's pieces that go in a sheet (column 1 or 2), at S."""
+    for (x0, y0, x1, y1), (u, v), where in BACK_PIECES:
+        if where == column:
+            piece = first_twice(first_twice(back.crop((x0 * S, y0 * S, x1 * S, y1 * S)), 0), 1)
+            sheet.paste(piece, (u * S, v * S))
 
 
 def column_base(pack, bases, offset, bpp, clut):
@@ -296,7 +337,7 @@ def build(args):
             for entry in json.load(handle):
                 bases[(entry["offset"], entry["bpp"], entry.get("clut_offset"))] = \
                     os.path.join(base, "textures", entry["file"])
-    back = load(os.path.join(A, "backcard", "Back.png"), (128 * S, 192 * S))
+    back = load(os.path.join(A, "backcard", "Back.png"), (BACK_SIZE[0] * S, BACK_SIZE[1] * S))
 
     # The frame sheet and the card back, per package and row.
     pack.part = "card_frames"
@@ -319,7 +360,7 @@ def build(args):
                 sheet = column_base(pack, bases, offset, 8, clut)
                 over(sheet, hd.crop((c * 128 * S, 0, (c + 1) * 128 * S, 256 * S)), 0, 0)
                 if c == 1:
-                    sheet.paste(back.crop((0, 0, 128 * S, 128 * S)), (0, 128 * S))
+                    paste_back(sheet, back, 1)
                 pack.add(f"frame-r{row}-c{c}.png", sheet, offset, 64, 256, 8, clut, 256,
                          f"card frame ({name}, row {row}), column {c}")
                 replaced.add((offset, 8, clut))
@@ -331,7 +372,7 @@ def build(args):
         for row in range(8, 14):
             clut = block + row * 0x200
             sheet = column_base(pack, bases, c2, 8, clut)
-            sheet.paste(back.crop((0, 128 * S, 128 * S, 192 * S)), (0, 0))
+            paste_back(sheet, back, 2)
             pack.add(f"back-{pname}-r{row}.png", sheet, c2, 64, 256, 8, clut, 256, f"card back foot ({pname}, row {row})")
             replaced.add((c2, 8, clut))
         for k, attribute in enumerate(ATTRIBUTES):
