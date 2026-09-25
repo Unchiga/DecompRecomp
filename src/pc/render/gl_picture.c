@@ -855,6 +855,10 @@ static size_t polygon(const uint32_t *words, size_t count)
         if (v[i].u > bounds_now[2]) bounds_now[2] = v[i].u;
         if (v[i].v > bounds_now[3]) bounds_now[3] = v[i].v;
     }
+    /* The rasterizer stops short of the far edge's texel (as block() does):
+     * past it, an atlas holds the next picture. */
+    if (bounds_now[2] > bounds_now[0]) bounds_now[2]--;
+    if (bounds_now[3] > bounds_now[1]) bounds_now[3]--;
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
     return need;
