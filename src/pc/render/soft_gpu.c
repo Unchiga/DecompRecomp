@@ -900,8 +900,8 @@ static void line(Vertex a, Vertex b, int flags)
     if (wide_picture || (target == vram && picture)) { /* first: see the polygon's note */
         Vertex quad[4];
         line_quad(&a, &b, quad);
-        picture_triangle(quad[0], quad[1], quad[2], flags & 3);
-        picture_triangle(quad[1], quad[2], quad[3], flags & 3);
+        picture_triangle(quad[0], quad[1], quad[2], flags);
+        picture_triangle(quad[1], quad[2], quad[3], flags);
     }
     for (i = 0; i <= steps; i++) {
         int n = steps ? steps : 1;
