@@ -1003,8 +1003,8 @@ and the software picture never change.
 
 - **Digits.** Covered: the life points, the deck counts, the hand's and
   field's ATK and DEF (8x8, 8-bit, beside the duel's terrain at (896, 256)),
-  the field cards' 12x16 numbers, and the menus' 8x8 digits (the deck
-  builder's list and the card bar, at (704, 0)).
+  the field cards' 12x16 numbers and a second set of small ones, and the
+  menus' 8x8 digits (the deck builder's list and the card bar, at (704, 0)).
   - Each sheet is measured from its own ten digits: the outline (the index
     next to nothing), the fill (the commonest inside), the ramp of indices
     between them, their feet, heads and stroke weight.
@@ -1015,19 +1015,24 @@ and the software picture never change.
     digits have in a few corners, is left out.
 - **Labels.**
   - The life-point panel's LP, COM and YOU are set anew in the font, over
-    the panel's own texels made larger, in the box's colours.
-  - The hand's Magic, Equip, Trap and Ritual are set in the plates' serif
-    face (Times) with their outline.
-  - Only where the retail panel and words are (a hash of their words). A
-    mod's own panel is left as it is.
+    the panel's own texels made larger, in the box's colours. Only where
+    the retail panel is (a hash of its words); a mod's own panel is left as
+    it is.
+  - The card kinds (Magic, Equip, Trap, Ritual), in the hand and on the
+    card bar, are set in the plates' serif face (Times) with their outline.
+  - The FIELD box's word (with its shadow) and the terrains' names. A name
+    the game draws in two sprites (MEAD + OW) is set whole and cut where
+    the sprites meet.
+  - The card view's ATK and DFD and its digits are set in the plates' serif
+    face, in the plates' subtracted inks.
+  - The labels' rectangles are those #47's HD pack recipe lists.
 - **Texture packs come first.** A sprite a pack paints is drawn from the
   pack, so an HD pack's art for these is never overridden: with a pack that
   covers them the picture is the same, pixel for pixel, with this on or off.
 
 The pictures share HD text's atlas (four rows of cells above the titles).
 
-Not covered yet: the card-detail panel's 6x13 digits, the FIELD box, the
-ATK/DEF icon cell.
+Not covered yet: the sword and shield icons (pictures, not lettering).
 
 ### Deterministic PC checks
 

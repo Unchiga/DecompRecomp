@@ -772,7 +772,8 @@ static int make_ramp(const uint16_t *words, int clut_x, int clut_y, int from, in
  * (the index round them), the fill (the commonest inside), the ramp between
  * and the lines of their feet and heads, as the font's pages are. */
 typedef struct {
-    int depth, page_x, page_y, clut_x, clut_y; /* where, and the palette it is read through */
+    int depth, page_x, page_y, clut_x, clut_y; /* where, and the palette it is measured through */
+    int clut_rows;                             /* the palette rows it is drawn through, from clut_y */
     int u, v, step, width, height;             /* the digits' cells */
     int column, row;                           /* the first digit's picture: its cell in the HUD rows */
     uint32_t sum;                              /* the digits' texels when measured */
@@ -782,14 +783,19 @@ typedef struct {
     Retail r;
 } Sheet;
 
+/* The duel's sheet is read through six palette rows (the hand, the card
+ * bar, the dimmed side), the menus' through one. */
+
 static Sheet sheets[] = {
     /* The life points, the deck counts and the field cards' ATK and DEF
      * (duel_draw_status_numbers.c, duel_card_frame_draw.c): 8-bit. */
-    {1, 896, 256, 256, 241, 0, 0x58, 8, 8, 8, 4, 0},
+    {1, 896, 256, 256, 241, 6, 0, 0x58, 8, 8, 8, 4, 0},
     /* The menus' (duel_card_stat_display.c, the deck builder's list). */
-    {0, 704, 0, 656, 250, 0x80, 0x70, 8, 8, 8, 4, 1},
+    {0, 704, 0, 656, 250, 1, 0x80, 0x70, 8, 8, 8, 4, 1},
     /* The field cards' larger numbers, 12 x 16 (duel_card_frame_draw.c). */
-    {1, 896, 256, 256, 241, 0, 0x70, 12, 12, 16, 4, 3},
+    {1, 896, 256, 256, 241, 6, 0, 0x70, 12, 12, 16, 4, 3},
+    /* A second set of small ones above the first. */
+    {1, 896, 256, 256, 241, 6, 8, 0x50, 8, 8, 8, 14, 3},
 };
 
 static uint32_t read_digit(const uint16_t *words, const Sheet *s, int d, unsigned char cell[CELL][CELL],
@@ -922,21 +928,22 @@ static uint32_t panel_sum(const uint16_t *words)
  * their tops, at most as wide, centred, as heavy (no more than a fifth of
  * their height: a pixel font's two-texel strokes would blot a font's), in
  * the ramp's colours by coverage. `outlined`: ramp[0] is an outline a texel
- * wide round the letters, the rest of the box clear (0). */
+ * wide round the letters, the rest of the box clear (0). `shadow`: that
+ * index a texel right of and below the letters, where they are not. */
 static int set_text(void *face_pointer, const unsigned char *texels, int pitch, int x0, int y0, int x1, int y1,
-                    const char *text, const unsigned char *ramp, int n, int outlined, uint8_t *origin)
+                    const char *text, const unsigned char *ramp, int n, int outlined, int shadow, uint8_t *origin)
 {
-    enum { WIDE = 32 * MAX_FACTOR, HIGH = 16 * MAX_FACTOR };
+    enum { WIDE = 64 * MAX_FACTOR, HIGH = 16 * MAX_FACTOR };
     static unsigned char cover[HIGH][WIDE], one[HIGH][WIDE];
     static unsigned short distance[HIGH][WIDE];
-    static float strokes[16 * 32];
+    static float strokes[16 * 64];
     FT_Face face = (FT_Face)face_pointer;
     const Font *font = face ? measure_font(face) : NULL;
     int f = factor, width = (x1 - x0) * f, height = (y1 - y0) * f, x, y, i, runs = 0;
     int left = x1, right = x0, top = y1, feet[16] = {0}, baseline = y0, level[256] = {0};
-    double sv, sx, ex, pen, ink_left = 1e9, ink_right = -1e9, stem;
+    double sv, sx, ex, ey, pen, ink_left = 1e9, ink_right = -1e9, stem;
     const char *c;
-    if (!font || width > WIDE || height > HIGH || x1 - x0 > 32 || y1 - y0 > 16 || n < 2) return 0;
+    if (!font || width > WIDE || height > HIGH || x1 - x0 > 64 || y1 - y0 > 16 || n < 2) return 0;
     for (i = 1; i < n; i++) level[ramp[i]] = i;
     /* Where the letters are, how heavy (runs of them across), and their
      * baseline. */
@@ -946,7 +953,8 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
         for (y = y0; y < y1; y++) {
             int step = level[texels[y * pitch + x]];
             if (!step) continue;
-            strokes[(y - y0) * 32 + (x - x0)] = (float)step / (n - 1);
+            /* Half the ramp or more is the stroke; less, its edge. */
+            strokes[(y - y0) * 64 + (x - x0)] = step * 2 >= n - 1 ? 1.0f : (float)step / (n - 1);
             if (x < left) left = x;
             if (x + 1 > right) right = x + 1;
             if (y < top) top = y;
@@ -958,7 +966,7 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
     for (i = 0, baseline = y0; i < y1 - y0; i++) {
         if (feet[i] && (baseline == y0 || feet[i] > feet[baseline - y0 - 1])) baseline = y0 + i + 1;
     }
-    add_runs(strokes, 32, y1 - y0, 0, run_list, &runs, RUN_LIMIT);
+    add_runs(strokes, 64, y1 - y0, 0, run_list, &runs, RUN_LIMIT);
     stem = median(run_list, runs);
     if (stem > (baseline - top) * 0.2) stem = (baseline - top) * 0.2;
     /* The text across the font, from the first letter's ink to the last's. */
@@ -972,14 +980,19 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
     }
     /* The capitals as high as the retail letters, the heaviness taken off;
      * as wide as they are, a quarter wider than the font's proportions at
-     * most. */
-    ex = stem - font->stem * (baseline - top) / font->cap;
-    sv = (baseline - top - (ex > 0 ? ex : 0)) / font->cap;
-    /* Never lighter: a serif face's hairlines would break. */
-    ex = stem - font->stem * sv;
-    if (ex < 0) ex = 0;
-    sx = (right - left - ex) / (ink_right - ink_left);
-    if (sx > sv * 1.25) sx = sv * 1.25;
+     * most. A narrow word squeezes the font across, which thins its stems:
+     * the weight across follows the scale across, the weight down the
+     * scale down. Never lighter: a serif face's hairlines would break. */
+    ey = stem - font->stem * (baseline - top) / font->cap;
+    sv = (baseline - top - (ey > 0 ? ey : 0)) / font->cap;
+    ey = stem - font->stem * sv;
+    if (ey < 0) ey = 0;
+    for (ex = 0, i = 0; i < 2; i++) {
+        sx = (right - left - ex) / (ink_right - ink_left);
+        if (sx > sv * 1.25) sx = sv * 1.25;
+        ex = stem - font->stem * sx;
+        if (ex < 0) ex = 0;
+    }
     memset(cover, 0, sizeof(cover));
     for (pen = 0, c = text; *c; c++) {
         FT_Outline *outline;
@@ -989,11 +1002,11 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
         outline = &face->glyph->outline;
         for (i = 0; i < outline->n_points; i++) {
             double column = start + (pen + outline->points[i].x / 64.0) * sx - x0;
-            double row = baseline - ex / 2 - outline->points[i].y / 64.0 * sv - y0;
+            double row = baseline - ey / 2 - outline->points[i].y / 64.0 * sv - y0;
             outline->points[i].x = (FT_Pos)(column * f * 64);
             outline->points[i].y = (FT_Pos)((y1 - y0 - row) * f * 64);
         }
-        FT_Outline_EmboldenXY(outline, (FT_Pos)(ex * f * 64), (FT_Pos)(ex * f * 64));
+        FT_Outline_EmboldenXY(outline, (FT_Pos)(ex * f * 64), (FT_Pos)(ey * f * 64));
         memset(one, 0, sizeof(one));
         memset(&bitmap, 0, sizeof(bitmap));
         bitmap.rows = (unsigned)height;
@@ -1039,6 +1052,12 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
             int step = (int)(cover[y][x] * (n - 1) / 255.0 + 0.5);
             uint8_t index = ramp[step];
             if (!step && outlined) index = distance[y][x] <= 3u * (unsigned)f ? ramp[0] : 0;
+            if (!step && shadow && x >= f && y >= f && cover[y - f][x - f] >= 128) index = (uint8_t)shadow;
+            if (!step && !outlined && ramp[0]) {
+                /* On a background: where the sprite has nothing (the box's
+                 * border shows through) it still has nothing. */
+                if (!texels[(y0 + y / f) * pitch + x0 + x / f]) index = 0;
+            }
             origin[(size_t)(y0 * f + y) * side + x0 * f + x] = index;
         }
     }
@@ -1075,7 +1094,7 @@ static int set_label(const uint16_t *words, uint8_t *origin, unsigned char texel
     if (!background || !far) return 0;
     n = make_ramp(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, far, used, n_used, ramp, 8);
     return set_text(Glyphs_Face((unsigned char)panel_labels[label].text[0]), &texels[0][0], PANEL_W, x0, y0, x1, y1,
-                    panel_labels[label].text, ramp, n, 0, origin);
+                    panel_labels[label].text, ramp, n, 0, 0, origin);
 }
 
 static int make_panel(const uint16_t *words)
@@ -1098,68 +1117,152 @@ static int make_panel(const uint16_t *words)
     return 1;
 }
 
-/* The hand's cards' kinds, beside the digits (duel_card_frame_draw.c):
- * 32 x 16 each, set anew in the plates' serif face with their outline,
- * where the retail words are (WORDS_SUM). Pictures in the HUD rows' third
- * row, two cells each from column 4. */
-#define WORDS_V 0x60
-#define WORDS_W 32
-#define WORDS_H 16
-#define WORDS_SUM 0x09f33d18u
-static const char *const kinds[] = {"Magic", "Equip", "Trap", "Ritual"};
-static unsigned words_made;
-static signed char words_drawn[4];
+/* Words and numbers set anew where the game has them lettered: each a
+ * text over one sprite or several side by side (a name the game cuts in two,
+ * MEAD + OW), found by page, palette and rectangle as #47's HD pack recipe
+ * lists them. Styles: BOX, letters on the sprite's own background (the
+ * ramp from the commonest index to the letters' colour farthest from it);
+ * OUTLINE, letters with the index round them next to nothing; CLEAR,
+ * letters on nothing (the ramp from 0 to the colour farthest from black),
+ * with `shadow` a texel right and down when not 0. The card view's inks
+ * are CLEAR: their palette is subtracted, so the farthest is the darkest.
+ * A picture is made again when the sprites' texels change (a terrain's own
+ * sheet). */
+enum { BOX, OUTLINE, CLEAR };
+typedef struct {
+    int depth, page_x, page_y, clut_x, clut_y, clut_y2; /* palette rows clut_y to clut_y2 */
+    const char *text;
+    int serif, style, shadow;
+    int pieces, rect[2][4];                             /* u, v, w, h of each, left to right */
+    int column, row;                                    /* the picture's first cell in the HUD rows */
+    uint32_t sum;
+    unsigned made;
+    signed char drawn;
+} Label;
 
-static uint32_t words_sum(const uint16_t *words)
+static Label labels[64];
+static int label_count;
+
+static void add_label(int depth, int page_x, int page_y, int clut_x, int clut_y, int clut_y2, const char *text,
+                      int serif, int style, int shadow, int u, int v, int w, int h, int u2, int v2, int w2, int h2,
+                      int column, int row)
+{
+    Label *l = &labels[label_count++];
+    memset(l, 0, sizeof(*l));
+    l->depth = depth, l->page_x = page_x, l->page_y = page_y, l->clut_x = clut_x, l->clut_y = clut_y;
+    l->clut_y2 = clut_y2, l->text = text, l->serif = serif, l->style = style, l->shadow = shadow;
+    l->rect[0][0] = u, l->rect[0][1] = v, l->rect[0][2] = w, l->rect[0][3] = h;
+    l->pieces = 1;
+    if (w2) {
+        l->rect[1][0] = u2, l->rect[1][1] = v2, l->rect[1][2] = w2, l->rect[1][3] = h2;
+        l->pieces = 2;
+    }
+    l->column = column, l->row = row;
+}
+
+static void make_labels(void)
+{
+    static const char *const kinds[] = {"Magic", "Equip", "Trap", "Ritual"};
+    static const char digits[] = "0\0" "1\0" "2\0" "3\0" "4\0" "5\0" "6\0" "7\0" "8\0" "9";
+    int i;
+    if (label_count) return;
+    /* The card kinds, beside the duel's digits (duel_card_frame_draw.c), in
+     * the hand and on the card bar: the sheet's six palette rows. */
+    for (i = 0; i < 4; i++) add_label(1, 896, 256, 256, 241, 246, kinds[i], 1, OUTLINE, 0, i * 32, 96, 32, 16, 0, 0, 0, 0, 4 + 2 * i, 2);
+    /* The FIELD box (duel HUD): its word, and the terrains' names. */
+    add_label(0, 704, 0, 720, 252, 252, "FIELD", 0, CLEAR, 4, 24, 88, 40, 8, 0, 0, 0, 0, 18, 1);
+    add_label(0, 704, 0, 720, 252, 252, "FOREST", 0, BOX, 0, 64, 112, 32, 16, 0, 0, 0, 0, 12, 2);
+    add_label(0, 704, 0, 720, 252, 252, "WASTELAND", 0, BOX, 0, 96, 80, 32, 16, 112, 32, 16, 16, 14, 2);
+    add_label(0, 704, 0, 720, 252, 252, "MOUNTAIN", 0, BOX, 0, 64, 96, 32, 16, 112, 96, 16, 16, 17, 2);
+    add_label(0, 704, 0, 720, 252, 252, "MEADOW", 0, BOX, 0, 64, 80, 32, 16, 112, 48, 16, 16, 20, 2);
+    add_label(0, 704, 0, 720, 252, 252, "SEA", 0, BOX, 0, 96, 112, 24, 16, 0, 0, 0, 0, 23, 2);
+    add_label(0, 704, 0, 720, 252, 252, "DARK", 0, BOX, 0, 96, 96, 16, 16, 120, 112, 8, 16, 25, 2);
+    /* The card view's ATK and DFD, and its digits, in the plates' inks
+     * (func_80028B08): row 248 for ATK, 249 for DFD. */
+    add_label(0, 960, 256, 496, 248, 249, "ATK", 1, CLEAR, 0, 0, 206, 24, 12, 0, 0, 0, 0, 14, 1);
+    add_label(0, 960, 256, 496, 248, 249, "DFD", 1, CLEAR, 0, 0, 218, 24, 12, 0, 0, 0, 0, 16, 1);
+    for (i = 0; i < 10; i++) {
+        add_label(0, 960, 256, 496, 248, 249, digits + i * 2, 1, CLEAR, 0, 16 + i * 6, 0x90, 6, 13, 0, 0, 0, 0, 14 + i, 0);
+        add_label(0, 960, 256, 496, 248, 249, digits + i * 2, 1, CLEAR, 0, 16 + i * 6, 0x10, 6, 13, 0, 0, 0, 0, 21 + i % 10 / 5 * 5 + i % 5, 1 + 2 * (i >= 5));
+    }
+}
+
+/* A label's sprites side by side, and a hash of them. */
+static uint32_t read_label(const uint16_t *words, const Label *l, unsigned char texels[16][64], int *width)
 {
     uint32_t sum = 2166136261u;
-    int x, y;
-    for (y = 0; y < WORDS_H; y++) {
-        for (x = 0; x < WORDS_W * 4 / 2; x++) {
-            sum = (sum ^ words[((256 + WORDS_V + y) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((896 + x) & (SOFT_GPU_WIDTH - 1))]) *
-                  16777619u;
+    int i, x, y, at = 0;
+    memset(texels, 0, 16 * 64);
+    for (i = 0; i < l->pieces; i++) {
+        for (y = 0; y < l->rect[i][3]; y++) {
+            for (x = 0; x < l->rect[i][2]; x++) {
+                texels[y][at + x] = (unsigned char)texel(words, l->depth, l->page_x, l->page_y, l->rect[i][0] + x,
+                                                         l->rect[i][1] + y);
+                sum = (sum ^ texels[y][at + x]) * 16777619u;
+            }
         }
+        at += l->rect[i][2];
     }
+    *width = at;
     return sum;
 }
 
-static int make_word(const uint16_t *words, int k)
+static int make_label(const uint16_t *words, const Label *l, unsigned char texels[16][64], int width)
 {
-    static unsigned char texels[WORDS_H][WORDS_W];
-    int border[256] = {0}, all[256] = {0}, used[256], count = 0, outline = 0, fill = 0, x, y, i, n, f = factor;
+    int border[256] = {0}, all[256] = {0}, used[256], count = 0, from = 0, to = 0, x, y, i, n, f = factor;
+    int height = l->rect[0][3];
     unsigned char ramp[8];
-    void *face = CardArt_SerifFace();
-    uint8_t *origin = atlas + (size_t)(HUD_TOP + 2) * CELL * f * side + (size_t)(4 + 2 * k) * CELL * f;
-    for (y = 0; y < WORDS_H; y++) {
-        for (x = 0; x < WORDS_W; x++) texels[y][x] = (unsigned char)texel(words, 1, 896, 256, k * WORDS_W + x, WORDS_V + y);
-    }
-    /* The outline is what stands next to nothing, the fill the commonest
-     * of the rest. */
-    for (y = 0; y < WORDS_H; y++) {
-        for (x = 0; x < WORDS_W; x++) {
+    double far_by = -1, base[3];
+    void *face = l->serif ? CardArt_SerifFace() : NULL;
+    uint8_t *origin = atlas + (size_t)(HUD_TOP + l->row) * CELL * f * side + (size_t)l->column * CELL * f;
+    if (!face) face = Glyphs_Face((unsigned char)l->text[0]);
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
             int c = texels[y][x];
             if (!c) continue;
             all[c]++;
-            if (!x || !y || x + 1 == WORDS_W || y + 1 == WORDS_H || !texels[y][x - 1] || !texels[y][x + 1] ||
+            if (!x || !y || x + 1 == width || y + 1 == height || !texels[y][x - 1] || !texels[y][x + 1] ||
                 !texels[y - 1][x] || !texels[y + 1][x]) {
                 border[c]++;
             }
         }
     }
     for (i = 1; i < 256; i++) {
-        if (all[i]) used[count++] = i;
-        if (border[i] > border[outline]) outline = i;
+        if (all[i] && i != l->shadow) used[count++] = i;
     }
-    for (i = 1; i < 256; i++) {
-        if (i != outline && all[i] > all[fill]) fill = i;
+    if (l->style == OUTLINE) {
+        /* The outline is what stands next to nothing, the fill the
+         * commonest of the rest. */
+        for (i = 1; i < 256; i++) {
+            if (border[i] > border[from]) from = i;
+        }
+        for (i = 1; i < 256; i++) {
+            if (i != from && all[i] > all[to]) to = i;
+        }
+    } else {
+        if (l->style == BOX) {
+            for (i = 1; i < 256; i++) {
+                if (all[i] > all[from]) from = i;
+            }
+        }
+        colour(words, l->clut_x, l->clut_y, from, base);
+        for (i = 0; i < count; i++) {
+            double rgb[3], by;
+            if (used[i] == from) continue;
+            colour(words, l->clut_x, l->clut_y, used[i], rgb);
+            by = (rgb[0] - base[0]) * (rgb[0] - base[0]) + (rgb[1] - base[1]) * (rgb[1] - base[1]) +
+                 (rgb[2] - base[2]) * (rgb[2] - base[2]);
+            if (by > far_by) far_by = by, to = used[i];
+        }
     }
-    if (!outline || !fill) return 0;
-    n = make_ramp(words, 256, 241, outline, fill, used, count, ramp, 8);
-    if (!set_text(face ? face : Glyphs_Face('M'), &texels[0][0], WORDS_W, 0, 0, WORDS_W, WORDS_H, kinds[k], ramp, n,
-                  1, origin)) {
+    if ((l->style != CLEAR && !from) || !to) return 0;
+    n = make_ramp(words, l->clut_x, l->clut_y, from, to, used, count, ramp, 8);
+    for (y = 0; y < CELL * f; y++) memset(origin + (size_t)y * side, 0, (size_t)(width + 15) / 16 * CELL * f);
+    if (!set_text(face, &texels[0][0], 64, 0, 0, width, height, l->text, ramp, n, l->style == OUTLINE, l->shadow,
+                  origin)) {
         return 0;
     }
-    changed((HUD_TOP + 2) * CELL * f, (HUD_TOP + 3) * CELL * f - 1);
+    changed((HUD_TOP + l->row) * CELL * f, (HUD_TOP + l->row + 1) * CELL * f - 1);
     return 1;
 }
 
@@ -1187,19 +1290,31 @@ int HdText_Hud(int depth, int page_x, int page_y, int clut_x, int clut_y, int u,
         *atlas_v = HUD_TOP * CELL;
         return 1;
     }
-    if (depth == 1 && page_x == 896 && page_y == 256 && clut_x == 256 && clut_y == 241 && v == WORDS_V &&
-        !(u % WORDS_W) && u / WORDS_W < 4 && w <= WORDS_W && h <= WORDS_H) {
-        int k = u / WORDS_W;
-        if (words_sum(words) != WORDS_SUM) return 0;
-        if (wanted != factor && !make_atlas(wanted)) return 0;
-        if (words_made != generation) {
-            words_made = generation;
-            memset(words_drawn, 0, sizeof(words_drawn));
+    make_labels();
+    for (i = 0; i < (unsigned)label_count; i++) {
+        Label *l = &labels[i];
+        unsigned char texels[16][64];
+        int piece, at = 0, width;
+        uint32_t sum;
+        if (depth != l->depth || page_x != l->page_x || page_y != l->page_y || clut_x != l->clut_x ||
+            clut_y < l->clut_y || clut_y > l->clut_y2) {
+            continue;
         }
-        if (!words_drawn[k]) words_drawn[k] = make_word(words, k) ? 1 : -1;
-        if (words_drawn[k] < 0) return 0;
-        *atlas_u = (4 + 2 * k) * CELL;
-        *atlas_v = (HUD_TOP + 2) * CELL;
+        for (piece = 0; piece < l->pieces; piece++) {
+            if (u == l->rect[piece][0] && v == l->rect[piece][1] && w <= l->rect[piece][2] && h <= l->rect[piece][3]) break;
+            at += l->rect[piece][2];
+        }
+        if (piece == l->pieces) continue;
+        if (wanted != factor && !make_atlas(wanted)) return 0;
+        sum = read_label(words, l, texels, &width);
+        if (sum != l->sum || l->made != generation) {
+            l->sum = sum;
+            l->made = generation;
+            l->drawn = make_label(words, l, texels, width) ? 1 : -1;
+        }
+        if (l->drawn < 0) return 0;
+        *atlas_u = l->column * CELL + at;
+        *atlas_v = (HUD_TOP + l->row) * CELL;
         return 1;
     }
     for (i = 0; i < sizeof(sheets) / sizeof(sheets[0]); i++) {
@@ -1208,7 +1323,7 @@ int HdText_Hud(int depth, int page_x, int page_y, int clut_x, int clut_y, int u,
         uint32_t sum = 2166136261u;
         int d;
         if (depth != s->depth || page_x != s->page_x || page_y != s->page_y || clut_x != s->clut_x ||
-            clut_y != s->clut_y || v != s->v || u < s->u) {
+            clut_y < s->clut_y || clut_y >= s->clut_y + s->clut_rows || v != s->v || u < s->u) {
             continue;
         }
         d = (u - s->u) / s->step;
