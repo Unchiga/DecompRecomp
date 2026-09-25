@@ -22,11 +22,15 @@ static void replace(MemoriesModEvent *e)
     e->handled = 1;
     e->result = 17;
 }
-/* A texture pack loader that records what it is asked, in order. */
-static char pack_calls[512];
-static int fake_pack_load(const char *directory, unsigned rank, char *problems, size_t size)
+/* A texture pack loader that records what it is asked, in order, and what
+ * pack-a's parts read: its declared "card_art", and "nope" it lacks. */
+static char pack_calls[512], pack_parts[32];
+static int fake_pack_load(const char *directory, unsigned rank, int (*part)(const char *, void *), void *context,
+                          char *problems, size_t size)
 {
     size_t length = strlen(pack_calls);
+    if (strstr(directory, "pack-a"))
+        snprintf(pack_parts, sizeof(pack_parts), "%d,%d", part("card_art", context), part("nope", context));
     snprintf(pack_calls + length, sizeof(pack_calls) - length, "%s:%u ", strstr(directory, "/mods/") + 6, rank);
     if (problems && size) snprintf(problems, size, "%s", strstr(directory, "pack-b") ? "1 image could not be read" : "");
     return 1;
@@ -78,7 +82,8 @@ int main(void)
                                      "\"enabled\":\"yes\",\"restart\":0,\"audio\":{}}");
     /* Two texture packs; pack-a loads first (lower priority number). */
     make_dir("mods/pack-a");
-    write_text("mods/pack-a/mod.json", "{\"id\":\"pack-a\",\"textures\":\"images\",\"priority\":-5}");
+    write_text("mods/pack-a/mod.json", "{\"id\":\"pack-a\",\"textures\":\"images\",\"priority\":-5,"
+                                       "\"settings\":[{\"key\":\"card_art\",\"type\":\"bool\",\"default\":1}]}");
     make_dir("mods/pack-b");
     write_text("mods/pack-b/mod.json", "{\"id\":\"pack-b\",\"textures\":\"images\",\"priority\":5}");
     make_dir("mods/invalid-schema");
@@ -125,6 +130,15 @@ int main(void)
         pack_calls[0] = 0;
         Mods_SetEnabled(pack_a, 1);   /* not last in the order: everything again */
         assert(!strcmp(pack_calls, "unload pack-a/images:1 pack-b/images:2 "));
+        assert(!strcmp(pack_parts, "1,-1"));
+        /* A setting of an applied pack changed: the packs load again, with
+         * the part it switches off; unchanged, nothing reloads. */
+        pack_calls[0] = 0;
+        assert(Mods_OptionSet(pack_a, 0, 0));
+        assert(!strcmp(pack_calls, "unload pack-a/images:1 pack-b/images:2 ") && !strcmp(pack_parts, "0,-1"));
+        pack_calls[0] = 0;
+        assert(Mods_OptionSet(pack_a, 0, 0) && !pack_calls[0]);
+        assert(Mods_OptionSet(pack_a, 0, 1));
         Mods_SetEnabled(pack_b, 0);
         pack_calls[0] = 0;
         Mods_SetEnabled(pack_b, 1);   /* last: on top of what is loaded */

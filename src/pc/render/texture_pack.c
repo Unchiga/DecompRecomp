@@ -448,13 +448,14 @@ static int is_png(const char *path)
     return same;
 }
 
-int TexturePack_Load(const char *from, unsigned rank, char *problems, size_t problems_size)
+int TexturePack_Load(const char *from, unsigned rank, int (*part)(const char *setting, void *context), void *context,
+                     char *problems, size_t problems_size)
 {
     char path[1200], error[256];
     JsonDocument *manifest;
     const JsonValue *list, *item;
-    int count, before = entry_count, position = 0, full = 0;
-    Problem unreadable = {0}, outside = {0}, measures = {0}, unaddressed = {0}, row_count = {0};
+    int count, before = entry_count, position = 0, full = 0, off = 0;
+    Problem unreadable = {0}, outside = {0}, measures = {0}, unaddressed = {0}, row_count = {0}, undeclared = {0};
     Entry *more;
     if (problems && problems_size) problems[0] = '\0';
     /* Packs add up: each enabled mod's joins the entries already loaded. */
@@ -463,7 +464,7 @@ int TexturePack_Load(const char *from, unsigned rank, char *problems, size_t pro
     if (!manifest) {
         fprintf(stderr, "memories-pc: texture pack %s: %s\n", path, error);
         if (problems && problems_size) snprintf(problems, problems_size, "manifest.json %s", error);
-        return 0;
+        return -1;
     }
     list = Json_Root(manifest);
     count = Json_Count(list);
@@ -477,8 +478,18 @@ int TexturePack_Load(const char *from, unsigned rank, char *problems, size_t pro
         const JsonValue *rows = Json_Member(item, "row_offsets"), *row;
         const char *file = Json_String(Json_Member(item, "file"), NULL);
         const char *archive = Json_String(Json_Member(item, "archive"), NULL);
+        const JsonValue *setting = Json_Member(item, "setting");
         Entry *entry = &entries[entry_count];
         double offset, clut_offset, words, rows_count, bpp, stride, crop_left, crop_width;
+        if (setting) { /* a part of the pack the mod's settings switch off, or a setting it lacks: then used */
+            const char *key = Json_String(setting, "");
+            int on = part && *key ? part(key, context) : -1;
+            if (!on) {
+                off++;
+                continue;
+            }
+            if (on < 0) problem(&undeclared, *key ? key : file);
+        }
         if (!file || !archive || strlen(archive) >= sizeof(entry->archive)) { /* not addressed on the disc */
             problem(&unaddressed, file);
             continue;
@@ -565,6 +576,8 @@ int TexturePack_Load(const char *from, unsigned rank, char *problems, size_t pro
                  "images' row_offsets do not match their rows");
         describe(problems, problems_size, &unaddressed, "image names no file or archive",
                  "images name no file or archive");
+        describe(problems, problems_size, &undeclared, "image names a setting the mod does not declare",
+                 "images name a setting the mod does not declare");
         if (full) {
             size_t length = strlen(problems);
             if (length < problems_size)
@@ -574,19 +587,23 @@ int TexturePack_Load(const char *from, unsigned rank, char *problems, size_t pro
         if (*problems) fprintf(stderr, "memories-pc: texture pack %s: %s\n", from, problems);
     }
     if (entry_count == before) {
-        fprintf(stderr, "memories-pc: texture pack %s: no image is addressed on the disc\n", from);
         if (!entry_count) free_entries();
-        return 0;
+        if (off) { /* the player switched every part off: nothing wrong with the pack */
+            fprintf(stderr, "memories-pc: texture pack %s: every image is switched off\n", from);
+            return 0;
+        }
+        fprintf(stderr, "memories-pc: texture pack %s: no image is addressed on the disc\n", from);
+        return -1;
     }
     if (!TextureDump_EnableShadow()) {
         free_entries();
-        return 0;
+        return -1;
     }
     if (!entry_of) entry_of = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*entry_of));
     if (!place_of) place_of = calloc((size_t)SOFT_GPU_WIDTH * SOFT_GPU_HEIGHT, sizeof(*place_of));
     if (!entry_of || !place_of) {
         free_entries();
-        return 0;
+        return -1;
     }
     TextureDump_Paint = paint;
     TextureDump_Prepare = prepare;

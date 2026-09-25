@@ -16,9 +16,12 @@ struct JsonValue;
 /* Find every mod and apply the ones the settings say are applied. Safe to
  * call again (settings reload): the directories are only scanned once. */
 void Mods_Load(void);
-/* The texture pack loader a "textures" mod goes through (src/pc/render/texture_pack.h);
- * without one, such a mod notes that this build has no texture packs. */
-void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
+/* The texture pack loader a "textures" mod goes through (src/pc/render/texture_pack.h),
+ * `part` answering an entry's "setting" from the mod's settings; without
+ * one, such a mod notes that this build has no texture packs. */
+void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank,
+                                     int (*part)(const char *setting, void *context), void *context,
+                                     char *problems, size_t size),
                          void (*unload)(void));
 /* The audio replacement an "audio" mod goes through (src/pc/audio/replace.h):
  * `load` decodes a mod's files and returns how many it added, or -1 when the
@@ -131,6 +134,9 @@ void Mods_Dispatch(MemoriesModEvent *event);
 int Mods_Notify(unsigned type, int a, int b, int c);
 unsigned Mods_Sequence(int mod);
 int Mods_RuntimeOption(int mod, int option);
+/* One of an applied mod's settings changed (Mods_OptionSet): its texture
+ * pack, whose parts may follow the setting, is loaded again. */
+void Mods_OptionChanged(int mod, int option);
 unsigned Mods_CodeHash(int mod);
 unsigned Mods_Signature(void);
 int Mods_DamageLife(int side, int life, int damage, int kind);
