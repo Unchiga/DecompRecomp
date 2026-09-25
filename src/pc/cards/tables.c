@@ -30,13 +30,14 @@ const char *const Tables_DuelistNames[TABLES_DUELIST_COUNT] = {
 
 const char *Tables_DuelistShortName(int duelist)
 {
-    /* The names longer than 11 letters, shortened. */
+    /* The names longer than 11 letters, shortened: a High Mage or a
+     * Guardian keeps the title as H.M. or G. */
     static const struct {
         int duelist;
         const char *name;
-    } shorter[] = {{10, "Weevil"},   {11, "Mai"},       {12, "Keith"},    {18, "Soldier"},  {22, "Secmeton"},
-                   {24, "Anubisius"}, {25, "Mountain"},  {26, "Atenza"},   {28, "Martis"},   {30, "Kepura"},
-                   {31, "Labyrinth"}, {33, "Sebek"},     {34, "Neku"},     {39, "Master K"}};
+    } shorter[] = {{10, "Weevil"},   {11, "Mai"},       {12, "Keith"},    {18, "Soldier"},  {22, "H.M. Secmeton"},
+                   {24, "H.M. Anubisius"}, {25, "Mountain"},  {26, "H.M. Atenza"},   {28, "H.M. Martis"},   {30, "H.M. Kepura"},
+                   {31, "Labyrinth"}, {33, "G. Sebek"},     {34, "G. Neku"},     {39, "Master K"}};
     unsigned i;
     if (duelist < 1 || duelist >= TABLES_DUELIST_COUNT) return NULL;
     for (i = 0; i < sizeof(shorter) / sizeof(shorter[0]); i++) {

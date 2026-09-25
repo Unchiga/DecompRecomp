@@ -1041,9 +1041,10 @@ panel is one texture for every opponent.
 
 - The name comes from the opponent id (`gDuel_bOpponentID`, 1-39) through
   `Tables_DuelistShortName`. A name of up to 11 letters is shown whole.
-  Longer ones show the part that tells the duelist apart: Weevil, Mai,
-  Keith, Soldier, Secmeton, Anubisius, Mountain, Atenza, Martis, Kepura,
-  Labyrinth, Sebek, Neku, Master K.
+  Longer ones show the part that tells the duelist apart, a High Mage or a
+  Guardian with the title shortened: Weevil, Mai, Keith, Soldier,
+  H.M. Secmeton, H.M. Anubisius, Mountain, H.M. Atenza, H.M. Martis,
+  H.M. Kepura, Labyrinth, G. Sebek, G. Neku, Master K.
 - The box is COM's, made from the panel's own texels: its left end, then its
   rows' border and background, as long as the name needs, growing leftwards
   from where it meets the panel. The name is set in the text's font in COM's
