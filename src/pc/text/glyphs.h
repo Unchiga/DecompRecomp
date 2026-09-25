@@ -52,4 +52,14 @@ void Glyphs_AddFont(const char *path);
 #define GLYPHS_NOT_UTF8 0xFFFFFFFFu
 uint32_t Glyphs_NextCharacter(const char **text);
 
+/* For HD text (hd_text.h): the character a glyph cell holds, 0 for none
+ * a font can set: a retail letter, digit or ASCII punctuation at u, v of
+ * the font's page (not in_bank), or an added glyph at u, v of the bank's
+ * page `page`. `large` is the 16x16 font, else the 8x12. */
+uint32_t Glyphs_CellCharacter(int in_bank, int page, int large, int u, int v);
+/* Where the retail font has a character's glyph in its page; 0 if not. */
+int Glyphs_RetailCell(uint32_t character, int large, int *u, int *v);
+/* The font a character is set in (an FT_Face), NULL for none. */
+void *Glyphs_Face(uint32_t character);
+
 #endif

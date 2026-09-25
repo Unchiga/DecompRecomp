@@ -38,6 +38,7 @@ typedef enum {
     SET_CRT,
     SET_FLASH,
     SET_XBR,
+    SET_HD_TEXT,
     SET_COUNT
 } SettingId;
 

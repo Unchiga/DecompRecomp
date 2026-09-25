@@ -587,3 +587,37 @@ int Glyphs_Cell(uint32_t sjis, int large, int font_page, int *tpage, int *u, int
     *tpage = page | (GLYPHS_BANK << 11);
     return 1;
 }
+
+/* --- for HD text (hd_text.h) ---------------------------------------------- */
+
+uint32_t Glyphs_CellCharacter(int in_bank, int page, int large, int u, int v)
+{
+    uint32_t character;
+    int n, cu, cv;
+    if (in_bank) {
+        /* place(), backwards. */
+        if (large) {
+            if (page < 1 || u % 16 || v % 16) return 0;
+            n = (page - 1) * 256 + (v / 16) * 16 + u / 16;
+        } else {
+            if (page != 0 || u % 8 || v % 12) return 0;
+            n = (v / 12) * 32 + u / 8;
+        }
+        return n < added_count && added[n].made ? added[n].character : 0;
+    }
+    /* The retail letters, digits and punctuation a font sets as they are. */
+    for (character = '!'; character <= '~'; character++) {
+        if (retail_cell(character_sjis(character), large, &cu, &cv) && cu == u && cv == v) return character;
+    }
+    return 0;
+}
+
+int Glyphs_RetailCell(uint32_t character, int large, int *u, int *v)
+{
+    return retail_cell(character_sjis(character), large, u, v);
+}
+
+void *Glyphs_Face(uint32_t character)
+{
+    return face_for(character);
+}
