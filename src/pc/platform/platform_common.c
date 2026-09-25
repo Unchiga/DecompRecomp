@@ -34,6 +34,7 @@ static void (*vblank_handler)(void);
 static void (*tick_handler)(uint64_t, uint64_t);
 static volatile int rate = 100;
 static uint64_t real_prev, virtual_now, next_vblank;
+static unsigned virtual_remainder; /* hundredths of a microsecond a rate other than 100% left over */
 static volatile unsigned vblank_period = 16683;
 static volatile int step_pending;
 static float present_refresh;
@@ -110,7 +111,15 @@ static void advance(uint64_t real_now, uintptr_t eip)
         }
         return;
     }
-    if (rate > 0) virtual_now += elapsed * (uint64_t)rate / 100;
+    /* The fraction is carried: a loop that polls the clock sees a
+     * microsecond or two per call, and at 50% each such microsecond came
+     * out as nothing, so a game waiting on the clock that way (the boot,
+     * the movies) stood still for seconds at a time. */
+    if (rate > 0) {
+        uint64_t scaled = elapsed * (uint64_t)rate + virtual_remainder;
+        virtual_now += scaled / 100;
+        virtual_remainder = (unsigned)(scaled % 100);
+    }
     if (rate == -1) virtual_now += elapsed;
     if (tick_handler) tick_handler(virtual_now, real_now);
     if (!next_vblank) next_vblank = virtual_now;
