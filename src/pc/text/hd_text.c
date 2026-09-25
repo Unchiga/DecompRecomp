@@ -1,16 +1,28 @@
 /* HD text (hd_text.h).
  *
- * The retail font is anti-aliased in its indices: 1 is the dark outline, and
- * 2 up to the letter's brightest index is how much of a texel the letter
- * covers, which the text palettes turn into its colour. An HD picture is
- * made the same way at `factor` pixels per texel: the character set in the
- * font glyphs.c sets added characters in, fitted to the box the cell's
- * letter fills (its texels at least half covered) and made as heavy as the
- * retail font's strokes, each pixel's coverage put on the cell's run of indices up to its
- * body's average, and
- * index 1 in a band a texel wide round it. Everything else is index 0, which
- * the palettes make transparent, as in the cells. So the same letter stands
- * in the same place in the same colours, finer. */
+ * The retail font is anti-aliased in its indices, which the text palettes
+ * run from black to the text's colour: the dark outline is the lowest (1,
+ * with 2 and 3 in the large font), and above it an index is how bright the
+ * texel is. The letters are shaded too, brightest at the top of the cell.
+ * An HD picture is made the same way at `factor` pixels per texel, from the
+ * character set in the font glyphs.c sets added characters in:
+ *
+ * - measured once from the page's letters: the font's lines (baseline,
+ *   x-height, capitals, ascenders, descenders), its stems and bars, its
+ *   outline and each row's shading;
+ * - a letter or digit set to those lines, so a kind of letter is as tall
+ *   as the others and a small letter is never a capital's height; anything
+ *   else to the height its cell's glyph has;
+ * - across, where the cell's glyph stands, as wide (a little wider than the
+ *   font's proportions at most, and a bare stem like an l keeps them);
+ * - its stems and bars made as heavy as the retail font's;
+ * - each pixel's coverage onto the run of indices from the outline's to
+ *   the row's shading, and the outline's index in a band a texel wide
+ *   round it.
+ *
+ * Everything else is index 0, which the palettes make transparent, as in the
+ * cells. So the same letter stands in the same place in the same colours,
+ * finer. */
 #include "hd_text.h"
 #include "glyphs.h"
 #include "pc/platform/settings.h"
@@ -18,6 +30,8 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
+#include FT_BBOX_H
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,6 +40,14 @@
 #define SLOT_COUNT (SLOTS_ACROSS * SLOTS_ACROSS)
 #define TABLE_SIZE 4096                      /* a power of two, well above SLOT_COUNT */
 #define MAX_FACTOR 8
+/* A retail texel at this share of its row's brightest is taken as wholly
+ * covered: the large font's strokes are shaded across as well as down, so
+ * the middle of a stroke is often well below the brightest. */
+#define SATURATE 0.7
+/* A covered pixel's index: this share of the way from the row's average
+ * stroke to its brightest. The brightest alone makes the letters paler than
+ * the cells, whose strokes are mostly edge. */
+#define BRIGHT 0.5
 
 typedef struct {
     uint32_t key;   /* bank, page, size, u, v; 0 for a free place */
@@ -63,147 +85,360 @@ static uint32_t read_cell(const uint16_t *words, int page_x, int page_y, int lar
     return sum;
 }
 
-/* A letter's stroke: the most common length of its runs of set pixels
- * across, or down if those are shorter (a bar's runs across are long, a
- * stem's down). */
-static int stroke(const unsigned char *pixels, int width, int height, int pitch, int threshold)
+/* What the retail font is like at a size, measured once for its page from
+ * its letters and digits (one cell is too little to go by) and kept for the
+ * added glyphs, which follow it. Rows and columns are in texels. */
+typedef struct {
+    int page;                           /* -1 before it is measured */
+    int outline;                        /* the index round the letters (commonest next to nothing) */
+    int dark;                           /* the highest index mostly next to nothing: no coverage */
+    double shade[CELL];                 /* each row's brightest index */
+    double body[CELL];                  /* and its average over the letters' strokes */
+    double base, cap, x_height, ascender, descender; /* the rows of those edges */
+    double stem, bar;                   /* texels across a stem, down a bar */
+} Retail;
+
+static Retail retail[2] = {{.page = -1}, {.page = -1}};
+
+/* The same of a font, in pixels up from the baseline at FONT_SIZE. */
+#define FONT_SIZE 64
+typedef struct {
+    void *face;
+    int ok;
+    double cap, x_height, ascender, descender, stem, bar;
+} Font;
+
+static Font fonts[8];
+
+/* A letter's edges to a fraction of a texel. */
+typedef struct {
+    double left, right, top, bottom;
+} Box;
+
+static int by_value(const void *a, const void *b)
 {
-    enum { LIMIT = CELL * MAX_FACTOR * 2 };
-    int across[LIMIT + 1] = {0}, down[LIMIT + 1] = {0}, x, y, run, best_across = 0, best_down = 0;
-    for (y = 0; y < height; y++) {
-        for (x = 0, run = 0; x <= width; x++) {
-            if (x < width && pixels[y * pitch + x] >= threshold) {
-                run++;
-            } else if (run) {
-                across[run < LIMIT ? run : LIMIT]++;
-                run = 0;
-            }
-        }
-    }
-    for (x = 0; x < width; x++) {
-        for (y = 0, run = 0; y <= height; y++) {
-            if (y < height && pixels[y * pitch + x] >= threshold) {
-                run++;
-            } else if (run) {
-                down[run < LIMIT ? run : LIMIT]++;
-                run = 0;
-            }
-        }
-    }
-    for (x = 1; x <= LIMIT; x++) {
-        if (across[x] > across[best_across]) best_across = x;
-        if (down[x] > down[best_down]) best_down = x;
-    }
-    return best_across && (!best_down || best_across < best_down) ? best_across : best_down;
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
 }
 
-/* The texels a cell's letter covers at least half of (index 2 and up is
- * coverage up to its brightest), into `half`; returns the brightest index,
- * under 2 for no letter. */
-static int half_covered(const unsigned char cell[CELL][CELL], int cells_high, unsigned char half[CELL][CELL])
+static double median(double *values, int count)
 {
-    int x, y, brightest = 1;
+    if (!count) return 0;
+    qsort(values, (size_t)count, sizeof(values[0]), by_value);
+    return count & 1 ? values[count / 2] : (values[count / 2 - 1] + values[count / 2]) / 2;
+}
+
+/* How much of a texel the letter covers: the outline's indices are none,
+ * half the row's brightest (the letters are shaded down the cell, and the
+ * large font across its strokes too) and up all of it, and between a
+ * share. */
+static double coverage(const Retail *r, const unsigned char cell[CELL][CELL], int x, int y)
+{
+    double c = cell[y][x] > r->dark ? (cell[y][x] - r->dark) / (SATURATE * (r->shade[y] - r->dark)) : 0;
+    return c > 1 ? 1 : c;
+}
+
+/* Where a cell's letter is: an edge row or column is covered as far into
+ * it as the letter reaches. Returns 0 for no letter. */
+static int extents(const Retail *r, const unsigned char cell[CELL][CELL], int cells_high, Box *box)
+{
+    double rows[CELL] = {0}, columns[CELL] = {0};
+    int x, y, top = -1, bottom = -1, left = -1, right = -1;
     for (y = 0; y < cells_high; y++) {
         for (x = 0; x < CELL; x++) {
-            if (cell[y][x] > brightest) brightest = cell[y][x];
+            double c = coverage(r, cell, x, y);
+            if (c > rows[y]) rows[y] = c;
+            if (c > columns[x]) columns[x] = c;
         }
     }
-    memset(half, 0, CELL * CELL);
     for (y = 0; y < cells_high; y++) {
-        for (x = 0; x < CELL; x++) half[y][x] = cell[y][x] >= 2 && 2 * (cell[y][x] - 1) >= brightest - 1;
+        if (rows[y] <= 0) continue;
+        if (top < 0) top = y;
+        bottom = y;
     }
-    return brightest;
+    for (x = 0; x < CELL; x++) {
+        if (columns[x] <= 0) continue;
+        if (left < 0) left = x;
+        right = x;
+    }
+    if (top < 0) return 0;
+    box->top = top + 1 - rows[top];
+    box->bottom = bottom + rows[bottom];
+    box->left = left + 1 - columns[left];
+    box->right = right + columns[right];
+    return 1;
 }
 
-/* The glyph's outline at `pixels` high, made `bolder` pixels heavier, as a
- * bitmap in the face's slot. */
-static int set(FT_Face face, uint32_t character, int pixels, double bolder)
+/* The widths of the runs of coverage across the rows (or down the
+ * columns), each the sum of its coverage, onto `list`. */
+static void add_runs(const float *cover, int width, int height, int down, double *list, int *count, int limit)
 {
-    if (FT_Set_Pixel_Sizes(face, 0, (FT_UInt)pixels) ||
-        FT_Load_Char(face, character, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) ||
-        face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
-        return 0;
+    int i, j, across = down ? width : height, along = down ? height : width;
+    for (i = 0; i < across; i++) {
+        double run = 0;
+        for (j = 0; j <= along; j++) {
+            float c = j < along ? (down ? cover[j * width + i] : cover[i * width + j]) : 0;
+            if (c > 0) {
+                run += c;
+            } else if (run > 0) {
+                if (*count < limit) list[(*count)++] = run;
+                run = 0;
+            }
+        }
     }
-    if (bolder > 0) FT_Outline_Embolden(&face->glyph->outline, (FT_Pos)(bolder * 64.0));
-    return FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL) == 0 && face->glyph->bitmap.rows &&
-           face->glyph->bitmap.width;
+}
+
+enum { RUN_LIMIT = 16384 };
+static double run_list[RUN_LIMIT];
+
+/* Letters to measure by: flat bottoms, flat tops, x-height tops,
+ * ascenders, descenders, stems across, bars down. */
+static const char *const measured_by[] = {"ABDEFHIKLMNPRTXZ", "BDEFHIKLMNPRTZ", "uvwxz", "bdhkl", "pq",
+                                          "HILTUdhilnpqu", "EFHLTZ"};
+
+static void measure_retail(Retail *r, const uint16_t *words, int page_x, int page_y, int large)
+{
+    static const char letters[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    unsigned char cell[CELL][CELL];
+    float cover[CELL * CELL];
+    double *edges[5] = {&r->base, &r->cap, &r->x_height, &r->ascender, &r->descender};
+    int i, k, x, y, u, v, cells_high = large ? 16 : 12, count;
+    int border[16] = {0}, all[16] = {0}, rows[CELL][16] = {{0}};
+    for (y = 0; y < CELL; y++) r->shade[y] = 0;
+    for (i = 0; letters[i]; i++) {
+        if (!Glyphs_RetailCell((unsigned char)letters[i], large, &u, &v)) continue;
+        read_cell(words, page_x, page_y, large, u, v, cell);
+        for (y = 0; y < cells_high; y++) {
+            for (x = 0; x < CELL; x++) {
+                if (cell[y][x] > r->shade[y]) r->shade[y] = cell[y][x];
+                all[cell[y][x]]++;
+                rows[y][cell[y][x]]++;
+                /* The outline: the indices next to nothing. */
+                if (cell[y][x] && ((x > 0 && !cell[y][x - 1]) || (x + 1 < CELL && !cell[y][x + 1]) ||
+                                   (y > 0 && !cell[y - 1][x]) || (y + 1 < CELL && !cell[y + 1][x]))) {
+                    border[cell[y][x]]++;
+                }
+            }
+        }
+    }
+    for (r->outline = r->dark = 1, i = 2; i < 5; i++) {
+        if (border[i] > border[r->outline]) r->outline = i;
+        if (border[i] * 2 > all[i] && r->dark == i - 1) r->dark = i;
+    }
+    for (y = 0; y < CELL; y++) {
+        int total = 0, texels = 0;
+        for (i = r->dark + 1; i < 16; i++) total += rows[y][i] * i, texels += rows[y][i];
+        r->body[y] = texels ? (double)total / texels : 0;
+    }
+    /* Rows no letter reaches take their neighbours' shading. */
+    for (y = 1; y < CELL; y++) {
+        if (r->shade[y] < 3) r->shade[y] = r->shade[y - 1], r->body[y] = r->body[y - 1];
+    }
+    for (y = CELL - 2; y >= 0; y--) {
+        if (r->shade[y] < 3) {
+            r->shade[y] = r->shade[y + 1] >= 3 ? r->shade[y + 1] : 15;
+            r->body[y] = r->body[y + 1] >= 3 ? r->body[y + 1] : 15;
+        }
+    }
+    for (k = 0; k < 7; k++) {
+        count = 0;
+        for (i = 0; measured_by[k][i]; i++) {
+            Box box;
+            if (!Glyphs_RetailCell((unsigned char)measured_by[k][i], large, &u, &v)) continue;
+            read_cell(words, page_x, page_y, large, u, v, cell);
+            if (k >= 5) {
+                for (y = 0; y < CELL; y++) {
+                    for (x = 0; x < CELL; x++) cover[y * CELL + x] = y < cells_high ? (float)coverage(r, cell, x, y) : 0;
+                }
+                add_runs(cover, CELL, CELL, k == 6, run_list, &count, RUN_LIMIT);
+            } else if (extents(r, cell, cells_high, &box)) {
+                run_list[count++] = k == 0 || k == 4 ? box.bottom : box.top;
+            }
+        }
+        if (k < 5) *edges[k] = median(run_list, count);
+        else if (k == 5) r->stem = median(run_list, count);
+        else r->bar = median(run_list, count);
+    }
+    r->page = page_x / 64 + page_y / 256 * 16;
+}
+
+/* The character's outline at FONT_SIZE in the face's slot. */
+static int load(FT_Face face, uint32_t character)
+{
+    return FT_Set_Pixel_Sizes(face, 0, FONT_SIZE) == 0 &&
+           FT_Load_Char(face, character, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) == 0 &&
+           face->glyph->format == FT_GLYPH_FORMAT_OUTLINE && face->glyph->outline.n_points > 0;
+}
+
+static const Font *measure_font(FT_Face face)
+{
+    static int next;
+    enum { SIDE = FONT_SIZE * 2 };
+    static float cover[SIDE * SIDE];
+    double *edges[5];
+    Font *font;
+    int i, k, x, y, count;
+    for (i = 0; i < (int)(sizeof(fonts) / sizeof(fonts[0])); i++) {
+        if (fonts[i].face == face) return fonts[i].ok ? &fonts[i] : NULL;
+    }
+    font = &fonts[next];
+    next = (next + 1) % (int)(sizeof(fonts) / sizeof(fonts[0]));
+    memset(font, 0, sizeof(*font));
+    font->face = face;
+    edges[0] = NULL;
+    edges[1] = &font->cap;
+    edges[2] = &font->x_height;
+    edges[3] = &font->ascender;
+    edges[4] = &font->descender;
+    for (k = 1; k < 7; k++) {
+        count = 0;
+        for (i = 0; measured_by[k][i]; i++) {
+            FT_BBox bbox;
+            FT_Bitmap *bitmap;
+            if (!load(face, (unsigned char)measured_by[k][i])) continue;
+            if (k < 5) {
+                FT_Outline_Get_BBox(&face->glyph->outline, &bbox);
+                run_list[count++] = (k == 4 ? bbox.yMin : bbox.yMax) / 64.0;
+                continue;
+            }
+            if (FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL)) continue;
+            bitmap = &face->glyph->bitmap;
+            if ((int)bitmap->width > SIDE || (int)bitmap->rows > SIDE) continue;
+            for (y = 0; y < (int)bitmap->rows; y++) {
+                for (x = 0; x < (int)bitmap->width; x++) {
+                    cover[y * (int)bitmap->width + x] = bitmap->buffer[y * bitmap->pitch + x] / 255.0f;
+                }
+            }
+            add_runs(cover, (int)bitmap->width, (int)bitmap->rows, k == 6, run_list, &count, RUN_LIMIT);
+        }
+        if (!count) return NULL;
+        if (k < 5) *edges[k] = median(run_list, count);
+        else if (k == 5) font->stem = median(run_list, count);
+        else font->bar = median(run_list, count);
+    }
+    font->ok = font->cap > font->x_height && font->x_height > 0 && font->ascender > 0 && font->descender < 0 &&
+               font->stem > 0 && font->bar > 0;
+    return font->ok ? font : NULL;
+}
+
+/* Piecewise-linear through the points (from ascending), carried on past
+ * the ends. */
+static double through(const double *from, const double *to, int count, double value)
+{
+    int i = 0;
+    while (i + 2 < count && value > from[i + 1]) i++;
+    return to[i] + (value - from[i]) * (to[i + 1] - to[i]) / (from[i + 1] - from[i]);
+}
+
+/* A rectangle (in pixels) filled into the coverage, its edges shared. */
+static void fill(unsigned char cover[CELL * MAX_FACTOR][CELL * MAX_FACTOR], double x0, double y0, double x1,
+                 double y1, int width, int height)
+{
+    int x, y;
+    for (y = (int)y0; y < height && y < y1; y++) {
+        double h = (y + 1 < y1 ? y + 1 : y1) - (y > y0 ? y : y0);
+        if (y < 0 || h <= 0) continue;
+        for (x = (int)x0; x < width && x < x1; x++) {
+            double w = (x + 1 < x1 ? x + 1 : x1) - (x > x0 ? x : x0), c;
+            if (x < 0 || w <= 0) continue;
+            c = cover[y][x] + w * h * 255;
+            cover[y][x] = (unsigned char)(c > 255 ? 255 : c);
+        }
+    }
 }
 
 /* The picture of `character` for a cell into atlas slot `slot`; 0 when no
  * font sets it or the cell holds no letter. */
-static int render(int slot, const unsigned char cell[CELL][CELL], int large, uint32_t character, double weight)
+static int render(int slot, const unsigned char cell[CELL][CELL], int large, uint32_t character, const Retail *r)
 {
     static unsigned char cover[CELL * MAX_FACTOR][CELL * MAX_FACTOR];
     static unsigned short distance[CELL * MAX_FACTOR][CELL * MAX_FACTOR];
-    static unsigned char half[CELL][CELL];
-    int f = factor, cells_high = large ? 16 : 12, width = (large ? 16 : 8) * f, height = cells_high * f;
-    int x, y, top = CELL, bottom = -1, left = CELL, right = -1, brightest = 1, body, total = 0, count = 0;
-    int box_w, box_h, fit_w, x0, y0, render_size, measured, rows, columns, pitch;
+    int f = factor, cells_high = large ? 16 : 12, width = CELL * f, height = cells_high * f;
+    int x, y, i, n = 0, main = 0, pass, upper = character < 128 && (isupper((int)character) || isdigit((int)character));
+    int lower = character < 128 && islower((int)character);
     uint8_t *origin =
         atlas + (size_t)(slot / SLOTS_ACROSS) * CELL * f * side + (size_t)(slot % SLOTS_ACROSS) * CELL * f;
     FT_Face face = (FT_Face)Glyphs_Face(character);
-    double scale;
-    if (!face) return 0;
-    brightest = half_covered(cell, cells_high, half);
-    if (brightest < 2) return 0;
-    for (y = 0; y < cells_high; y++) {
-        for (x = 0; x < CELL; x++) {
-            if (!half[y][x]) continue;
-            if (y < top) top = y;
-            if (y > bottom) bottom = y;
-            if (x < left) left = x;
-            if (x > right) right = x;
-            total += cell[y][x];
-            count++;
+    const Font *font = face ? measure_font(face) : NULL;
+    double from[5], to[5], tops[5], room, sx, sv, ex = 0, ey = 0, centre_f, centre_r, stem_f, width_f;
+    FT_BBox bbox;
+    FT_Outline *outline;
+    FT_Bitmap bitmap;
+    Box box;
+    if (!font || !extents(r, cell, cells_high, &box) || !load(face, character)) return 0;
+    outline = &face->glyph->outline;
+    FT_Outline_Get_BBox(outline, &bbox);
+    width_f = (bbox.xMax - bbox.xMin) / 64.0;
+    centre_f = (bbox.xMax + bbox.xMin) / 128.0;
+    centre_r = (box.left + box.right) / 2;
+    if (upper || lower) {
+        /* The lines, up the font; tops[] says which are tops of strokes.
+         * A descender or ascender line either font lacks (or has out of
+         * order) is left out. */
+        double top_f = lower ? font->x_height : font->cap, top_r = lower ? r->x_height : r->cap;
+        if (font->descender < -1 && r->descender > r->base + 0.25) {
+            from[n] = font->descender, to[n] = r->descender, tops[n++] = 0;
         }
+        main = n;
+        from[n] = 0, to[n] = r->base, tops[n++] = 0;
+        from[n] = top_f, to[n] = top_r, tops[n++] = 1;
+        if (font->ascender > top_f + 1 && r->ascender < top_r - 0.25) {
+            from[n] = font->ascender, to[n] = r->ascender, tops[n++] = 1;
+        }
+    } else {
+        from[n] = bbox.yMin / 64.0, to[n] = box.bottom, tops[n++] = 0;
+        from[n] = bbox.yMax / 64.0, to[n] = box.top, tops[n++] = 1;
     }
-    /* A covered pixel takes the index the letter's body has on average (its
-     * texels are not all the brightest: the palettes shade them). */
-    body = (total + count / 2) / count;
-    box_w = (right - left + 1) * f;
-    box_h = (bottom - top + 1) * f;
-    /* Set once plainly at twice the height, to measure; then heavier to
-     * match the cell's strokes, allowing for the squeeze across an M in the
-     * 8x12 font takes. */
-    render_size = (large ? 14 : 10) * f * 2;
-    if (!set(face, character, render_size, 0)) return 0;
-    rows = (int)face->glyph->bitmap.rows;
-    columns = (int)face->glyph->bitmap.width;
-    scale = (double)box_h / rows;
-    if (columns * scale > box_w) scale = (double)box_w / columns;
-    measured = stroke(face->glyph->bitmap.buffer, columns, rows, face->glyph->bitmap.pitch, 128);
-    if (measured) {
-        /* The font's strokes (the cell's own where the font's are not
-         * known), and half a texel for the edges beyond. */
-        double wanted = ((weight > 0 ? weight : (double)stroke(&half[0][0], CELL, cells_high, CELL, 1)) + 0.5) * f;
-        double bolder = (wanted - measured * scale) / scale;
-        if (bolder > 0 && !set(face, character, render_size, bolder)) return 0;
+    if (from[main + 1] <= from[main] || to[main + 1] >= to[main]) return 0;
+    /* Heavier (or lighter) by ex across and ey down puts half of each
+     * beyond every edge: the lines move in by that much, and the width
+     * allows for it. Twice, as the scale moves with them. */
+    for (pass = 0; pass < 2; pass++) {
+        /* The scale from the baseline to the x-height or the capitals (the
+         * foot to the head of anything else). */
+        sv = (to[main] - to[main + 1] - ey) / (from[main + 1] - from[main]);
+        ey = r->bar - font->bar * sv;
+        if (ey < -font->bar * sv / 2) ey = -font->bar * sv / 2;
     }
-    /* Into the box: its height, its width at most, centred across it; each
-     * pixel the share of it the letter covers. */
-    rows = (int)face->glyph->bitmap.rows;
-    columns = (int)face->glyph->bitmap.width;
-    pitch = face->glyph->bitmap.pitch;
-    fit_w = (int)((double)columns * box_h / rows + 0.5);
-    if (fit_w > box_w || fit_w < 1) fit_w = box_w;
-    x0 = left * f + (box_w - fit_w) / 2;
-    y0 = top * f;
+    for (i = 0; i < n; i++) to[i] += tops[i] ? ey / 2 : -ey / 2;
+    /* As wide as the cell's glyph, stems and all, but no more than a
+     * quarter wider than the font's own proportions; a bare stem, like an
+     * l, keeps them, narrowed only to fit. */
+    stem_f = font->stem < width_f ? font->stem : width_f;
+    room = box.right - box.left;
+    if (width_f - stem_f > width_f / 4) {
+        sx = (room - r->stem) / (width_f - stem_f);
+        if (sx > sv * 1.25) sx = sv * 1.25;
+        if (sx <= 0) sx = room / width_f;
+    } else {
+        sx = sv;
+        if (width_f * sx + r->stem - stem_f * sx > room) sx = room / width_f;
+    }
+    ex = r->stem - stem_f * sx;
+    if (ex < -stem_f * sx / 2) ex = -stem_f * sx / 2;
+    /* Into the cell's pixels: across about the centre, down along the
+     * lines (the outline's y is up from the picture's foot). */
+    for (i = 0; i < outline->n_points; i++) {
+        double px = outline->points[i].x / 64.0, py = outline->points[i].y / 64.0;
+        double column = centre_r + (px - centre_f) * sx, row = through(from, to, n, py);
+        outline->points[i].x = (FT_Pos)(column * f * 64);
+        outline->points[i].y = (FT_Pos)((cells_high - row) * f * 64);
+    }
+    FT_Outline_EmboldenXY(outline, (FT_Pos)(ex * f * 64), (FT_Pos)(ey * f * 64));
     memset(cover, 0, sizeof(cover));
-    for (y = 0; y < box_h; y++) {
-        int sy0 = y * rows / box_h, sy1 = (y + 1) * rows / box_h;
-        if (sy1 <= sy0) sy1 = sy0 + 1;
-        for (x = 0; x < fit_w; x++) {
-            int sx0 = x * columns / fit_w, sx1 = (x + 1) * columns / fit_w, sx, sy;
-            unsigned sum = 0, n = 0;
-            if (sx1 <= sx0) sx1 = sx0 + 1;
-            for (sy = sy0; sy < sy1; sy++) {
-                for (sx = sx0; sx < sx1; sx++) {
-                    sum += face->glyph->bitmap.buffer[sy * pitch + sx];
-                    n++;
-                }
-            }
-            cover[y0 + y][x0 + x] = (unsigned char)(sum / n);
-        }
+    memset(&bitmap, 0, sizeof(bitmap));
+    bitmap.rows = (unsigned)height;
+    bitmap.width = (unsigned)width;
+    bitmap.pitch = CELL * MAX_FACTOR;
+    bitmap.buffer = &cover[0][0];
+    bitmap.num_grays = 256;
+    bitmap.pixel_mode = FT_PIXEL_MODE_GRAY;
+    if (FT_Outline_Get_Bitmap(face->glyph->library, outline, &bitmap)) return 0;
+    if (character == 'I' && width_f < font->stem * 1.8 && box.right - box.left > r->stem * 1.5) {
+        /* The retail I has serifs, which tell it from an l; a font's bare
+         * stem gets them. */
+        fill(cover, box.left * f, box.top * f, box.right * f, (box.top + r->bar) * f, width, height);
+        fill(cover, box.left * f, (box.bottom - r->bar) * f, box.right * f, box.bottom * f, width, height);
     }
     /* The outline: pixels within a texel of the letter's half-covered ones
      * (chamfer distance, 3 across and 4 diagonally). */
@@ -229,43 +464,25 @@ static int render(int slot, const unsigned char cell[CELL][CELL], int large, uin
     }
     for (y = 0; y < CELL * f; y++) memset(origin + (size_t)y * side, 0, (size_t)CELL * f);
     for (y = 0; y < height; y++) {
+        /* The row's shading, between the texel rows' either side. */
+        double at = (y + 0.5) / f - 0.5, shade;
+        int row = at < 0 ? 0 : (int)at, next = row + 1 < cells_high ? row + 1 : row;
+        double t = at < 0 ? 0 : at - row;
+        shade = r->shade[row] + (r->shade[next] - r->shade[row]) * t;
+        shade = shade * BRIGHT + (1 - BRIGHT) * (r->body[row] + (r->body[next] - r->body[row]) * t);
         for (x = 0; x < width; x++) {
-            /* Coverage on the run 2..body; too little to make index 2 is
-             * outline, as the cells' faintest edges are. */
-            int index = 1 + (cover[y][x] * (body - 1) + 127) / 255;
-            if (index >= 2) origin[(size_t)y * side + x] = (uint8_t)index;
-            else if (distance[y][x] <= 3u * (unsigned)f) origin[(size_t)y * side + x] = 1;
+            /* Coverage on the run from the outline's index to the shade;
+             * too little to rise above it is outline, as the cells'
+             * faintest edges are. */
+            int index = r->dark + (int)(cover[y][x] * (shade - r->dark) / 255 + 0.5);
+            if (index > r->dark) origin[(size_t)y * side + x] = (uint8_t)index;
+            else if (distance[y][x] <= 3u * (unsigned)f) origin[(size_t)y * side + x] = (uint8_t)r->outline;
         }
     }
     y = (slot / SLOTS_ACROSS) * CELL * f;
     if (y < first_dirty || last_dirty < first_dirty) first_dirty = y;
     if (y + CELL * f - 1 > last_dirty) last_dirty = y + CELL * f - 1;
     return 1;
-}
-
-/* The retail font's strokes in texels for a size, the mean of its letters'
- * and digits' (one letter's own is too few runs to go by): measured once
- * for a font page, and kept for the added glyphs, which follow it. */
-static double font_weight[2];
-static int font_weight_page[2] = {-1, -1};
-
-static double retail_weight(const uint16_t *vram, int page_x, int page_y, int large)
-{
-    static const char letters[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    unsigned char cell[CELL][CELL], half[CELL][CELL];
-    int i, u, v, total = 0, count = 0, cells_high = large ? 16 : 12;
-    for (i = 0; letters[i]; i++) {
-        int width;
-        if (!Glyphs_RetailCell((unsigned char)letters[i], large, &u, &v)) continue;
-        read_cell(vram, page_x, page_y, large, u, v, cell);
-        if (half_covered((const unsigned char (*)[CELL])cell, cells_high, half) < 2) continue;
-        width = stroke(&half[0][0], CELL, cells_high, CELL, 1);
-        if (width) {
-            total += width;
-            count++;
-        }
-    }
-    return count ? (double)total / count : 0;
 }
 
 /* A new atlas for another factor: every picture is made again. */
@@ -299,9 +516,8 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
     key = 0x8000000u | (uint32_t)bank << 22 | (uint32_t)(page_x / 64) << 18 | (uint32_t)(page_y / 256) << 17 |
           (uint32_t)(large != 0) << 16 | (uint32_t)(u & 255) << 8 | (uint32_t)(v & 255);
     sum = read_cell(words, page_x, page_y, large, u, v, cell);
-    if (!bank && font_weight_page[large != 0] != page_x / 64 + page_y / 256 * 16) {
-        font_weight_page[large != 0] = page_x / 64 + page_y / 256 * 16;
-        font_weight[large != 0] = retail_weight(words, page_x, page_y, large);
+    if (!bank && retail[large != 0].page != page_x / 64 + page_y / 256 * 16) {
+        measure_retail(&retail[large != 0], words, page_x, page_y, large);
     }
     for (at = (key * 2654435761u) >> 20;; at = (at + 1) & (TABLE_SIZE - 1)) {
         entry = &entries[at & (TABLE_SIZE - 1)];
@@ -321,8 +537,8 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
         uint32_t character = Glyphs_CellCharacter(bank != 0, page_x / 64, large, u, v);
         int slot = entry->slot >= 0 ? entry->slot : slots_used < SLOT_COUNT ? slots_used : -1;
         entry->sum = sum;
-        entry->drawn = character && slot >= 0 &&
-                       render(slot, (const unsigned char (*)[CELL])cell, large, character, font_weight[large != 0]);
+        entry->drawn = character && slot >= 0 && retail[large != 0].page >= 0 &&
+                       render(slot, (const unsigned char (*)[CELL])cell, large, character, &retail[large != 0]);
         if (entry->drawn && entry->slot < 0) {
             /* The place stays the cell's when it later holds no letter, to
              * be drawn over when it holds one again. */

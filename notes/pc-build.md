@@ -900,18 +900,31 @@ a change to the OpenGL picture above, so it shows at internal 2x and up.
 The software picture (`MEMORIES_GL_PICTURE=0`, and widescreen at 2x and up,
 which that picture draws) and 1x are as before.
 
-The retail font is anti-aliased in its indices. Index 1 is the dark
-outline. Indices 2 up to the letter's brightest measure how much of the
-texel the letter covers, and the text palettes turn that into its colour.
-An HD letter is made the same way at N pixels per texel:
+The retail font is anti-aliased in its indices, which the text palettes run
+from black up to the text's colour. The dark outline is the lowest index
+(1, and 2-3 in the large font). Above it, an index is how bright the texel
+is, and the letters are shaded brightest at the top of the cell. An HD
+letter is made the same way at N pixels per texel:
 
 - the character is set in the font glyphs.c sets added letters in (a mod's
   `font`, else the system's sans-serif);
-- it is fitted to the box the cell's letter fills and made as heavy as the
-  retail font's strokes (the mean over its letters and digits, since one
-  small letter has too few to go by);
-- each pixel's coverage goes onto the cell's own run of indices;
-- index 1 goes in a band a texel wide round it.
+- the retail font is measured once from its letters and digits: its
+  baseline, x-height, capital, ascender and descender lines, its stem and
+  bar weights, its outline and each row's shading. A texel at 70% of its
+  row's brightest counts as fully covered, because the large font is shaded
+  across its strokes as well as down;
+- a letter or digit is set to those lines, so every small letter is the
+  same height, and so is every capital; anything else takes its cell's
+  height. Across, it stands where its cell's letter does, as wide as it
+  (at most a quarter wider than the font's proportions; a bare stem like
+  an l keeps them);
+- stems and bars are thickened or thinned to the retail weights. Where the
+  font's I is a bare stem and the retail one has serifs, it gets serifs,
+  so it is not taken for an l;
+- each pixel's coverage goes onto the run from the outline's index to the
+  row's shading (half-way from its average stroke to its brightest, so the
+  colour is the cell's), and the outline's index goes in a band a texel
+  wide round it.
 
 The shader samples the HD indices in place of the cell's, and the glyph's
 palette does the rest. So colours, fades, flashes, semi-transparency and
