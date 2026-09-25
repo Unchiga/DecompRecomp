@@ -232,7 +232,7 @@ the card assets were mapped from a set of redrawn HD images. Two tools:
   colours and shading stay the game's. A recipe lists only the pieces a
   capture saw drawn; the rest of a reading stays the texels, four times.
 - `tools/pc/hd_assets_pack.py --assets <folder>` places redrawn assets
-  (card art, names, frames, back, attribute balls, level star, digits and
+  (card art, thumbnails, frames, back, attribute balls, level star, digits and
   labels) where the game keeps them, in every package and palette that
   draws them, over a `hd_screen_pack.py` pack (`--base`), and merges other
   packs (`--merge`) into one mod.
@@ -269,6 +269,19 @@ What was found on the way:
    are kept in `tools/pc/hd_recipes/thumb_crops.json`.
 7. **Memory.** A pack image is decoded on first use and kept. Card art is
    stored at exactly 4x (408x384) rather than larger.
+8. **Small lettering cannot be scaled clean.** xBR turned CHEST, ORDER and
+   the outlined digits into wobbly, bloated letters (their 1-texel
+   anti-aliasing and shadow read as shapes), and rebuilding each colour's
+   region as a smooth shape came out ragged. The recipe's `labels` set them
+   anew in the bold sans HD text uses, fitted to the game's letters, through
+   every palette the game reads them with: the digits through six (white,
+   yellow, blue, green, grey, red). The cursor row's digits stay the game's:
+   they pulse through a palette the game dims at run time, which a pack
+   cannot match (it matches palettes by where they are on the disc).
+9. **One mod, in parts.** `hd_assets_pack.py` gives each entry a `setting`
+   (card art, thumbnails, card frames, Build Deck screen, and each merged
+   pack), and the mod declares them as bool settings, so the Mods window
+   switches each part on and off at once (`notes/modding.md`).
 
 ## Not done
 

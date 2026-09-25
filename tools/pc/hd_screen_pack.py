@@ -13,7 +13,7 @@ rectangles of the reading), and how each reading is enlarged:
           a piece the game cuts out on its own (cut_stands_out, from
           upscale_pack.py) is then redone alone, so its edge rows are not
           its sheet neighbours'.
-  pixel   few-colour UI art (icons, symbols, boxes, labels, digits): xBR
+  pixel   few-colour UI art (icons, symbols, boxes): xBR
           (ffmpeg's xbr filter), which keeps every shape and only rounds
           the steps. Each opaque region of the reading is done alone.
   tile    a picture the game repeats (a background tile): the model on
@@ -28,10 +28,19 @@ arrows), whose outline is smoothed with xBR too. Only the regions a piece
 of the recipe touches change; the rest of a reading is its texels, four
 times, which draws exactly like the original.
 
+A recipe's `labels` are text the game draws as pictures (CHEST, ORDER,
+DECK, the small digits). No scaler makes clean letters of 7-texel ones, so
+after the rest they are set anew in a bold sans (--font; by default the one
+HD text uses), each fitted to the game's letters and drawn in the reading's
+own palette entries: `shadow` style, a word with its shadow a texel down
+and right; `outline` style, one character a cell inside a texel of outline.
+A label names every palette the game reads it with, and each of those
+readings gets it.
+
 Usage: hd_screen_pack.py tools/pc/hd_recipes/build_deck.json
                          [--data game/DATA] [--out <mods>/<id>]
                          [--upscaler realesrgan-ncnn-vulkan] [--model realesrgan-x4plus]
-                         [--model-share 0.6]
+                         [--model-share 0.6] [--font <bold .ttf>]
 
 Needs ffmpeg and an upscaler with the realesrgan-ncnn-vulkan command line
 (realesrgan-ncnn-vulkan itself, or Upscayl's upscayl-bin with its models).
@@ -47,7 +56,7 @@ import sys
 import tempfile
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import extract_images  # noqa: E402
@@ -279,6 +288,118 @@ def build(readings):
     return len(cuts)
 
 
+def default_font():
+    """A bold sans like the one HD text draws with (glyphs.c asks fontconfig
+    for sans-serif:bold; on Windows, Segoe UI Bold or Arial Bold)."""
+    if os.name == "nt":
+        fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        for name in ("segoeuib.ttf", "arialbd.ttf"):
+            if os.path.isfile(os.path.join(fonts, name)):
+                return os.path.join(fonts, name)
+    elif shutil.which("fc-match"):
+        found = subprocess.run(["fc-match", "-f", "%{file}", "sans-serif:bold"], capture_output=True, text=True)
+        if found.returncode == 0 and os.path.isfile(found.stdout):
+            return found.stdout
+    sys.exit("no bold sans font found for the labels: pass --font <file.ttf>")
+
+
+def text_cover(text, font_file, width, height):
+    """The text's ink (0-1) stretched to exactly width x height pixels: set
+    large, cropped to its ink and brought down, so the edges are smooth."""
+    font = ImageFont.truetype(font_file, 200)
+    left, top, right, bottom = font.getbbox(text)
+    image = Image.new("L", (right - left + 8, bottom - top + 8))
+    ImageDraw.Draw(image).text((4 - left, 4 - top), text, font=font, fill=255)
+    image = image.crop(image.getbbox())
+    if width is None:
+        width = max(1, round(image.width * height / image.height))
+    return np.array(image.resize((width, height), Image.LANCZOS), np.float64) / 255
+
+
+def grow(cover, radius):
+    """The cover spread by `radius` pixels round, for an outline."""
+    out = cover.copy()
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx * dx + dy * dy > radius * radius + radius:
+                continue
+            shifted = np.roll(np.roll(cover, dy, 0), dx, 1)
+            out = np.maximum(out, shifted)
+    return out
+
+
+def indices(data, entry, rect):
+    """The 4-bit palette indices of a reading's rectangle (x, y, w, h)."""
+    x0, y0, w, h = rect
+    stride = entry.get("stride") or entry["words"]
+    rows = entry.get("row_offsets")
+    out = np.zeros((h, w), np.int32)
+    for y in range(h):
+        at = entry["offset"] + (rows[y0 + y] if rows else (y0 + y) * stride * 2)
+        for x in range(w):
+            byte = data[at + (x0 + x) // 2]
+            out[y, x] = byte >> 4 if (x0 + x) & 1 else byte & 15
+    return out
+
+
+def colours(data, clut):
+    return np.frombuffer(b"".join(extract_images.expand(c) for c in extract_images.read_palette(data, clut, 16)),
+                         np.uint8).reshape(16, 4).astype(np.float64)
+
+
+def paint(picture, cover, colour):
+    """`colour` over the picture (straight alpha) as much as `cover`."""
+    a = cover[..., None] * colour[3] / 255
+    under = picture[..., 3:4] / 255
+    alpha = a + under * (1 - a)
+    rgb = (colour[:3] * a + picture[..., :3] * under * (1 - a)) / np.maximum(alpha, 1e-6)
+    picture[..., :3] = np.where(alpha > 0, rgb, 0)
+    picture[..., 3:4] = alpha * 255
+
+
+def draw_label(label, data, entry, reading, font_file):
+    """A label set anew in the font, in place of the game's letters.
+    `shadow`: a word (CHEST) in `fill`, with a shadow in the first of
+    `shadow` a texel down and right, as big as the game's letters (the texels
+    of `rect` that are neither `background` nor `shadow`); every other texel
+    of `rect` becomes the background round it. `outline`: characters, one per
+    cell, in `fill` inside a texel of `outline`, each as tall as the game's."""
+    palette = colours(data, entry["clut_offset"])
+    if label["style"] == "shadow":
+        x, y, w, h = label["rect"]
+        index = indices(data, entry, label["rect"])
+        clear = np.isin(index, label["background"])
+        ys, xs = np.nonzero(~clear & ~np.isin(index, label["shadow"]))
+        x0, y0, x1, y1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+        picture = blocks(fill_transparent(palette[index][..., :3], clear)).astype(np.float64)
+        picture = np.concatenate([picture, np.full(picture.shape[:2] + (1,), 255.0)], -1)
+        body = text_cover(label["text"], font_file, (x1 - x0) * S, (y1 - y0) * S)
+        shade = np.zeros((h * S, w * S))
+        shade[(y0 + 1) * S:(y1 + 1) * S, (x0 + 1) * S:(x1 + 1) * S] = body[:(h - y0 - 1) * S, :(w - x0 - 1) * S]
+        paint(picture, shade, palette[label["shadow"][0]])
+        ink = np.zeros((h * S, w * S))
+        ink[y0 * S:y1 * S, x0 * S:x1 * S] = body
+        paint(picture, ink, palette[label["fill"]])
+        reading.out[y * S:(y + h) * S, x * S:(x + w) * S] = picture.round().astype(np.uint8)
+        return
+    for character, (x, y, w, h) in zip(label["text"], label["cells"]):
+        index = indices(data, entry, (x, y, w, h))
+        ys, xs = np.nonzero(index)
+        if not len(ys):
+            continue
+        x0, y0, x1, y1 = xs.min() + 1, ys.min() + 1, xs.max(), ys.max()
+        body = text_cover(character, font_file, None, (y1 - y0) * S)
+        if body.shape[1] > (x1 - x0) * S:
+            body = text_cover(character, font_file, (x1 - x0) * S, (y1 - y0) * S)
+        ink = np.zeros((h * S, w * S))
+        left = round((x0 + x1) * S / 2 - body.shape[1] / 2)
+        ink[y0 * S:y0 * S + body.shape[0], left:left + body.shape[1]] = body
+        picture = np.zeros((h * S, w * S, 4))
+        paint(picture, grow(ink, S), palette[label["outline"]])
+        paint(picture, ink, palette[label["fill"]])
+        reading.out[y * S:(y + h) * S, x * S:(x + w) * S] = picture.round().astype(np.uint8)
+
+
 def main():
     global SCALER
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -288,6 +409,7 @@ def main():
     parser.add_argument("--upscaler")
     parser.add_argument("--model", default="realesrgan-x4plus")
     parser.add_argument("--model-share", type=float, default=0.6)
+    parser.add_argument("--font", help="the bold font the labels are set in (default: the system's bold sans)")
     args = parser.parse_args()
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg not found: it makes the xBR enlargements")
@@ -313,11 +435,30 @@ def main():
             if entry is None:
                 sys.exit(f"no sheet reading {key} ({sheet['what']}): does extract_images.py read it?")
             reading = Reading(os.path.join(images, entry["file"]), sheet)
+            reading.entry = entry
             reading.name = entry["file"].replace("sheets/", "").replace("/", "-")
             readings.append(reading)
             entries.append(dict(entry, file=reading.name, alias=f"{recipe['name']}: {sheet['what']}"))
         print(f"{len(readings)} readings: model {upscaler} ({args.model}), xBR through ffmpeg")
         cuts = build(readings)
+        labels = recipe.get("labels", [])
+        if labels:
+            font_file = args.font or default_font()
+            data = {}
+            for label in labels:
+                wanted = {int(p, 16) for p in label["palettes"]}
+                drawn = 0
+                for reading in readings:
+                    e = reading.entry
+                    if (e["archive"], e["offset"], e["bpp"]) == (label["archive"], int(label["offset"], 16), 4) \
+                            and e.get("clut_offset") in wanted:
+                        if e["archive"] not in data:
+                            data[e["archive"]] = extractor.archive(e["archive"])
+                        draw_label(label, data[e["archive"]], e, reading, font_file)
+                        drawn += 1
+                if drawn != len(wanted):
+                    sys.exit(f"label {label['what']}: {drawn} of {len(wanted)} palettes are readings of the recipe")
+            print(f"{len(labels)} labels set in {font_file}")
         if os.path.isdir(out):
             shutil.rmtree(out)
         textures = os.path.join(out, "textures")

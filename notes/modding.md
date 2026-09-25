@@ -228,19 +228,38 @@ loader (`src/pc/render/texture_pack.c`) reads these keys:
 | `row_offsets` | instead of a stride, each row's byte offset from `offset`: a list of exactly `rows` numbers, or `null` |
 | `crop_left` | the first texel of each row the image covers (default 0) |
 | `width` | how many texels from there it covers (default: the rest of the row) |
+| `setting` | the key of one of the mod's declared `settings`: the entry is used only while that setting is not 0 (below) |
 
 The extractor also writes `alias` (what the image is), `height` (the rows
 again), and `sheet` and `column` (where a sheet's column stands, for
 `upscale_pack.py`); the game does not read them. Numbers are whole numbers,
 as everywhere in a manifest.
 
+A pack can come in parts the player switches on and off. Declare a `bool`
+setting per part in `mod.json` and give each entry of a part its key:
+
+```json
+"settings": [
+    {"key": "card_art", "label": "Card art", "type": "bool", "default": 1},
+    {"key": "portraits", "label": "Free Duel portraits", "type": "bool", "default": 1}
+]
+```
+
+An entry with `"setting": "portraits"` is used only while that setting is
+on; an entry without `setting` always is. The settings show in the Mods
+window like any mod's, and changing one loads the packs again at once, with
+no restart (unless the setting or the mod says `"restart": true`). A pack
+with every part off is applied with no images. A `setting` the mod does not
+declare is reported with the pack's other problems, and its entry used.
+
 An entry the loader cannot use is left out and counted, and the Mods window
 shows one line for the pack, for example `2 images could not be read
 (first: cards/001.png); 1 image is outside the pack (first: ../x.png)`: a
 file that is missing or not a PNG, a path outside the pack, measures out of
 range, a `row_offsets` list whose length is not `rows` (the image is then
-read with the stride), an entry without `file` or `archive`, or more than
-65535 images in all. PNGs are decoded the first time the game needs them;
+read with the stride), an entry without `file` or `archive`, a `setting` the
+mod does not declare (the image is still used), or more than 65535 images in
+all. PNGs are decoded the first time the game needs them;
 at load only their signature is checked, and a PNG that fails to decode
 later is reported on the console.
 

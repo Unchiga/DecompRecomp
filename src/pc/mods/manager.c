@@ -255,11 +255,15 @@ int Mods_OptionValid(int mod, int option, int value)
 int Mods_OptionSet(int mod, int option, int value)
 {
     char key[256];
+    int old;
     if (!Mods_OptionValid(mod, option, value))
         return 0;
+    old = Mods_OptionValue(mod, option);
     snprintf(key, sizeof(key), "mod.%s.%s", Mods_Id(mod),
              Json_String(Json_Member(Mods_Option(mod, option), "key"), ""));
     Settings_SetNamed(key, value);
+    if (value != old)
+        Mods_OptionChanged(mod, option);
     return 1;
 }
 

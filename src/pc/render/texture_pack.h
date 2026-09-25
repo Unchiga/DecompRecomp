@@ -12,12 +12,17 @@
  * mod names its pack with "textures" in its manifest (src/pc/mods). `rank`
  * is the pack's place in the mods' load order: where two packs read the
  * same words the same way, the higher rank's image is the one drawn.
- * Returns the number of images indexed, and writes into `problems` (may be
+ * Returns the number of images indexed (0 when every one is switched off,
+ * below), -1 when the pack cannot be used, and writes into `problems` (may be
  * NULL) a line on the entries that were left out and why, for the Mods
  * window: a file missing or not a PNG, outside the pack, measures out of
- * range. */
+ * range. An entry with a "setting" is one part of the pack the owning mod
+ * switches with that setting: `part` says 1 while it is on, 0 while off,
+ * -1 when the mod declares no such setting (a problem; the entry is used).
+ * `part` may be NULL. */
 #include <stddef.h>
-int TexturePack_Load(const char *directory, unsigned rank, char *problems, size_t problems_size);
+int TexturePack_Load(const char *directory, unsigned rank, int (*part)(const char *setting, void *context),
+                     void *context, char *problems, size_t problems_size);
 void TexturePack_Unload(void);
 /* Once a frame, on the main thread: reads what uploads asked for (an
  * upload can come from the interrupt tick, where reading is not safe). */

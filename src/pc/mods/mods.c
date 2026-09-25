@@ -1378,7 +1378,8 @@ static void scan(const char *root, const char *origin)
 }
 
 /* Turn a mod on or off for real: its library, its overrides, its hook. */
-static int (*texture_pack_load)(const char *directory, unsigned rank, char *problems, size_t size);
+static int (*texture_pack_load)(const char *directory, unsigned rank, int (*part)(const char *, void *),
+                                void *context, char *problems, size_t size);
 static void (*texture_pack_unload)(void);
 static unsigned texture_rank;   /* the highest rank a loaded pack has */
 static int (*audio_load)(int, const char *, const char *, const JsonValue *, char *, size_t);
@@ -1392,11 +1393,25 @@ void Mods_SetAudio(int (*load)(int mod, const char *id, const char *directory, c
     audio_unload = unload;
 }
 
-void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char *problems, size_t size),
+void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank,
+                                     int (*part)(const char *setting, void *context), void *context,
+                                     char *problems, size_t size),
                          void (*unload)(void))
 {
     texture_pack_load = load;
     texture_pack_unload = unload;
+}
+
+/* A pack entry's "setting" (texture_pack.h): whether that declared setting
+ * of the mod is on, -1 when the mod declares none of that key. */
+static int texture_part(const char *setting, void *context)
+{
+    int index = (int)((Mod *)context - mods), i;
+    for (i = 0; i < Mods_OptionCount(index); i++) {
+        if (!strcmp(setting, Json_String(Json_Member(Mods_Option(index, i), "key"), "")))
+            return Mods_RuntimeOption(index, i) != 0;
+    }
+    return -1;
 }
 
 /* The texture packs of the active mods, with `with` about to be one and
@@ -1405,22 +1420,23 @@ void Mods_SetTexturePack(int (*load)(const char *directory, unsigned rank, char 
  * way the later one wins, whichever the player applied first. A pack that
  * comes last, as each does while the game starts, goes on top of those
  * loaded; otherwise they are all loaded again. Returns what loading `with`
- * returned, its problems in `problems`. */
+ * returned (-1 it could not load), its problems in `problems`. */
 static int load_texture_packs(int with, int without, char *problems, size_t size)
 {
-    int wanted[MODS_MAX], order[MODS_MAX], i, n, loaded = with < 0;
+    int wanted[MODS_MAX], order[MODS_MAX], i, n, loaded = with < 0 ? 0 : -1;
     char ignored[STATUS_MAX];
     for (i = 0; i < mod_count; i++)
         wanted[i] = i != without && mods[i].textures[0] && (mods[i].active || i == with);
     n = Mods_Order(wanted, order, ignored, sizeof(ignored));
     if (n < 0) for (n = 0; order[n] >= 0; n++) continue;   /* a cycle: the packs that could be placed */
     if (with >= 0 && n > 0 && order[n - 1] == with) {
-        return texture_pack_load(mods[with].textures, ++texture_rank, problems, size);
+        return texture_pack_load(mods[with].textures, ++texture_rank, texture_part, &mods[with], problems, size);
     }
     texture_pack_unload();
     texture_rank = 0;
     for (i = 0; i < n; i++) {
-        int got = texture_pack_load(mods[order[i]].textures, ++texture_rank, order[i] == with ? problems : NULL, size);
+        int got = texture_pack_load(mods[order[i]].textures, ++texture_rank, texture_part, &mods[order[i]],
+                                    order[i] == with ? problems : NULL, size);
         if (order[i] == with) loaded = got;
     }
     return loaded;
@@ -1459,7 +1475,7 @@ static void activate_once(int index, int on)
         mod->data_prepared = 1;
         if (mod->textures[0]) {
             char problems[STATUS_MAX] = "";
-            if (!texture_pack_load || !texture_pack_unload || !load_texture_packs(index, -1, problems, sizeof(problems))) {
+            if (!texture_pack_load || !texture_pack_unload || load_texture_packs(index, -1, problems, sizeof(problems)) < 0) {
                 mod->failed = 1;
                 note(mod, "texture pack could not load%s%s", problems[0] ? ": " : "", problems);
                 drop_overrides(index);
@@ -1752,6 +1768,16 @@ int Mods_Failed(int index) { return at(index) && (mods[index].broken || mods[ind
 unsigned Mods_CodeHash(int index) { return at(index) ? mods[index].code_hash : 0; }
 
 unsigned Mods_Sequence(int index) { return at(index) ? mods[index].sequence : 0; }
+
+void Mods_OptionChanged(int index, int option)
+{
+    const JsonValue *spec = Mods_Option(index, option);
+    if (!at(index) || !mods[index].active || !mods[index].textures[0] || !texture_pack_load || !texture_pack_unload) return;
+    /* A setting that waits for a restart keeps the value it was applied with (Mods_RuntimeOption). */
+    if (mods[index].restart || Json_Bool(Json_Member(spec, "restart"), 0)) return;
+    load_texture_packs(-1, -1, NULL, 0);
+}
+
 int Mods_RuntimeOption(int index, int option) {
     const JsonValue *spec = Mods_Option(index, option);
     if (at(index) && mods[index].active && mods[index].runtime_options &&

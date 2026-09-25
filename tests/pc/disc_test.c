@@ -82,9 +82,10 @@ static void manifest(const char *id, const char *text)
     snprintf(path, sizeof(path), "mods/%s", id); make_dir(path);
     snprintf(path, sizeof(path), "mods/%s/mod.json", id); write_text(path, text);
 }
-static int inspect_startup(const char *directory, unsigned rank, char *problems, size_t size)
+static int inspect_startup(const char *directory, unsigned rank, int (*part)(const char *, void *), void *context,
+                           char *problems, size_t size)
 {
-    (void)directory; (void)rank; (void)problems; (void)size;
+    (void)directory; (void)rank; (void)part; (void)context; (void)problems; (void)size;
     /* Even an early mod's initialization sees later replacements. */
     assert(Memories_DiscFileStart("\\DATA\\CARD.MRG;1") == 40);
     return 1;
