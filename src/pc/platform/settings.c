@@ -28,6 +28,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_HD_HUD] = {"hd_hud", NULL, "MEMORIES_HD_HUD", NULL, 0, 0, 1},
     /* 1: the opponent's name in place of COM (hd_text.h). */
     [SET_OPPONENT_NAME] = {"opponent_name", NULL, "MEMORIES_OPPONENT_NAME", NULL, 0, 0, 1},
+    /* Cards a won duel deals; 1 is the console's (src/pc/cards/drops.h). */
+    [SET_CARD_DROPS] = {"card_drops", NULL, "MEMORIES_CARD_DROPS", NULL, 1, 1, 99},
     [SET_MASTER_VOLUME] = {"master_volume", "volume", "MEMORIES_MASTER_VOLUME", "MEMORIES_VOLUME", 100, 0, 100},
     [SET_MUSIC_VOLUME] = {"music_volume", NULL, "MEMORIES_MUSIC_VOLUME", NULL, 100, 0, 100},
     [SET_SFX_VOLUME] = {"sfx_volume", NULL, "MEMORIES_SFX_VOLUME", NULL, 100, 0, 100},

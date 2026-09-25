@@ -74,7 +74,9 @@ void Cards_MarkSeen(int id);
  * when it has the name of its base. */
 const unsigned char *Cards_NameText(int id);
 /* A card's name as the game shows it now (a mod's, a translation's, or the
- * retail one) in UTF-8. 0 for no such card. */
+ * retail one) in the game's glyph codes, ending in 0xFF; NULL for no card. */
+const unsigned char *Cards_NameCodes(int id);
+/* The same in UTF-8. 0 for no such card. */
 int Cards_NameUtf8(int id, char *out, size_t size);
 
 /* A card's own text (glyph codes, 0xFE between lines, 0xFF at the end), or

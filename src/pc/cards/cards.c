@@ -697,17 +697,25 @@ const unsigned char *Cards_NameText(int id)
     return Cards_Valid(id) ? names[id] : NULL;
 }
 
-int Cards_NameUtf8(int id, char *out, size_t size)
+const unsigned char *Cards_NameCodes(int id)
 {
     const unsigned char *name;
-    size_t n = 0;
-    if (!Cards_Valid(id) || !size) return 0;
+    if (!Cards_Valid(id)) return NULL;
     name = Cards_NameText(id);
     if (!name) {
         int base = Cards_BaseId(id);
         const unsigned short *offsets = (const unsigned short *)(uintptr_t)RETAIL_NAME_OFFSETS;
         name = Text_Resolve(0x8000 + base, (const unsigned char *)(uintptr_t)(TEXT_BANK + offsets[base]));
     }
+    return name;
+}
+
+int Cards_NameUtf8(int id, char *out, size_t size)
+{
+    const unsigned char *name;
+    size_t n = 0;
+    if (!Cards_Valid(id) || !size) return 0;
+    name = Cards_NameCodes(id);
     while (name && *name < 0xF6) {
         int code = *name++;
         uint32_t c;

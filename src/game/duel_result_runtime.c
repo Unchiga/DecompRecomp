@@ -48,6 +48,7 @@
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
 #include "pc/cards/tables.h"
+#include "pc/cards/drops.h"
 #endif
 
 #define DUEL_RESULT_ORBIT_ANGLE_STEP 0x30
@@ -346,7 +347,14 @@ void Duel_ShowResultPage(s32 page)
     DisplayObject *child;
     void *object;
 
+#ifdef MEMORIES_PC
+    /* Game > Card drops' pages (drops.h) have the SPECIAL ARTS page's
+       seven plates to write on. */
+    DisplayObject_SetResourceVariant((DisplayObjectConfig *)D_8009B1E8->root,
+                                     page < CARD_DROPS_FIRST_PAGE ? page : 2);
+#else
     DisplayObject_SetResourceVariant((DisplayObjectConfig *)D_8009B1E8->root, page);
+#endif
     if (page == 0) {
         DuelResultDisplayState *state = D_8009B1E8;
 
@@ -368,6 +376,12 @@ void Duel_ShowResultPage(s32 page)
             child->flags &= ~DISPLAY_OBJECT_FLAG_RENDERABLE;
         }
     }
+#ifdef MEMORIES_PC
+    if (page >= CARD_DROPS_FIRST_PAGE) {
+        CardDrops_ComposePage(page);
+        object = TextBox_Create(0, CARD_DROPS_TEXT_ID, 0x1A, 0x28, 0x120, 0x120);
+    } else
+#endif
     object = TextBox_Create(
         0, D_8009B1E8->page_text_ids[page], 0x1A, 0x28, 0x120, 0x120
     );
