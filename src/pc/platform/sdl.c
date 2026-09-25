@@ -1117,13 +1117,14 @@ static void show(void)
                       PresentPass_Begin(texture, gl_pass_rect[3], (float)gl_pass_rect[0] / (float)pw,
                                         (float)gl_pass_rect[1] / (float)ph,
                                         (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
-                                        (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
+                                        (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph,
+                                        GlPicture_Scale() >= 2);
             gl_quad_part(texture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h,
                          (float)gl_pass_rect[0] / (float)pw, (float)gl_pass_rect[1] / (float)ph,
                          (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
                          (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
         } else {
-            effects = PresentPass_Wanted() && PresentPass_Begin(gl_picture, picture_h, 0.0f, 0.0f, 1.0f, 1.0f);
+            effects = PresentPass_Wanted() && PresentPass_Begin(gl_picture, picture_h, 0.0f, 0.0f, 1.0f, 1.0f, 0);
             gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);
         }
         if (effects) PresentPass_End(); /* the menu and the HUD are not filtered */

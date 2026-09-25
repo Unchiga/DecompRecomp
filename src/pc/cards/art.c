@@ -308,6 +308,16 @@ static const char *serif_file(void)
 #endif
 }
 
+void *CardArt_SerifFace(void)
+{
+    if (!face_tried) {
+        const char *file = serif_file();
+        face_tried = 1;
+        if (!file || FT_Init_FreeType(&library) || FT_New_Face(library, file, 0, &face)) face = NULL;
+    }
+    return face;
+}
+
 /* The name as the retail plates set theirs: Times at 13 pixels, the
  * baseline under row 11, from column 3, each glyph on a whole pixel so stems
  * fill whole columns; a name wider than 90 pixels is squeezed into columns
@@ -322,11 +332,7 @@ static int set_name(const char *name, int factor, unsigned char *cover)
     unsigned char *line;
     int pen = left, x, y, ink_low = wide, ink_high = -1, previous = 0;
     const char *c = name;
-    if (!face_tried) {
-        const char *file = serif_file();
-        face_tried = 1;
-        if (!file || FT_Init_FreeType(&library) || FT_New_Face(library, file, 0, &face)) face = NULL;
-    }
+    CardArt_SerifFace();
     if (!face || FT_Set_Pixel_Sizes(face, 0, 13 * factor)) return 0;
     line = calloc((size_t)height * wide, 1);
     if (!line) return 0;

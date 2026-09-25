@@ -65,7 +65,10 @@ typedef enum {
     MENU_ITEM_FILTER,
     MENU_ITEM_VSYNC,
     MENU_ITEM_TITLE, /* Debug > Jump to > Title Screen: enabled once Main_Loop runs */
-    MENU_ITEM_DECKS  /* Game > Deck slots: enabled where the deck can change (deck_menu.c) */
+    MENU_ITEM_DECKS, /* Game > Deck slots: enabled where the deck can change (deck_menu.c) */
+    MENU_ITEM_FILTER_NEAREST,
+    MENU_ITEM_FILTER_LINEAR,
+    MENU_ITEM_FILTER_SHARP
 } MenuItemId;
 
 /* The stored settings (settings.txt in the user directory, see paths.h;

@@ -24,6 +24,10 @@ typedef struct {
 
 static const SettingInfo info[SET_COUNT] = {
     [SET_FUSION_HELPER] = {"fusion_helper", NULL, "MEMORIES_FUSION_HELPER", NULL, 0, 0, 1},
+    /* 1: the duel's numbers and labels drawn from a font (hd_text.h). */
+    [SET_HD_HUD] = {"hd_hud", NULL, "MEMORIES_HD_HUD", NULL, 0, 0, 1},
+    /* 1: the opponent's name in place of COM (hd_text.h). */
+    [SET_OPPONENT_NAME] = {"opponent_name", NULL, "MEMORIES_OPPONENT_NAME", NULL, 0, 0, 1},
     [SET_MASTER_VOLUME] = {"master_volume", "volume", "MEMORIES_MASTER_VOLUME", "MEMORIES_VOLUME", 100, 0, 100},
     [SET_MUSIC_VOLUME] = {"music_volume", NULL, "MEMORIES_MUSIC_VOLUME", NULL, 100, 0, 100},
     [SET_SFX_VOLUME] = {"sfx_volume", NULL, "MEMORIES_SFX_VOLUME", NULL, 100, 0, 100},
@@ -34,7 +38,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_SCALING] = {"scaling", NULL, "MEMORIES_SCALING", NULL, 0, 0, 2},
     /* 0 is corrected 4:3, 1 uses source pixels, and 2 widens the view to 16:9. */
     [SET_ASPECT] = {"aspect", NULL, "MEMORIES_ASPECT", NULL, 0, 0, 2},
-    [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 1},
+    /* 0 nearest, 1 bilinear, 2 sharp bilinear (present_pass.c). */
+    [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 2},
     [SET_VSYNC] = {"vsync", NULL, "MEMORIES_VSYNC", NULL, 0, 0, 1},
     [SET_SPEED] = {"speed", NULL, "MEMORIES_SPEED", NULL, 100, -1, 400},
     /* Presented frames per second: 0 follows the display's refresh rate, -1 shows every game frame. */
@@ -70,6 +75,9 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_XBR] = {"xbr", NULL, "MEMORIES_XBR", NULL, 0, 0, 1},
     /* 1: text set in a font at the internal resolution (src/pc/text/hd_text.h). */
     [SET_HD_TEXT] = {"hd_text", NULL, "MEMORIES_HD_TEXT", NULL, 0, 0, 1},
+    /* Samples a pixel of the OpenGL picture is drawn with: 0 (off), 2, 4, 8
+     * (gl_picture.c). */
+    [SET_MSAA] = {"msaa", NULL, "MEMORIES_MSAA", NULL, 0, 0, 8},
     /* 1: polygons at their precise positions, textures in perspective
      * (pc/compat/pgxp.h). */
     [SET_PGXP] = {"pgxp", NULL, "MEMORIES_PGXP", NULL, 0, 0, 1},
