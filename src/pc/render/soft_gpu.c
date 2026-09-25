@@ -735,6 +735,17 @@ static void picture_triangle(Vertex a, Vertex b, Vertex c, int flags)
             step_y[k] = (int32_t)((ny * (1 << FRACTION) + (ny < 0 ? -area / 2 : area / 2)) / area / scale);
             row[k] = (int32_t)(values[k][0] * (1 << FRACTION) + BIAS + (int64_t)step_x[k] * (hx0 - a.x * scale) +
                                (int64_t)step_y[k] * (hy0 - a.y * scale));
+            if (k >= 3) {
+                /* A word's texel is at its corner; where texels run
+                 * backwards, its other picture pixels are moved back up to
+                 * it (at most a texel), so a mirrored sprite shows the
+                 * console's texels, not the next picture's column. */
+                int64_t back_x = step_x[k] < 0 ? -(int64_t)step_x[k] * scale : 0;
+                int64_t back_y = step_y[k] < 0 ? -(int64_t)step_y[k] * scale : 0;
+                if (back_x > 1 << FRACTION) back_x = 1 << FRACTION;
+                if (back_y > 1 << FRACTION) back_y = 1 << FRACTION;
+                row[k] += (int32_t)((back_x + back_y) * (scale - 1) / scale);
+            }
         }
         for (hy = hy0; hy <= hy1; hy++) {
             int32_t w0 = row0, w1 = row1, w2 = row2;
