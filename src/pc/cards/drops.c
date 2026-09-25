@@ -161,7 +161,7 @@ static void at_x(Out *out, int x)
 static void glyph(Out *out, int code)
 {
     if (code < 0 || out->end - out->at < 3) return;
-    if (code >= 0x100) put(out, 0xF0 + (code >> 8));
+    if (code >= 0xF0) put(out, 0xF0 + (code >> 8));
     put(out, code & 0xFF);
     out->glyphs++;
 }
