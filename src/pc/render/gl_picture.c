@@ -277,17 +277,29 @@ static const char *vertex_source =
     "        cut = max(cut, tcover(q.x + 0.5 * q.y - 1.0, 1.118, w));\n" \
     "    return vec2(float(tdist(E, F) <= tdist(E, H) ? nbi(dx, 0) : nbi(0, dy)), cut);\n" \
     "}\n" \
+    "void fetch(ivec2 e, int x, int y, ivec2 lo, ivec2 hi) {\n" \
+    "    ivec2 t = clamp(e + ivec2(x, y), lo, hi);\n" \
+    "    uint word = texel_word(t.x, t.y);\n" \
+    "    nb_word[nbi(x, y)] = word;\n" \
+    "    nb[nbi(x, y)] = word == 0u ? vec4(0.0) : vec4(expand(word) / 255.0, 1.0);\n" \
+    "}\n" \
     "vec4 texture_xbr(vec2 p, vec2 half_step, float w) {\n" \
     "    ivec2 e = ivec2(floor(p));\n" \
     "    vec2 q = clamp(p + half_step - vec2(e), 0.0, 1.0);\n" \
     "    ivec2 lo = min(bounds.xy, e), hi = max(bounds.zw, e);\n" \
+    "    fetch(e, 0, 0, lo, hi);\n" \
+    "    fetch(e, 1, 0, lo, hi);\n" \
+    "    fetch(e, -1, 0, lo, hi);\n" \
+    "    fetch(e, 0, 1, lo, hi);\n" \
+    "    fetch(e, 0, -1, lo, hi);\n" \
+    "    centre_word = near_word = nb_word[12];\n" \
+    /* Like the four beside it (every corner's F and H): no corner is cut. */ \
+    "    if (tsame(nb[12], nb[13]) && tsame(nb[12], nb[11]) && tsame(nb[12], nb[17]) && tsame(nb[12], nb[7]))\n" \
+    "        return vec4(expand(centre_word), 0.0);\n" \
     "    for (int y = -2; y <= 2; y++) {\n" \
     "        for (int x = -2; x <= 2; x++) {\n" \
-    "            if ((x == -2 || x == 2) && (y == -2 || y == 2)) continue;\n" \
-    "            ivec2 t = clamp(e + ivec2(x, y), lo, hi);\n" \
-    "            uint word = texel_word(t.x, t.y);\n" \
-    "            nb_word[nbi(x, y)] = word;\n" \
-    "            nb[nbi(x, y)] = word == 0u ? vec4(0.0) : vec4(expand(word) / 255.0, 1.0);\n" \
+    "            if (((x == -2 || x == 2) && (y == -2 || y == 2)) || abs(x) + abs(y) <= 1) continue;\n" \
+    "            fetch(e, x, y, lo, hi);\n" \
     "        }\n" \
     "    }\n" \
     "    vec2 best = tcorner(1, 1, q, w), k = tcorner(-1, 1, vec2(1.0 - q.x, q.y), w);\n" \
