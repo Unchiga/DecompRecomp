@@ -128,7 +128,7 @@ static const char *vertex_source =
     "}\n" \
     "vec2 sharp(vec2 uv) {\n" \
     "    vec2 p = uv * size, s = fract(p) - 0.5;\n" \
-    /* A pixel wider than a texel (the picture made smaller): plain bilinear. */
+    /* A pixel wider than a texel (the picture made smaller): plain bilinear. */ \
     "    vec2 k = max(1.0 / max(fwidth(p), vec2(1e-6)), vec2(1.0));\n" \
     "    vec2 region = max(0.5 - 0.5 / k, 0.0);\n" \
     "    return (floor(p) + 0.5 + (s - clamp(s, -region, region)) * k) / size;\n" \
