@@ -34,10 +34,10 @@ Password and the seven duel terrains), and so are the back's foot and the
 fourth column's pieces; each package has its own palette block at (256,
 240) whose rows 8-15 are the same. Every copy gets the entries.
 
-The card names and the labels are drawn subtracted from the frame (their
-palette entries 1-7 carry the semi-transparency bit, which a pack pixel
-keeps from the original texel): over those texels a letter is written as
-the grey that subtracts to dark (blend_ready), elsewhere as it is.
+The labels are drawn subtracted from the frame (their palette entries 1-7
+carry the semi-transparency bit, which a pack pixel keeps from the original
+texel): over those texels a letter is written as the grey that subtracts to
+dark (blend_ready), elsewhere as it is.
 
 --base takes an existing pack (hd_screen_pack.py's output): a reading it
 has starts from its image, the assets drawn over it. --merge adds another
@@ -154,7 +154,7 @@ def semi_texels(wa, offset, words, rows, clut, stride=None):
 
 def blend_ready(image, semi, rect, text, original=None):
     """Make an HD piece right for the texels the game draws blended. The game
-    subtracts them (the dark card-name letters, the labels): a letter there
+    subtracts them (the labels' dark letters): a letter there
     becomes a grey the blend turns dark, as deep as the letter covers the
     pixel, opaque so the blend always runs. Anything else keeps the game's own
     colour on those texels (a star's or ball's rim)."""
@@ -320,11 +320,9 @@ def build(args):
                 replaced.add((c2, 8, clut))
         for k, attribute in enumerate(ATTRIBUTES):
             clut = block + 0x1E00 + k * 0x20
-            original = pack.original(c3, 64, 256, 4, clut, 16)
             sheet = column_base(pack, bases, c3, 4, clut)
-            # The game's ball has a one-texel rim it subtracts from the name
-            # bar (a shade). The HD ball fills the cell; on the rim each pixel
-            # is what, subtracted from the bar, leaves the ball's edge over it.
+            # The HD ball sits inside the rim (BALL_DIAMETER); the rim's
+            # blended texels are left out.
             clear(sheet, (16 * k, 128, 16, 16))
             ball = load(os.path.join(A, "attributes", attribute + ".png"))
             ball = ball.crop(ball.getbbox())
@@ -368,7 +366,7 @@ def build(args):
                 pack.add("screen-" + entry["file"], image, entry["offset"], entry["words"], entry["rows"],
                          entry["bpp"], entry["clut_offset"], entry["clut_entries"], entry["alias"])
 
-    # Card art, thumbnails and name strips.
+    # Card art and thumbnails.
     crops = {}
     if args.thumb_crops:
         with open(args.thumb_crops, encoding="utf-8") as handle:
