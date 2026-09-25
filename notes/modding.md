@@ -195,8 +195,12 @@ wider or taller than the driver's largest texture (`GL_MAX_TEXTURE_SIZE`,
 16384 or 32768 on most) is averaged down to that size, with a line on the
 console, rather than drawn black.
 
-A pixel with alpha below half is transparent; every other pixel is drawn,
-black included. At the console's resolution a replaced texel keeps the
+In the scaled picture (Internal 2x and up) a pixel's alpha is how much it
+covers: below 8 it is transparent, and anything less than opaque is mixed
+over what lies beneath (after the game's own blending), so letters and
+outlines can have smooth edges. At the console's resolution a pixel with
+alpha below half is transparent and every other pixel is drawn, black
+included; there a replaced texel keeps the
 game's semi-transparency bit, as on the PS1, so opaque black is the word
 0x8000 where the game's texel has that bit and the darkest red, 0x0001,
 where it has not (0x0000 is the PS1's transparent colour).

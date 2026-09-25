@@ -5543,7 +5543,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (normal)",
    "font": "serif:bold",
    "text": [
@@ -5594,7 +5593,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (normal)",
    "text": "0123456789",
    "cells": [
@@ -5675,7 +5673,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (normal)",
    "text": "0123456789",
    "cells": [
@@ -5756,7 +5753,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (normal)",
    "text": "0123456789",
    "cells": [
@@ -5837,7 +5833,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (forest)",
    "font": "serif:bold",
    "text": [
@@ -5888,7 +5883,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (forest)",
    "text": "0123456789",
    "cells": [
@@ -5969,7 +5963,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (forest)",
    "text": "0123456789",
    "cells": [
@@ -6050,7 +6043,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (forest)",
    "text": "0123456789",
    "cells": [
@@ -6131,7 +6123,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (wasteland)",
    "font": "serif:bold",
    "text": [
@@ -6182,7 +6173,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (wasteland)",
    "text": "0123456789",
    "cells": [
@@ -6263,7 +6253,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (wasteland)",
    "text": "0123456789",
    "cells": [
@@ -6344,7 +6333,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (wasteland)",
    "text": "0123456789",
    "cells": [
@@ -6425,7 +6413,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (mountain)",
    "font": "serif:bold",
    "text": [
@@ -6476,7 +6463,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (mountain)",
    "text": "0123456789",
    "cells": [
@@ -6557,7 +6543,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (mountain)",
    "text": "0123456789",
    "cells": [
@@ -6638,7 +6623,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (mountain)",
    "text": "0123456789",
    "cells": [
@@ -6719,7 +6703,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (meadow)",
    "font": "serif:bold",
    "text": [
@@ -6770,7 +6753,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (meadow)",
    "text": "0123456789",
    "cells": [
@@ -6851,7 +6833,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (meadow)",
    "text": "0123456789",
    "cells": [
@@ -6932,7 +6913,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (meadow)",
    "text": "0123456789",
    "cells": [
@@ -7013,7 +6993,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (sea)",
    "font": "serif:bold",
    "text": [
@@ -7064,7 +7043,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (sea)",
    "text": "0123456789",
    "cells": [
@@ -7145,7 +7123,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (sea)",
    "text": "0123456789",
    "cells": [
@@ -7226,7 +7203,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (sea)",
    "text": "0123456789",
    "cells": [
@@ -7307,7 +7283,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "card kind words (dark)",
    "font": "serif:bold",
    "text": [
@@ -7358,7 +7333,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "hand ATK/DEF and life point digits (dark)",
    "text": "0123456789",
    "cells": [
@@ -7439,7 +7413,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "small digits, second set (dark)",
    "text": "0123456789",
    "cells": [
@@ -7520,7 +7493,6 @@
    "style": "outline",
    "fill": 114,
    "outline": 112,
-   "clip": true,
    "what": "large digits (dark)",
    "text": "0123456789",
    "cells": [

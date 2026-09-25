@@ -305,13 +305,18 @@ set once the duel began, then every field was drawn by setting
    one, and the sword and shield (`pixel`: xBR on a painted reading).
    Phase 0 is the same words in all seven packages, and a reading of the
    same pixels is made once.
-3. **The same digits are drawn plain and subtracted.** The hand draws its
-   numbers and card-kind words with the subtracting blend (the entries carry
-   the semi-transparency bit), the life points draw the same texels plain,
-   and a pack pixel over a clear texel is never blended. A letter reaching
-   past the game's own therefore showed dark squares in one place or light
-   letters in the other; the recipe's labels are `clip`ped to the game's
-   glyph texels, which reads right in both.
+3. **Letters were choppy** because a pack pixel was either drawn or clear
+   (alpha at half). The scaled picture now mixes a partly clear pack pixel
+   over what lies beneath as much as it covers, in software
+   (`picture_plot_in`) and GL (the shader scales the colour by the
+   coverage under the same blend), so a font's smoothed edge stays smooth;
+   below alpha 8 a pixel is clear, and the 1x picture still goes by half.
+   The labels keep their edges, and small xBR icons get an anti-aliased
+   outline (xBR to 16x, averaged down). The card view's ATK/DEF and digits
+   (`hd_assets_pack.py`, `blend_ready`) take how much a pixel is letter from
+   its alpha and darkness: subtracted over the game's own texels, the same
+   dark ink partly clear past them. Before, the art's grey shading was drawn
+   plain there and showed as light flecks.
 4. **The FIELD box and the life points** are in the resident UI package
    (0xB50000, palettes 0xB609A0 and 0xB609C0). The box's middle is one
    piece repeated, done alone with its edges carried on so the repeats meet

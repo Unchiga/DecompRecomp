@@ -185,7 +185,9 @@ static int load_pixels(Entry *entry)
 
 /* The pack's image at its own resolution for the scaled picture: u and v
  * are 16.16 texels within the page. 0 not replaced, 1 a colour, 2 painted
- * transparent. */
+ * transparent. A colour's pixel may be partly transparent (a letter's
+ * smoothed edge): bits 24-30 say how much, 0 opaque to 127 all but clear,
+ * and the picture mixes it over what lies beneath. */
 static int sample(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb)
 {
     int per = depth == 0 ? 4 : depth == 1 ? 2 : 1;
@@ -213,8 +215,8 @@ static int sample(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb
     if (px >= entry->image_width) px = entry->image_width - 1;
     if (py >= entry->image_height) py = entry->image_height - 1;
     p = entry->image + ((size_t)py * entry->image_width + (size_t)px) * 4;
-    if (p[3] < 128) return 2;
-    *rgb = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+    if (p[3] < PACK_ALPHA_CLEAR) return 2;
+    *rgb = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2] | ((uint32_t)(255 - p[3]) >> 1 << 24);
     return 1;
 }
 

@@ -621,8 +621,9 @@ static inline __attribute__((always_inline)) int picture_texel(int u, int v, uin
     if (shadow_on && TextureDump_Sample) {
         int got = TextureDump_Sample(gpu.page_x, gpu.page_y, gpu.depth, u, v, rgb);
         if (got == 1) {
-            /* The pack's colour; the texel's own semi-transparency bit. */
-            *rgb = (*rgb & 0xffffffu) | ((uint32_t)(texel(u >> 16, v >> 16) & 0x8000) << 16);
+            /* The pack's colour and how much it covers; the texel's own
+             * semi-transparency bit. */
+            *rgb = (*rgb & 0x7fffffffu) | ((uint32_t)(texel(u >> 16, v >> 16) & 0x8000) << 16);
             return 1;
         }
         if (got == 2) return 0;
@@ -668,6 +669,15 @@ static inline __attribute__((always_inline)) void picture_plot_in(int hx, int hy
         r = clamp8(r);
         g = clamp8(g);
         b = clamp8(b);
+    }
+    if ((flags & 4) && (rgb & 0x7f000000u)) {
+        /* A pack pixel that covers part of its place: the result mixed over
+         * what was there. */
+        int cover = 127 - (int)((rgb >> 24) & 0x7f);
+        int br = (int)((*target >> 16) & 0xff), bg = (int)((*target >> 8) & 0xff), bb = (int)(*target & 0xff);
+        r = br + (r - br) * cover / 127;
+        g = bg + (g - bg) * cover / 127;
+        b = bb + (b - bb) * cover / 127;
     }
     *target = ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
 }

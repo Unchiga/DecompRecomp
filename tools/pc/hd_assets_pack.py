@@ -170,24 +170,36 @@ def semi_texels(wa, offset, words, rows, clut, stride=None):
     return out
 
 
+# The dark a letter subtracted from the card makes (the frame's paper less
+# the grey below), for the parts of an HD letter the game draws plain.
+INK = (24, 12, 4)
+
+
 def blend_ready(image, semi, rect, text, original=None):
     """Make an HD piece right for the texels the game draws blended. The game
     subtracts them (the labels' dark letters): a letter there
     becomes a grey the blend turns dark, as deep as the letter covers the
-    pixel, opaque so the blend always runs. Anything else keeps the game's own
-    colour on those texels (a star's or ball's rim)."""
+    pixel, opaque so the blend always runs; where the HD letter reaches past
+    the game's texels it is drawn plain, so there it is that dark, as
+    transparent as it leaves the pixel (the picture mixes it over the card).
+    How much a pixel is letter comes from its alpha and its darkness, so the
+    letters' smoothed edges and shading stay smooth. Anything else keeps the
+    game's own colour on those texels (a star's or ball's rim)."""
     x0, y0, w, h = rect
     a = np.array(image)
     for ty in range(y0, y0 + h):
         for tx in range(x0, x0 + w):
-            if not semi[ty, tx]:
-                continue
             block = a[ty * S:(ty + 1) * S, tx * S:(tx + 1) * S]
             if text:
-                cover = block[..., 3:4].astype(np.float64) / 255 * (block[..., :3].max(axis=2, keepdims=True) < 128)
-                block[..., :3] = (189 * cover).round().astype(np.uint8)
-                block[..., 3] = 255
-            else:
+                light = block[..., :3].astype(np.float64).mean(axis=2, keepdims=True)
+                cover = block[..., 3:4].astype(np.float64) / 255 * np.clip((255 - light) / 110, 0, 1)
+                if semi[ty, tx]:
+                    block[..., :3] = (189 * cover).round().astype(np.uint8)
+                    block[..., 3] = 255
+                else:
+                    block[..., :3] = INK
+                    block[..., 3:4] = (255 * cover).round().astype(np.uint8)
+            elif semi[ty, tx]:
                 block[...] = np.array(original.getpixel((tx, ty)), np.uint8)
     return Image.fromarray(a)
 

@@ -32,7 +32,7 @@ Every result is then pulled back to the original: each 4x4 block's average
 is made the texel it came from (a few rounds of back-projection), so colours
 and shading stay the game's and only the detail is new. Transparency keeps
 the texels' own edges, except in regions no bigger than 40 pixels (icons,
-arrows), whose outline is smoothed with xBR too. Only the regions a piece
+arrows), whose outline is smoothed with xBR and anti-aliased. Only the regions a piece
 of the recipe touches change; the rest of a reading is its texels, four
 times, which draws exactly like the original.
 
@@ -48,9 +48,9 @@ when `text` is a list) a cell inside a texel of outline;
 across them and anti-aliased from the background to the fill. A label names
 every palette the game reads it with (and `offset` may list the packages),
 and each of those readings gets it; `bpp` 8 reads an 8-bit sheet, `font` is
-a fontconfig pattern of its own ("serif:bold"), and `clip` keeps an
-outlined letter to the game's glyph texels (texels drawn both plain and
-subtracted).
+a fontconfig pattern of its own ("serif:bold"). Letters keep their smoothed
+edges as partial alpha, which the scaled picture mixes over what lies
+beneath (texture_pack.c).
 
 Usage: hd_screen_pack.py tools/pc/hd_recipes/build_deck.json
                          [--data game/DATA] [--out <mods>/<id>]
@@ -260,19 +260,24 @@ class Reading:
         big = back_project(big, rgb, region)
         own = blocks(region | ~self.mask[y0:y0 + h, x0:x0 + w])
         if region.all():
-            alpha = np.ones(own.shape, bool)
+            alpha = np.full(own.shape, 255, np.uint8)
         elif max(h, w) <= SMOOTH_MAX:
             alpha = xbr_alpha(region)
         else:
-            alpha = blocks(region)
+            alpha = blocks(region).astype(np.uint8) * 255
         tile = self.out[y0 * S:(y0 + h) * S, x0 * S:(x0 + w) * S]
         tile[own, :3] = big[own]
-        tile[own, 3] = np.where(alpha[own], 255, 0)
+        tile[own, 3] = alpha[own]
 
 
 def xbr_alpha(region):
+    """The region's outline smoothed by xBR, with an anti-aliased edge: the
+    shape at 16x, averaged down to 4x (0-255)."""
     grey = np.repeat((region * 255).astype(np.uint8)[..., None], 3, 2)
-    return SCALER.xbr(grey)[..., 0] >= 128
+    shape = SCALER.xbr(grey)[..., 0] >= 128
+    finer = SCALER.ffmpeg([np.repeat((shape * 255).astype(np.uint8)[..., None], 3, 2)], "xbr=4")[0][..., 0] >= 128
+    h, w = shape.shape
+    return (finer.reshape(h, S, w, S).mean((1, 3)) * 255).round().astype(np.uint8)
 
 
 SCALER = None
@@ -499,13 +504,6 @@ def draw_label(label, data, entry, reading, font_file):
         picture = np.zeros((h * S, w * S, 4))
         paint(picture, grow(ink, S), palette[label["outline"]])
         paint(picture, ink, palette[label["fill"]])
-        if label.get("clip"):
-            # Only over the game's own letter: the same texels are drawn plain
-            # in one place and subtracted in another (the hand's numbers and
-            # the life points), and a pack pixel over a clear texel is never
-            # blended, so a letter reaching past the old one would show there
-            # in the wrong colours.
-            picture[..., 3] *= blocks(index != 0)
         reading.out[y * S:(y + h) * S, x * S:(x + w) * S] = picture.round().astype(np.uint8)
 
 

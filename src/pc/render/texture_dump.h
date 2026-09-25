@@ -58,6 +58,9 @@ int TextureDump_EnableShadow(void);
  * are texel coordinates within the page in 16.16, page_x/page_y/depth the
  * primitive's page. Returns 0 when the texel is not replaced, 1 with the
  * colour as 0x00RRGGBB, 2 when it is painted transparent. NULL: no pack. */
+/* Below this alpha a pack pixel is clear in the scaled picture; above it,
+ * it is mixed over what lies beneath as much as it covers (texture_pack.c). */
+#define PACK_ALPHA_CLEAR 8
 extern int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v, uint32_t *rgb);
 /* The pack's own record of what it painted where, kept in step with the
  * words: cleared (a fill, a state load, an upload not from the disc) and
