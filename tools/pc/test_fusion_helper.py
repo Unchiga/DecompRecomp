@@ -49,7 +49,7 @@ def run(label, frame, sequence="", state=None, mode=1, mods=None, colour="white"
     folder.mkdir(parents=True, exist_ok=True)
     settings = folder / "settings.txt"
     settings.write_text(f"fusion_helper={mode}\nscale=4\nmod.3d-monsters=0\n"
-                        "mod.hand-camera=0\nmod.ai-hard-mode=0\nmod.free-duel-portraits-hd=0\n")
+                        "mod.hand-camera=0\nmod.ai-hard-mode=0\n")
     env = {key: value for key, value in os.environ.items() if not key.startswith("MEMORIES_")}
     env.update(SDL_VIDEODRIVER=os.environ.get("SDL_VIDEODRIVER", "offscreen"),
                MEMORIES_DETERMINISTIC="1", MEMORIES_NO_AUDIO="1", MEMORIES_NO_GAMEPAD="1",
