@@ -7,6 +7,7 @@
 #include "../unmatched.h"
 #ifdef MEMORIES_PC
 #include "pc/cards/cards.h"
+#include "pc/text/hd_text.h"
 #endif
 
 #define VRAM_UPLOAD_WORDS(address) ((u32 *)(address))
@@ -58,6 +59,10 @@ void func_800289BC(FileTransferDescriptor *object, s32 mode)
     e->rects[2].x = x;
     e->rects[2].y = e->src_y + 0x60;
     LoadImage(rect, VRAM_UPLOAD_WORDS(b));
+#ifdef MEMORIES_PC
+    /* HD text sets the card's title anew from its name (hd_text.h). */
+    HdText_TitleUploaded(e->field_30, x, e->src_y + 0x60);
+#endif
 
     rect = &e->rects[3];
     b = D_8009B118 + 0x2AE0;

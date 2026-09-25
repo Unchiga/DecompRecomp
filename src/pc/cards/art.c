@@ -311,23 +311,25 @@ static const char *serif_file(void)
 /* The name as the retail plates set theirs: Times at 13 pixels, the
  * baseline under row 11, from column 3, each glyph on a whole pixel so stems
  * fill whole columns; a name wider than 90 pixels is squeezed into columns
- * 3 to 93, as the long retail names are. */
-int CardArt_TitleFromName(const char *name, unsigned char *plate)
+ * 3 to 93, as the long retail names are. At `factor` pixels per texel all of
+ * that is `factor` times as big. `cover` gets each pixel's coverage, 0-255,
+ * CARD_TITLE_WIDTH * factor across and CARD_TITLE_HEIGHT * factor down.
+ * 0 when there is no serif font. */
+static int set_name(const char *name, int factor, unsigned char *cover)
 {
-    enum { WIDE = 512, BASELINE = 11, LEFT = 3, ROOM = 90 };
-    static unsigned char line[CARD_TITLE_HEIGHT][WIDE];
-    int pen = LEFT, x, y, ink_low = WIDE, ink_high = -1, previous = 0;
+    const int wide = 512 * factor, baseline = 11 * factor, left = 3 * factor, room = 90 * factor;
+    const int width = CARD_TITLE_WIDTH * factor, height = CARD_TITLE_HEIGHT * factor;
+    unsigned char *line;
+    int pen = left, x, y, ink_low = wide, ink_high = -1, previous = 0;
     const char *c = name;
     if (!face_tried) {
         const char *file = serif_file();
         face_tried = 1;
-        if (!file || FT_Init_FreeType(&library) || FT_New_Face(library, file, 0, &face) ||
-            FT_Set_Pixel_Sizes(face, 0, 13)) {
-            face = NULL;
-        }
+        if (!file || FT_Init_FreeType(&library) || FT_New_Face(library, file, 0, &face)) face = NULL;
     }
-    if (!face) return 0;
-    memset(line, 0, sizeof(line));
+    if (!face || FT_Set_Pixel_Sizes(face, 0, 13 * factor)) return 0;
+    line = calloc((size_t)height * wide, 1);
+    if (!line) return 0;
     while (*c) {
         /* A character at a time, as the name's glyphs are (cards.c,
          * encode_name): an accented letter is one glyph, not two. */
@@ -342,48 +344,87 @@ int CardArt_TitleFromName(const char *name, unsigned char *plate)
         if (FT_Load_Glyph(face, index, FT_LOAD_RENDER | FT_LOAD_NO_HINTING)) continue;
         bitmap = &face->glyph->bitmap;
         for (y = 0; y < (int)bitmap->rows; y++) {
-            int ty = BASELINE - face->glyph->bitmap_top + y;
-            if (ty < 0 || ty >= CARD_TITLE_HEIGHT) continue;
+            int ty = baseline - face->glyph->bitmap_top + y;
+            if (ty < 0 || ty >= height) continue;
             for (x = 0; x < (int)bitmap->width; x++) {
                 int tx = pen + face->glyph->bitmap_left + x;
                 unsigned char v = bitmap->buffer[y * bitmap->pitch + x];
-                if (tx < 0 || tx >= WIDE || !v) continue;
-                if (v > line[ty][tx]) line[ty][tx] = v;
+                if (tx < 0 || tx >= wide || !v) continue;
+                if (v > line[ty * wide + tx]) line[ty * wide + tx] = v;
                 if (tx < ink_low) ink_low = tx;
                 if (tx > ink_high) ink_high = tx;
             }
         }
         pen += (int)((face->glyph->advance.x + 32) >> 6);
-        if (pen >= WIDE) break;
+        if (pen >= wide) break;
     }
-    memset(plate, 0, CARD_TITLE_BYTES);
-    if (ink_high < ink_low) return 1;
-    if (ink_high - ink_low + 1 <= ROOM) {
-        for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
-            for (x = 0; x < CARD_TITLE_WIDTH; x++) put_ink(plate, x, y, ink_of(line[y][x]));
-        }
+    memset(cover, 0, (size_t)width * height);
+    if (ink_high < ink_low) {
+    } else if (ink_high - ink_low + 1 <= room) {
+        for (y = 0; y < height; y++) memcpy(cover + (size_t)y * width, line + (size_t)y * wide, (size_t)width);
     } else {
         /* Squeezed with a linear filter, then brought back up to full ink:
          * averaging thins every stem, and thin stems are faint ones. */
-        static float squeezed[CARD_TITLE_HEIGHT][ROOM];
-        float step = (float)(ink_high - ink_low + 1) / ROOM, peak = 1.0f;
-        for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
-            for (x = 0; x < ROOM; x++) {
+        float *squeezed = malloc(sizeof(float) * (size_t)height * room);
+        float step = (float)(ink_high - ink_low + 1) / room, peak = 1.0f;
+        if (!squeezed) {
+            free(line);
+            return 0;
+        }
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < room; x++) {
                 float at = ink_low + (x + 0.5f) * step - 0.5f, t;
-                int i0 = (int)at, i1;
+                int i0, i1;
                 if (at < 0) at = 0;
                 i0 = (int)at;
                 t = at - i0;
-                i1 = i0 + 1 < WIDE ? i0 + 1 : i0;
-                squeezed[y][x] = line[y][i0] * (1.0f - t) + line[y][i1] * t;
-                if (squeezed[y][x] > peak) peak = squeezed[y][x];
+                i1 = i0 + 1 < wide ? i0 + 1 : i0;
+                squeezed[y * room + x] = line[y * wide + i0] * (1.0f - t) + line[y * wide + i1] * t;
+                if (squeezed[y * room + x] > peak) peak = squeezed[y * room + x];
             }
         }
-        for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
-            for (x = 0; x < ROOM; x++) {
-                put_ink(plate, LEFT + x, y, ink_of((int)(squeezed[y][x] * 255.0f / peak + 0.5f)));
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < room; x++) {
+                cover[(size_t)y * width + left + x] = (unsigned char)(int)(squeezed[y * room + x] * 255.0f / peak + 0.5f);
             }
+        }
+        free(squeezed);
+    }
+    free(line);
+    return 1;
+}
+
+int CardArt_TitleFromName(const char *name, unsigned char *plate)
+{
+    unsigned char cover[CARD_TITLE_WIDTH * CARD_TITLE_HEIGHT];
+    int x, y;
+    if (!set_name(name, 1, cover)) return 0;
+    memset(plate, 0, CARD_TITLE_BYTES);
+    for (y = 0; y < CARD_TITLE_HEIGHT; y++) {
+        for (x = 0; x < CARD_TITLE_WIDTH; x++) put_ink(plate, x, y, ink_of(cover[y * CARD_TITLE_WIDTH + x]));
+    }
+    return 1;
+}
+
+int CardArt_TitlePicture(const char *name, int factor, unsigned char *indices, int pitch)
+{
+    const int width = CARD_TITLE_WIDTH * factor, height = CARD_TITLE_HEIGHT * factor;
+    unsigned char *cover = malloc((size_t)width * height);
+    int x, y;
+    if (!cover) return 0;
+    if (!set_name(name, factor, cover)) {
+        free(cover);
+        return 0;
+    }
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
+            /* The plate's inks run from 1 (full, the darkest) to 7 (the
+             * faintest the retail plates use); at this size the whole run. */
+            int c = cover[(size_t)y * width + x], ink = 0;
+            if (c >= 24) ink = 7 - (int)((c >= 200 ? 176 : c - 24) * 6 / 176.0 + 0.5);
+            indices[(size_t)y * pitch + x] = (unsigned char)ink;
         }
     }
+    free(cover);
     return 1;
 }

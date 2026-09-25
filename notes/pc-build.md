@@ -975,7 +975,23 @@ smoke cases give the same hashes with `hd_text=1`.
 Glyphs that are not letters, digits or ASCII punctuation (the card-type
 icons, the arrows) keep their texels. So does any letter no font sets. The
 pictures are made the first time a letter is drawn, and made again if its
-cell changes; the atlas holds 1024.
+cell changes; the atlas holds 896 (its last four rows of cells are the
+titles').
+
+Card titles go the same way. The plate on a card (the 96x14 4-bit strip
+func_800289BC uploads under the art) is set anew from the card's name as it
+reads now: the base cards', a mod's added cards' and a translation's alike
+(`Cards_NameUtf8`). It is the port's own plate renderer (`src/pc/cards/art.c`,
+the one that makes the plates of added cards: Times at 13 pixels, the
+baseline under row 11, squeezed past 90 columns) at N times the size, and
+its coverage goes onto the plate's inks, 1 the darkest to 7 the faintest.
+The card view subtracts those inks from the frame, so through the plate's
+palette the letters come out dark with smooth edges on every frame colour.
+func_800289BC notes where each plate went (`HdText_TitleUploaded`); a 4-bit
+primitive sampling those words while they still hold the plate (the flat
+strip, or a piece of the turning card) samples the picture instead. Twenty
+titles are kept, the least recently drawn made over. So no pack needs to
+carry names, and a card a mod adds reads like the rest.
 
 ### Deterministic PC checks
 

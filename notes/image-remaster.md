@@ -218,6 +218,58 @@ the code that creates each object, and the duel's HUD draws some pieces
 with constants in C rather than from a bank, so dumps remain the complete
 source.
 
+## Second attempt: one screen at a time, faithful (September 2026)
+
+The Build Deck screen was redone with what the first attempt taught, and
+the card assets were mapped from a set of redrawn HD images. Two tools:
+
+- `tools/pc/hd_screen_pack.py <recipe>` enlarges a screen's sheet readings
+  from the player's disc by a recipe (`tools/pc/hd_recipes/build_deck.json`):
+  painted art through Real-ESRGAN (`realesrgan-x4plus`, 60 % mixed with a
+  Lanczos enlargement so the model's invented grain goes), few-colour UI art
+  through xBR (ffmpeg's `xbr` filter), a repeated tile wrapped at its edges.
+  Every result is back-projected so each 4x4 block averages to its texel:
+  colours and shading stay the game's. A recipe lists only the pieces a
+  capture saw drawn; the rest of a reading stays the texels, four times.
+- `tools/pc/hd_assets_pack.py --assets <folder>` places redrawn assets
+  (card art, names, frames, back, attribute balls, level star, digits and
+  labels) where the game keeps them, in every package and palette that
+  draws them, over a `hd_screen_pack.py` pack (`--base`), and merges other
+  packs (`--merge`) into one mod.
+
+What was found on the way:
+
+1. **Build Deck's package was never extracted.** `extract_images.py` listed
+   func_80032184's package (WA sector 0x2189) at 0x1112800; it is at
+   0x10C4800, with its palette block at 0x10E8800. The same loader serves
+   Trade (Main_RunTrade).
+2. **The card-frame sheet is in ten packages**: Build Deck, Library,
+   Password and the seven duel terrains carry the same words for its two
+   columns, the back's foot and the fourth column's pieces, each package
+   with its own palette block whose rows 8-15 are alike. Row 8 is the
+   monster frame, 9 magic, 10 trap, 11 ritual, 12 and 13 purple and orange;
+   the card back reads the same through every row.
+3. **Per-region mirroring invents patterns.** A 7-texel stone strip
+   enlarged alone with mirrored padding came out as a lattice of X-shaped
+   cracks. A painted reading goes to the model whole (every piece with its
+   real neighbours), and a piece the game cuts out on its own is redone alone
+   with edge padding (`cut_stands_out`).
+4. **A smoothed outline grows into the neighbours.** xBR on the alpha mask
+   rounds icons nicely but pushes box corners past their texels; only
+   regions up to 40 texels get the smoothed outline.
+5. **The card names and labels are subtracted.** Their palette entries 1-7
+   carry the semi-transparency bit and the card view draws them with the
+   subtracting blend. A pack pixel keeps the original texel's bit, so an HD
+   letter in another font came out half invisible (black subtracted is
+   nothing) and half solid. Over those texels the letter is now the grey that
+   subtracts to dark, as deep as it covers the pixel.
+6. **Thumbnails are hand-framed crops.** Each card's 40x32 thumbnail is its
+   art cut at its own rectangle; the rectangles were found by searching the
+   game's art against the game's thumbnails (median error 10.7 of 255) and
+   are kept in `tools/pc/hd_recipes/thumb_crops.json`.
+7. **Memory.** A pack image is decoded on first use and kept. Card art is
+   stored at exactly 4x (408x384) rather than larger.
+
 ## Not done
 
 - The campaign map's own pictures (uploaded by the overworld overlay from

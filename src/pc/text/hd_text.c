@@ -27,6 +27,8 @@
 #include "glyphs.h"
 #include "pc/platform/settings.h"
 #include "pc/render/soft_gpu.h"
+#include "pc/cards/art.h"
+#include "pc/cards/cards.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
@@ -38,6 +40,13 @@
 #define CELL 16                              /* texels a side of an atlas cell */
 #define SLOTS_ACROSS 32                      /* the atlas: 32 x 32 cells */
 #define SLOT_COUNT (SLOTS_ACROSS * SLOTS_ACROSS)
+/* The atlas's last rows of cells hold card titles (96 x 14 texels, five
+ * to a row of cells); the glyphs have the rest. */
+#define TITLE_ROWS 4
+#define GLYPH_SLOTS (SLOT_COUNT - SLOTS_ACROSS * TITLE_ROWS)
+#define TITLES_ACROSS (SLOTS_ACROSS * CELL / CARD_TITLE_WIDTH)
+#define TITLE_PLACES (TITLES_ACROSS * TITLE_ROWS)
+#define TITLE_UPLOADS 16
 #define TABLE_SIZE 4096                      /* a power of two, well above SLOT_COUNT */
 #define MAX_FACTOR 8
 /* A retail texel at this share of its row's brightest is taken as wholly
@@ -60,6 +69,21 @@ static Entry entries[TABLE_SIZE];
 static int entry_count, slots_used, factor, side, first_dirty, last_dirty = -1;
 static uint8_t *atlas;
 static unsigned generation;
+
+/* Where the game put card titles in VRAM (func_800289BC), and the words it
+ * put there; and the titles drawn in the atlas. */
+typedef struct {
+    int card, x, y;
+    uint32_t sum;
+} TitleUpload;
+typedef struct {
+    int card;       /* 0 for a free place */
+    uint32_t name;  /* a hash of the name it was drawn from */
+    unsigned used;  /* when it was last asked for */
+} Title;
+static TitleUpload title_uploads[TITLE_UPLOADS];
+static unsigned title_upload_next, title_clock;
+static Title titles[TITLE_PLACES];
 
 int HdText_Enabled(void)
 {
@@ -495,6 +519,7 @@ static int make_atlas(int wanted)
     side = SLOTS_ACROSS * CELL * wanted;
     atlas = calloc((size_t)side * (size_t)side, 1);
     memset(entries, 0, sizeof(entries));
+    memset(titles, 0, sizeof(titles));
     entry_count = slots_used = 0;
     generation++;
     if (!atlas) {
@@ -545,7 +570,7 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
         /* New, or the cell holds something else now (an added glyph made
          * since, another font loaded). */
         uint32_t character = Glyphs_CellCharacter(bank != 0, page_x / 64, large, u, v);
-        int slot = entry->slot >= 0 ? entry->slot : slots_used < SLOT_COUNT ? slots_used : -1;
+        int slot = entry->slot >= 0 ? entry->slot : slots_used < GLYPH_SLOTS ? slots_used : -1;
         entry->sum = sum;
         entry->drawn = character && slot >= 0 &&
                        render(slot, (const unsigned char (*)[CELL])cell, large, character, &retail[large != 0]);
@@ -571,4 +596,83 @@ const uint8_t *HdText_Atlas(int *size, int *first, int *last, unsigned *atlas_ge
     first_dirty = side;
     last_dirty = -1;
     return atlas;
+}
+
+/* --- card titles ------------------------------------------------------ */
+
+static uint32_t title_sum(const uint16_t *words, int x, int y)
+{
+    uint32_t sum = 2166136261u;
+    int i, j;
+    for (j = 0; j < CARD_TITLE_HEIGHT; j++) {
+        for (i = 0; i < CARD_TITLE_WIDTH / 4; i++) {
+            sum = (sum ^ words[((y + j) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((x + i) & (SOFT_GPU_WIDTH - 1))]) *
+                  16777619u;
+        }
+    }
+    return sum;
+}
+
+void HdText_TitleUploaded(int card, int x, int y)
+{
+    const uint16_t *words = SoftGpu_Vram();
+    TitleUpload *upload = NULL;
+    unsigned i;
+    if (!words) return;
+    for (i = 0; i < TITLE_UPLOADS; i++) {
+        if (title_uploads[i].card && title_uploads[i].x == x && title_uploads[i].y == y) upload = &title_uploads[i];
+    }
+    if (!upload) upload = &title_uploads[title_upload_next++ % TITLE_UPLOADS];
+    upload->x = x;
+    upload->y = y;
+    upload->sum = title_sum(words, x, y);
+    upload->card = card;
+}
+
+int HdText_Title(int page_x, int page_y, int u, int v, int wanted, int *atlas_u, int *atlas_v, int *title_u,
+                 int *title_v)
+{
+    const uint16_t *words = SoftGpu_Vram();
+    int vx = page_x + (u & 255) / 4, vy = page_y + (v & 255), i, place = -1, oldest = 0;
+    const TitleUpload *upload = NULL;
+    char name[128];
+    uint32_t hash = 2166136261u;
+    const char *c;
+    if (wanted < 2 || wanted > MAX_FACTOR || !words) return 0;
+    for (i = 0; i < TITLE_UPLOADS; i++) {
+        const TitleUpload *at = &title_uploads[i];
+        if (at->card && vx >= at->x && vx < at->x + CARD_TITLE_WIDTH / 4 && vy >= at->y &&
+            vy < at->y + CARD_TITLE_HEIGHT) {
+            upload = at;
+        }
+    }
+    /* Words written over since are not a title any more. */
+    if (!upload || title_sum(words, upload->x, upload->y) != upload->sum) return 0;
+    if (!Cards_NameUtf8(upload->card, name, sizeof(name))) return 0;
+    for (c = name; *c; c++) hash = (hash ^ (unsigned char)*c) * 16777619u;
+    if (wanted != factor && !make_atlas(wanted)) return 0;
+    title_clock++;
+    for (i = 0; i < TITLE_PLACES; i++) {
+        if (titles[i].card == upload->card && titles[i].name == hash) place = i;
+        if (titles[i].used < titles[oldest].used) oldest = i;
+    }
+    if (place < 0) {
+        /* The place asked for longest ago: few titles show at once. */
+        int x0 = (oldest % TITLES_ACROSS) * CARD_TITLE_WIDTH * factor;
+        int y0 = (GLYPH_SLOTS / SLOTS_ACROSS + oldest / TITLES_ACROSS) * CELL * factor, y;
+        for (y = 0; y < CELL * factor; y++) memset(atlas + (size_t)(y0 + y) * side + x0, 0, (size_t)CARD_TITLE_WIDTH * factor);
+        titles[oldest].card = 0;
+        if (!CardArt_TitlePicture(name, factor, atlas + (size_t)y0 * side + x0, side)) return 0;
+        if (y0 < first_dirty || last_dirty < first_dirty) first_dirty = y0;
+        if (y0 + CELL * factor - 1 > last_dirty) last_dirty = y0 + CELL * factor - 1;
+        titles[oldest].card = upload->card;
+        titles[oldest].name = hash;
+        place = oldest;
+    }
+    titles[place].used = title_clock;
+    *atlas_u = (place % TITLES_ACROSS) * CARD_TITLE_WIDTH;
+    *atlas_v = (GLYPH_SLOTS / SLOTS_ACROSS + place / TITLES_ACROSS) * CELL;
+    *title_u = (upload->x - page_x) * 4;
+    *title_v = upload->y - page_y;
+    return 1;
 }

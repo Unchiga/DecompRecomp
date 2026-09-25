@@ -1,5 +1,6 @@
 #ifndef MEMORIES_PC_CARDS_H
 #define MEMORIES_PC_CARDS_H
+#include <stddef.h>
 /* More cards than the disc has (notes/more-cards.md).
  *
  * A mod's "cards" adds cards after the 722 retail ones. Each new card is a
@@ -72,6 +73,9 @@ void Cards_MarkSeen(int id);
 /* A card's own name, in the game's glyph codes and ending in 0xFF, or NULL
  * when it has the name of its base. */
 const unsigned char *Cards_NameText(int id);
+/* A card's name as the game shows it now (a mod's, a translation's, or the
+ * retail one) in UTF-8. 0 for no such card. */
+int Cards_NameUtf8(int id, char *out, size_t size);
 
 /* A card's own text (glyph codes, 0xFE between lines, 0xFF at the end), or
  * NULL when it has its base's. */
