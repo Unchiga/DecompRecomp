@@ -81,7 +81,7 @@ static char root[SCRATCH_MAX];
 
 static void write_file(const char *relative, const void *data, size_t size)
 {
-    char path[1024];
+    char path[2048];
     FILE *file;
     snprintf(path, sizeof(path), "%s/%s", root, relative);
     file = fopen(path, "wb");
@@ -97,7 +97,7 @@ static void write_text(const char *relative, const char *text)
 
 static void make_dir(const char *relative)
 {
-    char path[1024];
+    char path[2048];
     snprintf(path, sizeof(path), "%s/%s", root, relative);
     assert(!mkdir(path, 0777));
 }
