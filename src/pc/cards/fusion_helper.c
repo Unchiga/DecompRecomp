@@ -8,8 +8,6 @@
 #include "pc/platform/platform.h"
 #include "pc/mods/events.h"
 #include "pc/mods/hooks.h"
-#include "pc/text/glyphs.h"
-#include "pc/text/text.h"
 #include "pc/text/overlay_text.h"
 #include "game/duel_card.h"
 #include "game/duel_hand.h"
@@ -21,7 +19,6 @@
 #include "game/duel_effect.h"
 #include "game/duel_action_lock.h"
 #include "game/duel_check_quit_input.h"
-#include "game/text_constants.h"
 #define D_8009B360_AS_SIDE_ARRAY
 #include "game/duel_side_state.h"
 #include <stdio.h>
@@ -53,32 +50,14 @@ static FusionCard card(int id)
     return result;
 }
 
+/* Not the duel's own `D_801D5800 & 0xFFFF0000` bank arithmetic: clang can
+ * fold that to 0 for the pinned symbol (it did in the Windows build, leaving
+ * a blank name). Cards_NameUtf8 uses the bank's address. */
 static void name(int id, char out[256])
 {
-    const unsigned char *text;
-    int base, n = 0, limit = 100;
-    if (!Cards_Valid(id)) { out[0] = 0; return; }
-    base = Cards_BaseId(id);
-    text = Cards_NameText(id);
-    if (!text) /* as the duel's text command reads a card name */
-        text = Text_Resolve(0x8000 + base, (const unsigned char *)((uintptr_t)D_801D5800 & 0xFFFF0000u) + D_801D5800[base]);
-    while (n < 251 && limit-- && *text < 0xF6) {
-        int code = *text++;
-        uint32_t ch;
-        if (code >= 0xF0) code = ((code - 0xF0) << 8) | *text++;
-        ch = Glyphs_Character(code);
-        if (!ch) ch = '?';
-        if (ch < 0x80) out[n++] = (char)ch;
-        else if (ch < 0x800) { out[n++] = (char)(0xC0 | ch >> 6); out[n++] = (char)(0x80 | (ch & 63)); }
-        else if (ch < 0x10000) {
-            out[n++] = (char)(0xE0 | ch >> 12); out[n++] = (char)(0x80 | (ch >> 6 & 63)); out[n++] = (char)(0x80 | (ch & 63));
-        } else {
-            out[n++] = (char)(0xF0 | ch >> 18); out[n++] = (char)(0x80 | (ch >> 12 & 63));
-            out[n++] = (char)(0x80 | (ch >> 6 & 63)); out[n++] = (char)(0x80 | (ch & 63));
-        }
-    }
-    out[n] = 0;
-    if (!n) snprintf(out, 256, "Card %d", id);
+    out[0] = 0;
+    if (Cards_Valid(id) && Cards_NameUtf8(id, out, 256) && out[0]) return;
+    if (Cards_Valid(id)) snprintf(out, 256, "Card %d", id);
 }
 
 static void update(void)
