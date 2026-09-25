@@ -42,6 +42,7 @@ typedef enum {
     SET_FUSION_HELPER,
     SET_MSAA,
     SET_HD_HUD,
+    SET_OPPONENT_NAME,
     SET_COUNT
 } SettingId;
 

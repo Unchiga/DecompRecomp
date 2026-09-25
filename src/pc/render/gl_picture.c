@@ -218,7 +218,7 @@ static GLint u_entry_map, u_place_map, u_pack, u_pack_entry, u_pack_size;
 /* HD text (hd_text.h): whether it is on for this replay, and its atlas of
  * glyph pictures, 8-bit indices, as an integer texture on unit 6; and HD
  * numbers and labels, whose pictures are in the same atlas. */
-static int hd_text, hd_hud;
+static int hd_text, hd_hud, opponent_name;
 static GLuint glyphs_texture;
 static int glyphs_side;
 static unsigned glyphs_generation = ~0u;
@@ -960,6 +960,24 @@ static size_t polygon(const uint32_t *words, size_t count)
     return need;
 }
 
+/* The opponent's name over the life-point panel just drawn, and You for
+ * YOU (hd_text.h): in the panel's colour, drawn from the atlas whatever
+ * drew the panel. */
+static void name_over_panel(const Vertex *base, int w, int h, int flags)
+{
+    int atlas_u, atlas_v, x, y, width, height, which;
+    if (!opponent_name || state.bank || state.depth != 0 || state.page_x != 704 || state.page_y != 0 ||
+        (state.clut_x != 736 && state.clut_x != 752) || state.clut_y != 252 || base->u != 128 || base->v != 128 || w != 64 || h != 40) {
+        return;
+    }
+    for (which = 0; which < 2; which++) {
+        if (!HdText_NameBox(scale, which, &atlas_u, &atlas_v, &x, &y, &width, &height)) return;
+        state.pack = 0;
+        block((base->x + x) * scale, (base->y + y) * scale, width * scale, height * scale, atlas_u, atlas_v,
+              atlas_u + width, atlas_v + height, base, flags | 16);
+    }
+}
+
 static size_t rectangle(const uint32_t *words, size_t count)
 {
     static const int sizes[4] = {0, 1, 8, 16};
@@ -995,6 +1013,7 @@ static size_t rectangle(const uint32_t *words, size_t count)
                        &atlas_u, &atlas_v)) {
             block(base.x * scale, base.y * scale, w * scale, h * scale, atlas_u, atlas_v, atlas_u + w, atlas_v + h,
                   &base, flags | 16);
+            name_over_panel(&base, w, h, flags);
             return need;
         }
     }
@@ -1020,6 +1039,7 @@ static size_t rectangle(const uint32_t *words, size_t count)
     if (w && h) {
         block(base.x * scale, base.y * scale, w * scale, h * scale, base.u, base.v, base.u + w, base.v + h, &base,
               flags);
+        if (textured) name_over_panel(&base, w, h, flags);
     }
     return need;
 }
@@ -1565,7 +1585,7 @@ static void flush_runs(void)
     }
     sync_banks();
     sync_pack();
-    if (hd_text || hd_hud) sync_glyphs();
+    if (hd_text || hd_hud || opponent_name) sync_glyphs();
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
     gl_UseProgram(program);
@@ -1861,6 +1881,7 @@ int GlPicture_Replay(void)
     hd_text = HdText_Enabled();
     set_samples(Settings_Get(SET_MSAA));
     hd_hud = HdText_HudEnabled();
+    opponent_name = HdText_NameEnabled();
     if (overflow || wanted_resync) {
         /* Too much for the arena: from VRAM as it is now, with the state
          * as it is now; the record is superseded. */
