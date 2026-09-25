@@ -346,9 +346,13 @@ static void apply_swap_interval(void)
         Platform_GameHz(), Platform_PresentRefresh());
 }
 
+/* Fullscreen or borderless fullscreen: either way the menu bar hides until
+ * the pointer reaches the top. */
+static int covers_screen(void) { return Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_BORDERLESS); }
+
 static void update_menu_visibility(void)
 {
-    int wanted = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN) ||
+    int wanted = !covers_screen() || Settings_Get(SET_SHOW_MENU_FULLSCREEN) ||
                  (pointer_inside && pointer_y < Menu_Height()) || Menu_IsOpen() || menu_reveal_frames > 0;
     if (wanted == menu_visible) return;
     menu_visible = wanted;
@@ -955,13 +959,15 @@ static void apply_display_settings(void)
             SDL_SetWindowFullscreenMode(window, NULL);
             SDL_SetWindowFullscreen(window, true);
         }
-    } else if (fullscreen == 1) {
+    } else if (fullscreen == 1 || Settings_Get(SET_BORDERLESS)) {
+        /* Borderless is fullscreen at the desktop's mode: a window sized to
+         * the display is kept off the panels by the window manager. */
         SDL_SetWindowFullscreenMode(window, NULL);
         SDL_SetWindowFullscreen(window, true);
     } else {
         int x = Settings_Get(SET_WINDOW_X), y = Settings_Get(SET_WINDOW_Y);
         SDL_SetWindowFullscreen(window, false);
-        SDL_SetWindowBordered(window, !Settings_Get(SET_BORDERLESS));
+        SDL_SetWindowBordered(window, true);
         update_menu_scale(ph * scale + 26 * Menu_AutoScale(ph * scale));
         SDL_SetWindowSize(window, pw * scale, ph * scale + Menu_Height());
         SDL_SetWindowPosition(window, x == -1 ? SDL_WINDOWPOS_CENTERED : x,
@@ -1311,7 +1317,7 @@ static void pump(void)
             }
             last_pointer_motion = current_frame;
             show_cursor();
-            if (Settings_Get(SET_FULLSCREEN) && pointer_y < Menu_Height()) menu_reveal_frames = 120;
+            if (covers_screen() && pointer_y < Menu_Height()) menu_reveal_frames = 120;
         } else if (event.type == SDL_EVENT_WINDOW_MOUSE_ENTER) {
             pointer_inside = 1;
         } else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) {
@@ -1337,7 +1343,7 @@ static void pump(void)
             menu_dirty = 1;
             break;
         case SDL_EVENT_WINDOW_MOVED:
-            if (!Settings_Get(SET_FULLSCREEN)) {
+            if (!covers_screen()) {
                 Settings_Set(SET_WINDOW_X, event.window.data1);
                 Settings_Set(SET_WINDOW_Y, event.window.data2);
                 Settings_Save();
@@ -1387,7 +1393,9 @@ static void pump(void)
                 break;
             }
             if (down && (key == SDLK_F11 || (key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT)))) {
-                Settings_Set(SET_FULLSCREEN, Settings_Get(SET_FULLSCREEN) ? 0 : 1);
+                int on = covers_screen();
+                Settings_Set(SET_FULLSCREEN, !on);
+                if (on) Settings_Set(SET_BORDERLESS, 0);
                 Settings_Save();
                 Platform_ApplyDisplaySettings();
                 break;
@@ -1427,8 +1435,9 @@ static void pump(void)
                 break;
             }
             if (down && key == SDLK_ESCAPE) {
-                if (Settings_Get(SET_FULLSCREEN)) {
-                    Settings_Set(SET_FULLSCREEN, 0);
+                if (covers_screen()) {
+                    /* Out of fullscreen first, then out of borderless. */
+                    Settings_Set(Settings_Get(SET_FULLSCREEN) ? SET_FULLSCREEN : SET_BORDERLESS, 0);
                     Settings_Save();
                     Platform_ApplyDisplaySettings();
                 } else {
@@ -1569,7 +1578,7 @@ int Platform_Open(const char *title)
     }
     Menu_Init();
     apply_display_settings();
-    menu_visible = !Settings_Get(SET_FULLSCREEN) || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
+    menu_visible = !covers_screen() || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
     Menu_SetVisible(menu_visible);
     update_title();
     return 0;

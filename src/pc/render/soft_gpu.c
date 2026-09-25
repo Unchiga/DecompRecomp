@@ -863,6 +863,32 @@ static void triangle(Vertex a, Vertex b, Vertex c, int flags)
     }
 }
 
+/* A line in the picture: the console's one-pixel line made scale times
+ * thicker, as a quad in words ([0] and [1] one end, [2] and [3] the other,
+ * in a polygon's order) that covers each picture pixel once, so a
+ * semi-transparent line blends as often as on the console at any scale.
+ * Along the major axis it runs from the first word's leading edge to the
+ * last word's trailing edge. */
+static void line_quad(const Vertex *a, const Vertex *b, Vertex quad[4])
+{
+    int dx = b->x - a->x, dy = b->y - a->y;
+    int x_major = (dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy);
+    const Vertex *first = (x_major ? dx : dy) < 0 ? b : a, *last = first == a ? b : a;
+    quad[0] = quad[1] = *first;
+    quad[2] = quad[3] = *last;
+    if (x_major) {
+        quad[1].y++;
+        quad[2].x++;
+        quad[3].x++;
+        quad[3].y++;
+    } else {
+        quad[1].x++;
+        quad[2].y++;
+        quad[3].x++;
+        quad[3].y++;
+    }
+}
+
 static void line(Vertex a, Vertex b, int flags)
 {
     int dx = b.x - a.x, dy = b.y - a.y;
@@ -872,17 +898,10 @@ static void line(Vertex a, Vertex b, int flags)
         return;
     }
     if (wide_picture || (target == vram && picture)) { /* first: see the polygon's note */
-        int hsteps = steps * scale, sx, sy;
-        for (i = 0; i <= hsteps; i++) {
-            int n = hsteps ? hsteps : 1;
-            int hx = a.x * scale + dx * scale * i / n, hy = a.y * scale + dy * scale * i / n;
-            for (sy = 0; sy < scale; sy++) {
-                for (sx = 0; sx < scale; sx++) {
-                    picture_plot(hx + sx, hy + sy, a.r + (b.r - a.r) * i / n, a.g + (b.g - a.g) * i / n,
-                                 a.b + (b.b - a.b) * i / n, 0, 0, flags);
-                }
-            }
-        }
+        Vertex quad[4];
+        line_quad(&a, &b, quad);
+        picture_triangle(quad[0], quad[1], quad[2], flags);
+        picture_triangle(quad[1], quad[2], quad[3], flags);
     }
     for (i = 0; i <= steps; i++) {
         int n = steps ? steps : 1;
