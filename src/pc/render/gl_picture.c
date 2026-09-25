@@ -2060,7 +2060,12 @@ static int shown_w, shown_h;
 
 unsigned GlPicture_ShownTexture(int x, int y, int w, int h)
 {
-    if (scale < 2 || w <= 0 || h <= 0) return 0;
+    /* An area past the picture's edge would leave the blit's clipped rows
+     * stale; the caller then samples the whole picture, as before. */
+    if (scale < 2 || w <= 0 || h <= 0 || x < 0 || y < 0 || x + w > SOFT_GPU_WIDTH * scale ||
+        y + h > SOFT_GPU_HEIGHT * scale) {
+        return 0;
+    }
     if (w != shown_w || h != shown_h) {
         if (shown_fbo) gl_DeleteFramebuffers(1, &shown_fbo);
         if (shown_texture) glDeleteTextures(1, &shown_texture);
