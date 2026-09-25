@@ -27,6 +27,7 @@
 #include "gl_picture.h"
 #include "soft_gpu.h"
 #include "texture_pack.h"
+#include "pc/text/hd_text.h"
 #include "pc/compat/signal.h"
 #include "pc/debug/log.h"
 #include <SDL3/SDL.h>
@@ -197,6 +198,13 @@ static GLuint entry_map_texture, place_map_texture, *entry_textures;
 static int entry_texture_count;
 static unsigned pack_generation = ~0u, map_generation = ~0u;
 static GLint u_entry_map, u_place_map, u_pack, u_pack_entry, u_pack_size;
+/* HD text (hd_text.h): whether it is on for this replay, and its atlas of
+ * glyph pictures, 8-bit indices, as an integer texture on unit 6. */
+static int hd_text;
+static GLuint glyphs_texture;
+static int glyphs_side;
+static unsigned glyphs_generation = ~0u;
+static GLint u_glyphs;
 
 static const char *vertex_source =
     "#version 130\n"
@@ -233,6 +241,7 @@ static const char *fragment_source =
     "uniform usampler2D entry_map;\n"
     "uniform usampler2D place_map;\n"
     "uniform sampler2D pack;\n"
+    "uniform usampler2D glyphs;\n"
     "uniform ivec4 pack_entry;\n" /* entry index + 1, crop left, crop width, rows */
     "uniform ivec3 pack_size;\n"  /* image width, height, texels per word */
     "uniform ivec4 window;\n"
@@ -293,6 +302,12 @@ static const char *fragment_source =
     "        }\n"
     /* The texel's own word: its colour unless replaced, and its
      * semi-transparency bit either way. */
+    "        if ((flags & 16) != 0) {\n"
+    /* HD text (hd_text.h): the index from the glyph's picture, through the
+     * glyph's palette as ever. */
+    "            ivec2 at = clamp(ivec2(floor(vec2(ub, vb) * float(scale))), ivec2(0), textureSize(glyphs, 0) - 1);\n"
+    "            word = word_at(page.z + int(texelFetch(glyphs, at, 0).r), page.w);\n"
+    "        } else {\n"
     "        u = ((u & ~window.x) | window.z) & 255;\n"
     "        v = ((v & ~window.y) | window.w) & 255;\n"
     "        y = page.y + v;\n"
@@ -304,6 +319,7 @@ static const char *fragment_source =
     "            word = word_at(page.z + int((w >> uint((u & 1) * 8)) & 255u), page.w);\n"
     "        } else {\n"
     "            word = word_at(page.x + u, y);\n"
+    "        }\n"
     "        }\n"
     "        semi = semi && (word & 0x8000u) != 0u;\n"
     "        if (!replaced) {\n"
@@ -382,6 +398,7 @@ static int make_program(void)
     u_entry_map = gl_GetUniformLocation(program, "entry_map");
     u_place_map = gl_GetUniformLocation(program, "place_map");
     u_pack = gl_GetUniformLocation(program, "pack");
+    u_glyphs = gl_GetUniformLocation(program, "glyphs");
     u_pack_entry = gl_GetUniformLocation(program, "pack_entry");
     u_pack_size = gl_GetUniformLocation(program, "pack_size");
     return 1;
@@ -496,6 +513,7 @@ static struct {
     int window_mask_x, window_mask_y, window_x, window_y;
     int clut_x, clut_y;
     int pack; /* the pack entry the primitive being read samples, 0 none */
+    int glyph; /* the page word has HD text's mark (hd_text.h) */
 } state;
 
 typedef struct Vertex {
@@ -642,6 +660,7 @@ static void set_page(uint32_t value)
     state.blend = (value >> 5) & 3;
     state.depth = (value >> 7) & 3;
     if (state.depth == 3) state.depth = 2;
+    state.glyph = (value & HD_TEXT_MARK) != 0;
 }
 
 static size_t polygon(const uint32_t *words, size_t count)
@@ -680,6 +699,18 @@ static size_t polygon(const uint32_t *words, size_t count)
                      ? TexturePack_EntryFor(state.page_x, state.page_y, state.depth, state.clut_x, state.clut_y,
                                             v[0].u, v[0].v)
                      : 0;
+    if (quad && textured && state.glyph && hd_text && state.depth == 0) {
+        /* A turned or leaning glyph: 16 texels across for the large font. */
+        int atlas_u, atlas_v, u0 = v[0].u, v0 = v[0].v;
+        if (HdText_Cell(state.bank, state.page_x, state.page_y, v[1].u - u0 > 8, u0, v0, scale, &atlas_u, &atlas_v)) {
+            for (i = 0; i < 4; i++) {
+                v[i].u = atlas_u + v[i].u - u0;
+                v[i].v = atlas_v + v[i].v - v0;
+            }
+            state.pack = 0;
+            flags |= 16;
+        }
+    }
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
     return need;
@@ -713,6 +744,15 @@ static size_t rectangle(const uint32_t *words, size_t count)
                      ? TexturePack_EntryFor(state.page_x, state.page_y, state.depth, state.clut_x, state.clut_y,
                                             base.u, base.v)
                      : 0;
+    if (w && h && textured && state.glyph && hd_text && state.depth == 0 && (w == 16 ? h == 16 : w == 8 && h == 12)) {
+        int atlas_u, atlas_v;
+        if (HdText_Cell(state.bank, state.page_x, state.page_y, w == 16, base.u, base.v, scale, &atlas_u, &atlas_v)) {
+            state.pack = 0;
+            block(base.x * scale, base.y * scale, w * scale, h * scale, atlas_u, atlas_v, atlas_u + w, atlas_v + h,
+                  &base, flags | 16);
+            return need;
+        }
+    }
     if (w && h) {
         block(base.x * scale, base.y * scale, w * scale, h * scale, base.u, base.v, base.u + w, base.v + h, &base,
               flags);
@@ -904,6 +944,32 @@ static GLuint make_map_texture(GLenum internal, GLenum type)
 /* The pack's maps, uploaded again when they changed since; its image
  * textures are dropped when the entries changed, to be made again as
  * needed. */
+/* HD text's atlas: made again when it is (another factor), else the rows
+ * that changed. */
+static void sync_glyphs(void)
+{
+    int side, first, last;
+    unsigned generation;
+    const uint8_t *atlas = HdText_Atlas(&side, &first, &last, &generation);
+    if (!atlas || !side) return;
+    gl_ActiveTexture(GL_TEXTURE6);
+    if (!glyphs_texture) glGenTextures(1, &glyphs_texture);
+    glBindTexture(GL_TEXTURE_2D, glyphs_texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    if (generation != glyphs_generation || side != glyphs_side) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, side, side, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, atlas);
+        glyphs_generation = generation;
+        glyphs_side = side;
+    } else if (last >= first) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, first, side, last - first + 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE,
+                        atlas + (size_t)first * side);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    gl_ActiveTexture(GL_TEXTURE0);
+}
+
 static void sync_pack(void)
 {
     unsigned generation = TexturePack_Generation(), maps = TexturePack_MapGeneration();
@@ -1027,6 +1093,7 @@ static void flush_runs(void)
     }
     sync_banks();
     sync_pack();
+    if (hd_text) sync_glyphs();
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
     gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
@@ -1248,6 +1315,8 @@ int GlPicture_Replay(void)
     gl_Uniform1i(u_entry_map, 3);
     gl_Uniform1i(u_place_map, 4);
     gl_Uniform1i(u_pack, 5);
+    gl_Uniform1i(u_glyphs, 6);
+    hd_text = HdText_Enabled();
     if (overflow || wanted_resync) {
         /* Too much for the arena: from VRAM as it is now, with the state
          * as it is now; the record is superseded. */

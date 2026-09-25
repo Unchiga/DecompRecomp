@@ -30,17 +30,19 @@
 #ifdef MEMORIES_PC
 #include "gpu_packets.h"
 #include "pc/text/glyphs.h"
+#include "pc/text/hd_text.h"
 
 /* A glyph past the retail font's is in a texture bank (glyphs.h), which a
    sprite packet names in bits the sprite's own tpage cannot carry through
-   GsSortFastSprite: they go on the packet's draw-mode word. */
+   GsSortFastSprite: they go on the packet's draw-mode word, and so does
+   HD text's mark on the glyphs (hd_text.h). */
 static void sort_glyph_sprite(GsSPRITE *spr, GsOT *ot, s32 pri)
 {
     u32 *packet = D_800FE240;
 
     GsSortFastSprite(spr, ot, pri);
     if (packet != D_800FE240) {
-        packet[1] |= spr->tpage & 0x7800;
+        packet[1] |= spr->tpage & (0x7800 | HD_TEXT_MARK);
     }
 }
 #define GsSortFastSprite sort_glyph_sprite
@@ -348,6 +350,9 @@ void func_80035E20(DisplayObject *obj, GsOT *ot)
             }
 #ifdef MEMORIES_PC
 placed:
+            if (HdText_Enabled()) {
+                spr->tpage |= HD_TEXT_MARK;
+            }
 #endif
             spr->cx = 0x280;
             spr->cy = p[0] + 0xE8;
@@ -382,12 +387,12 @@ placed:
         case 1:
             if ((p[-0xC] | (p[-0xE] | p[-0xD])) != 0) {
 #ifdef MEMORIES_PC
-                /* An added glyph's page and bank, the object's semi-
-                   transparency and depth. */
+                /* An added glyph's page and bank, or HD text's mark, with
+                   the object's semi-transparency and depth. */
                 u16 page = ft4->tpage;
 
-                if (spr == sprites[0] && (spr->tpage & 0x7800)) {
-                    ft4->tpage = (page & 0x1E0) | (spr->tpage & 0x781F);
+                if (spr == sprites[0] && (spr->tpage & (0x7800 | HD_TEXT_MARK))) {
+                    ft4->tpage = (page & 0x1E0) | (spr->tpage & (0x781F | HD_TEXT_MARK));
                 }
 #endif
                 SetGeomOffset((s16)spr->x + 8, (s16)spr->y + 8);

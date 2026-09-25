@@ -891,6 +891,43 @@ duel frame and a 3D one come out identical pixel for pixel at 2x and 4x
 (three edge pixels differ on the 3D monster). The X11 backend shows VRAM
 as before (`Platform_PresentPicture` returns 0).
 
+### HD text
+
+Video > HD text (`hd_text`, `MEMORIES_HD_TEXT=1`, off by default) sets the
+text's letters in a font at the internal resolution instead of drawing the
+retail 8x12 and 16x16 cells texel by texel (`src/pc/text/hd_text.c`). It is
+a change to the OpenGL picture above, so it shows at internal 2x and up.
+The software picture (`MEMORIES_GL_PICTURE=0`, and widescreen at 2x and up,
+which that picture draws) and 1x are as before.
+
+The retail font is anti-aliased in its indices. Index 1 is the dark
+outline. Indices 2 up to the letter's brightest measure how much of the
+texel the letter covers, and the text palettes turn that into its colour.
+An HD letter is made the same way at N pixels per texel:
+
+- the character is set in the font glyphs.c sets added letters in (a mod's
+  `font`, else the system's sans-serif);
+- it is fitted to the box the cell's letter fills and made as heavy as the
+  retail font's strokes (the mean over its letters and digits, since one
+  small letter has too few to go by);
+- each pixel's coverage goes onto the cell's own run of indices;
+- index 1 goes in a band a texel wide round it.
+
+The shader samples the HD indices in place of the cell's, and the glyph's
+palette does the rest. So colours, fades, flashes, semi-transparency and
+the order the game draws in are the game's, including turned and leaning
+letters and the letters translations add (texture bank 15).
+
+func_80035E20 marks its glyph primitives with bit 15 of the texture-page
+word, which the hardware leaves unused (bits 11-14 are the bank). Only
+marked primitives are drawn this way. The mark changes nothing else: the
+smoke cases give the same hashes with `hd_text=1`.
+
+Glyphs that are not letters, digits or ASCII punctuation (the card-type
+icons, the arrows) keep their texels. So does any letter no font sets. The
+pictures are made the first time a letter is drawn, and made again if its
+cell changes; the atlas holds 1024.
+
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every
