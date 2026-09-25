@@ -25,9 +25,20 @@ unsigned Memories_PresentedFrames(void);
 
 /* Where the deck can change: nothing on these screens keeps a copy of it
  * (main_modes.h). Build Deck works on its own copy, a duel on its shuffle. */
+#define MODE_CAMPAIGN 2
 #define MODE_CAMPAIGN_MAP 5
 #define MODE_FREE_DUEL 6
 #define MODE_MENU 8
+
+/* The campaign's card shop (the only way to Build Deck in the present, which
+ * has no map): Script_OpSavePrompt, scene-script command 13 in the low bits
+ * of D_8009B27C (script_state.h). Its menu waits for a choice once opened
+ * (0x4000) and while no other state of it runs: sliding in, the memory card,
+ * the incomplete-deck notice, the title confirm, leaving, and their steps. */
+extern u16 D_8009B27C;
+#define SCRIPT_COMMAND_SHOP 13
+#define SHOP_OPEN 0x4000u
+#define SHOP_BUSY (0x2000u | 0x1000u | 0x0800u | 0x0400u | 0x0200u | 0x0080u)
 
 /* Pad bits as Platform_Pad reports them (the controller's own order). */
 #define PAD_START 0x0008u
@@ -87,6 +98,10 @@ static int screen_allowed(int where)
     /* The main menu shows Campaign, Free Duel... only for a loaded game; a
      * save left in the workspace by a jump to the title is not one. */
     if (where == DECK_MENU_TITLE_MENU || mode == MODE_MENU) return gMain_bMenuID >= 5;
+    if (mode == MODE_CAMPAIGN) {
+        unsigned state = D_8009B27C;
+        return (state & 0x1F) == SCRIPT_COMMAND_SHOP && (state & SHOP_OPEN) && !(state & SHOP_BUSY);
+    }
     return mode == MODE_CAMPAIGN_MAP || mode == MODE_FREE_DUEL;
 }
 
@@ -161,7 +176,7 @@ static void show(void)
     holding = 1;
     menu.top = 0;
     if (!allowed) {
-        message(1, "Deck slots open on the main menu, the map or Free Duel, with a game loaded.");
+        message(1, "Deck slots open on the main menu, the map, a card shop or Free Duel, with a game loaded.");
         return;
     }
     snprintf(relative, sizeof(relative), "decks/%08X.txt", (unsigned)workspace()->state.duelist_code);
@@ -403,7 +418,7 @@ void DeckMenu_Frame(unsigned frame)
         /* Main_Loop is not running (the title's own loop, a jump to it, a
          * long disc wait): nothing can answer the screen, so it is not kept
          * open over the pads. */
-        if (requested) fprintf(stderr, "memories-pc: deck slots open on the main menu, the map or Free Duel\n");
+        if (requested) fprintf(stderr, "memories-pc: deck slots open on the main menu, the map, a card shop or Free Duel\n");
         requested = 0;
         holding = 0;
         DeckMenu_Close();
