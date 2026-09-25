@@ -4,13 +4,14 @@
 The assets are drawn to their own layout, not the game's; this tool knows
 where each goes on the disc and in which palettes the game draws it:
 
+Card names are not taken from the assets: the port draws every card's plate
+from its name (src/pc/cards/art.c), the base cards' and the ones mods add
+alike, so they stay one style.
+
   cards/<n>.png        card n's art (102x96 texels), and its 40x32
                        thumbnail (the duel hand, sector n-1), cut from the
                        art where the game's own thumbnail is cut from the
                        game's art (--thumb-crops, found once by search)
-  names/<n>.png        card n's name strip (96x14 texels, 4 bpp, drawn
-                       through row 8 entry 224 of the screen's palette),
-                       set in the strip at its own height, centred
   frame_monster.png, frame_magic.png, frame_trap.png, frame_ritual.png
                        the card-frame sheet (two 8-bit columns, 256x256
                        texels at 4x), one per palette row 8-11; rows 12
@@ -180,6 +181,30 @@ def drop_blended(image, semi, rect):
     return Image.fromarray(a)
 
 
+# The inside of the frame's description boxes (texels of the sheet's first
+# column): the monster box and the wide box of magic, trap and ritual cards.
+# The game prints the same unreadable lines in them on every card.
+BOXES = [(21, 159, 42, 22), (21, 223, 99, 22)]
+
+
+def scribble(hd, original):
+    """The game's lines in the description boxes, over the HD frame: how much
+    each texel darkens the paper around it in the original (its brightness
+    over the paper's, smoothed), enlarged and multiplied in."""
+    from PIL import ImageFilter
+    grey = original.convert("L")
+    out = np.array(hd).astype(np.float64)
+    for x, y, w, h in BOXES:
+        box = grey.crop((x - 2, y - 2, x + w + 2, y + h + 2))
+        paper = box.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(1.5))
+        ratio = np.clip(np.array(box, np.float64) / np.maximum(np.array(paper, np.float64), 1), 0.35, 1.0)
+        big = Image.fromarray((ratio * 255).round().astype(np.uint8)).resize(((w + 4) * S, (h + 4) * S), Image.LANCZOS)
+        big = np.array(big, np.float64)[2 * S:-2 * S, 2 * S:-2 * S] / 255
+        region = out[y * S:(y + h) * S, x * S:(x + w) * S]
+        region[..., :3] *= np.clip(big, 0, 1)[..., None]
+    return Image.fromarray(np.clip(out, 0, 255).round().astype(np.uint8))
+
+
 def over(base, piece, x, y):
     base.alpha_composite(piece, (x, y))
 
@@ -265,6 +290,7 @@ def build(args):
                 refboth.paste(ref[0], (0, 0))
                 refboth.paste(ref[1], (128, 0))
                 hd = recolour(hd, both, refboth)
+            hd = scribble(hd, ref[0])
             for c in (0, 1):
                 offset = phase + c * 0x8000
                 sheet = column_base(pack, bases, offset, 8, clut)
@@ -343,7 +369,7 @@ def build(args):
         with open(args.thumb_crops, encoding="utf-8") as handle:
             crops = {int(k): v for k, v in json.load(handle).items()}
     files = {}
-    for folder in ("cards", "names"):
+    for folder in ("cards",):
         files[folder] = {int(os.path.splitext(f)[0]): os.path.join(A, folder, f)
                          for f in os.listdir(os.path.join(A, folder)) if os.path.splitext(f)[0].isdigit()}
     for n in range(1, 723):
@@ -359,16 +385,6 @@ def build(args):
                 small = (n - 1) * SECTOR
                 pack.add(f"thumb-{n:03d}.png", thumb.resize((40 * S, 32 * S), Image.LANCZOS), small, 20, 32, 8,
                          small + 0x500, 64, f"card {n} thumbnail")
-        if n in files["names"]:
-            name = load(files["names"][n])
-            name = name.resize((96 * S, round(name.height * 96 * S / name.width)), Image.LANCZOS)
-            strip = Image.new("RGBA", (96 * S, 14 * S))
-            strip.alpha_composite(name, (0, max(0, (14 * S - name.height) // 2)))
-            strip = blend_ready(strip, semi_texels(pack.wa, base + 0x2840, 0x18, 14, DECK_BLOCK + NAME_PALETTE),
-                                (0, 0, 96, 14), True)
-            for pname, _, block in PACKAGES:
-                pack.add(f"name-{n:03d}.png", strip, base + 0x2840, 0x18, 14, 4, block + NAME_PALETTE, 16,
-                         f"card {n} name ({pname})")
 
     # Other packs as they are.
     for other in args.merge or []:
