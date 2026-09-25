@@ -34,6 +34,16 @@ static int entry_count, resolved; /* offsets are absolute on the disc, entries s
 static volatile int wanted_resolve, wanted_images;
 static uint16_t *entry_of; /* per VRAM word: entry index + 1 painted there, 0 none */
 static uint32_t *place_of; /* per VRAM word: row << 16 | word within that entry */
+/* The uploads that asked for an image not read yet: once it is, only they
+ * are painted again. Painting all of VRAM takes longer than a frame, and
+ * the frame it lands in is shown late (a card's art is read as the card is
+ * turned over). Past the last slot, all of VRAM. */
+#define WAITING_AREAS 32
+typedef struct Area {
+    int x, y, w, h;
+} Area;
+static Area waiting[WAITING_AREAS];
+static volatile int waiting_count;
 static unsigned generation, map_generation; /* of the entries, of the maps (texture_pack.h) */
 /* prepare's pick for the primitive: the head entry (index) whose words it
  * samples and the sibling read with its depth and palette. */
@@ -283,11 +293,26 @@ static int resolve(void)
     return 1;
 }
 
+static void wait_for_image(int x, int y, int w, int h)
+{
+    int i;
+    for (i = 0; i < waiting_count && i < WAITING_AREAS; i++) {
+        if (waiting[i].x == x && waiting[i].y == y && waiting[i].w == w && waiting[i].h == h) return;
+    }
+    if (waiting_count < WAITING_AREAS) {
+        waiting[waiting_count].x = x;
+        waiting[waiting_count].y = y;
+        waiting[waiting_count].w = w;
+        waiting[waiting_count].h = h;
+    }
+    if (waiting_count <= WAITING_AREAS) waiting_count++;
+}
+
 /* After an upload: every word of it that a pack image covers gets the
  * image's texels in the shadow. */
 static void paint(int x, int y, int w, int h)
 {
-    int i, j;
+    int i, j, asked = 0;
     if (!resolved) {
         wanted_resolve = 1;
         return;
@@ -310,6 +335,7 @@ static void paint(int x, int y, int w, int h)
                 if (!entry->failed) {
                     entry->wanted = 1;
                     wanted_images = 1;
+                    asked = 1;
                 }
                 if (was) map_generation++;
                 continue;
@@ -326,6 +352,7 @@ static void paint(int x, int y, int w, int h)
             }
         }
     }
+    if (asked) wait_for_image(x, y, w, h);
 }
 
 /* The maps follow the words as the shadow does (texture_dump.c): cleared
@@ -347,6 +374,8 @@ static void forget(int x, int y, int w, int h)
 static void follow(int sx, int sy, int dx, int dy, int w, int h)
 {
     int i, j;
+    /* Words still waiting for an image may be among those moved. */
+    if (waiting_count) wait_for_image(dx, dy, w, h);
     for (j = 0; j < h; j++) {
         for (i = 0; i < w; i++) {
             size_t from = (size_t)((sy + j) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((sx + i) & (SOFT_GPU_WIDTH - 1));
@@ -627,7 +656,7 @@ int TexturePack_Load(const char *from, unsigned rank, int (*part)(const char *se
 void TexturePack_Service(void)
 {
     sigset_t held, previous;
-    int i, painted = 0;
+    int i, painted = 0, everywhere = 0;
     if (!entries || (!wanted_resolve && !wanted_images)) return;
     sigemptyset(&held);
     sigaddset(&held, SIGALRM);
@@ -635,16 +664,28 @@ void TexturePack_Service(void)
     if (wanted_resolve) {
         wanted_resolve = 0;
         int got = resolve();
-        if (got > 0) painted = 1;        /* uploads since the load were skipped */
+        if (got > 0) everywhere = 1;          /* uploads since the load were skipped */
         else if (got < 0) wanted_resolve = 1; /* no disc yet: again next frame */
     }
     if (wanted_images && resolved) {
         wanted_images = 0;
+        /* Another reading of words already painted (prepare) is sampled
+         * from its image alone: only the uploads that waited are painted. */
         for (i = 0; i < entry_count; i++) {
             if (entries[i].wanted && load_pixels(&entries[i])) painted = 1;
         }
     }
-    if (painted) paint(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+    if (everywhere || (painted && waiting_count > WAITING_AREAS)) {
+        waiting_count = 0;
+        paint(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+    } else if (painted) {
+        /* paint notes again what is still missing, so the list is read first. */
+        int count = waiting_count, k;
+        Area areas[WAITING_AREAS];
+        memcpy(areas, waiting, sizeof(areas));
+        waiting_count = 0;
+        for (k = 0; k < count; k++) paint(areas[k].x, areas[k].y, areas[k].w, areas[k].h);
+    }
     sigprocmask(SIG_SETMASK, &previous, NULL);
 }
 
@@ -663,6 +704,7 @@ void TexturePack_Unload(void)
     free_entries();
     resolved = 0;
     wanted_resolve = wanted_images = 0;
+    waiting_count = 0;
     generation++;
     map_generation++;
 }
