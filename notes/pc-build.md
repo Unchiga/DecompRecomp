@@ -552,9 +552,19 @@ settings that are off at their defaults:
   texel's corner is cut along a 45, 30 or 60 degree edge found in its
   neighbours and filled with the nearer neighbour's colour. The cut is
   antialiased over one window pixel, so it works at any window size. It
-  works on the texels of the texture shown, so it does most at internal
-  resolution 1x; at 4x the texels are already small. It replaces Smooth
-  filtering while it is on.
+  replaces Smooth filtering while it is on.
+  - At internal resolution 1x it works on the finished picture's texels.
+  - At 2x and up (the OpenGL picture) it works on the textures instead, in
+    `gl_picture.c`: each textured primitive's texels go through the same
+    rules as it is drawn, so sprites, fonts and 3D textures are smoothed
+    at the internal resolution, over whatever lies under them, and the
+    picture is not smoothed again. Transparent texels count as one colour
+    far from all others, so a sprite's outline rounds too, and where a
+    corner is filled with transparency nothing is drawn. A primitive only
+    sees its own rectangle of texture (the edge repeats past it), so a
+    picture made of several rectangles shows no seams. HD text and texture
+    pack images are left as they are. At 4x the options screen's replay
+    takes about twice as long on the GPU (7 ms against 3 ms here).
 
 While every effect is at its default, the pass is not used, and the picture
 is drawn by the fixed-function quad exactly as before. The SDL_Render

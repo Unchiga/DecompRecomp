@@ -28,6 +28,7 @@
 #include "soft_gpu.h"
 #include "texture_pack.h"
 #include "pc/text/hd_text.h"
+#include "pc/platform/settings.h"
 #include "pc/compat/signal.h"
 #include "pc/debug/log.h"
 #include <SDL3/SDL.h>
@@ -185,6 +186,7 @@ static GLuint vram_texture, vram_scratch, vram_fbo, vram_scratch_fbo;
 static GLuint picture_texture, picture_scratch, picture_fbo, picture_scratch_fbo;
 static GLuint program, buffer, vertex_array;
 static GLint u_picture_size, u_window, u_op, u_pass, u_scale, u_copy_offset, u_vram, u_scratch, u_banks;
+static GLint u_tex_xbr;
 /* The texture banks (soft_gpu.h) a primitive can sample instead of VRAM:
  * layers 0..14 of an array texture for banks 1..15, each uploaded again when
  * a replay finds it changed since the copy kept here (a mod writes a bank
@@ -215,11 +217,13 @@ static const char *vertex_source =
     "in vec4 colour;\n"
     "in ivec4 texture_page;\n"
     "in ivec4 texture_mode;\n"
+    "in ivec4 texture_bounds;\n"
     "noperspective out vec2 uv;\n"
     "noperspective out vec3 rgb;\n"
     "flat out int flags;\n"
     "flat out ivec4 page;\n"
     "flat out ivec4 mode;\n"
+    "flat out ivec4 bounds;\n"
     "void main() {\n"
     "    gl_Position = vec4(position.x / picture_size.x * 2.0 - 1.0, position.y / picture_size.y * 2.0 - 1.0, 0.0, 1.0);\n"
     "    uv = texcoord;\n"
@@ -227,7 +231,75 @@ static const char *vertex_source =
     "    flags = int(colour.a);\n"
     "    page = texture_page;\n"
     "    mode = texture_mode;\n"
+    "    bounds = texture_bounds;\n"
     "}\n";
+
+/* Texture xBR (Video > Effects > xBR at 2x and up): present_pass.c's xBR,
+ * level 2, on the texels of each textured primitive instead of the finished
+ * picture, so a sprite's edges are smoothed at the internal resolution and
+ * against what lies under it. The same rules and neighbourhood (see there),
+ * with three changes. A texel is its word: transparent (0) is one colour,
+ * as far from every other as black from white, so outlines against
+ * transparency round too, and where the fill is transparent the pixel is
+ * not drawn. Texels are those of the primitive's rectangle of texture
+ * (bounds: first u, v, last u, v); past it the edge repeats, so a picture
+ * put together from several rectangles shows no seams. And the colours
+ * blend by coverage only between two opaque texels. centre_word and
+ * near_word are the texel's word and its fill's. */
+#define TEXTURE_XBR_SOURCE \
+    "uint centre_word, near_word;\n" \
+    "uint nb_word[25];\n" \
+    "vec4 nb[25];\n" \
+    "int nbi(int x, int y) { return (y + 2) * 5 + x + 2; }\n" \
+    "float tdist(vec4 a, vec4 b) {\n" \
+    "    if (a.a != b.a) return 1.0;\n" \
+    "    vec3 k = a.rgb - b.rgb;\n" \
+    "    vec3 yuv = abs(vec3(dot(k, vec3(0.299, 0.587, 0.114)), dot(k, vec3(-0.169, -0.331, 0.5)),\n" \
+    "                        dot(k, vec3(0.5, -0.419, -0.081))));\n" \
+    "    return dot(yuv, vec3(48.0, 7.0, 6.0)) / 48.0;\n" \
+    "}\n" \
+    "bool tsame(vec4 a, vec4 b) { return tdist(a, b) < 0.06; }\n" \
+    "float tcover(float f, float slope, float w) { return clamp(f / (slope * w) + 0.5, 0.0, 1.0); }\n" \
+    "vec2 tcorner(int dx, int dy, vec2 q, float w) {\n" \
+    "    vec4 E = nb[12], B = nb[nbi(0, -dy)], C = nb[nbi(dx, -dy)], D = nb[nbi(-dx, 0)], F = nb[nbi(dx, 0)];\n" \
+    "    vec4 G = nb[nbi(-dx, dy)], H = nb[nbi(0, dy)], I = nb[nbi(dx, dy)], F4 = nb[nbi(2 * dx, 0)];\n" \
+    "    vec4 I4 = nb[nbi(2 * dx, dy)], H5 = nb[nbi(0, 2 * dy)], I5 = nb[nbi(dx, 2 * dy)];\n" \
+    "    bool may = !tsame(E, F) && !tsame(E, H) &&\n" \
+    "               (!tsame(F, B) && !tsame(H, D) || tsame(E, I) && !tsame(F, I4) && !tsame(H, I5) ||\n" \
+    "                tsame(E, G) || tsame(E, C));\n" \
+    "    float across = tdist(E, C) + tdist(E, G) + tdist(I, F4) + tdist(I, H5) + 4.0 * tdist(H, F);\n" \
+    "    float along = tdist(H, D) + tdist(H, I5) + tdist(F, I4) + tdist(F, B) + 4.0 * tdist(E, I);\n" \
+    "    if (!may || across >= along) return vec2(12.0, 0.0);\n" \
+    "    float cut = tcover(q.x + q.y - 1.5, 1.4142, w);\n" \
+    "    if (2.0 * tdist(F, G) <= tdist(H, C) && !tsame(E, G) && !tsame(D, G))\n" \
+    "        cut = max(cut, tcover(0.5 * q.x + q.y - 1.0, 1.118, w));\n" \
+    "    if (tdist(F, G) >= 2.0 * tdist(H, C) && !tsame(E, C) && !tsame(B, C))\n" \
+    "        cut = max(cut, tcover(q.x + 0.5 * q.y - 1.0, 1.118, w));\n" \
+    "    return vec2(float(tdist(E, F) <= tdist(E, H) ? nbi(dx, 0) : nbi(0, dy)), cut);\n" \
+    "}\n" \
+    "vec4 texture_xbr(vec2 p, vec2 half_step, float w) {\n" \
+    "    ivec2 e = ivec2(floor(p));\n" \
+    "    vec2 q = clamp(p + half_step - vec2(e), 0.0, 1.0);\n" \
+    "    ivec2 lo = min(bounds.xy, e), hi = max(bounds.zw, e);\n" \
+    "    for (int y = -2; y <= 2; y++) {\n" \
+    "        for (int x = -2; x <= 2; x++) {\n" \
+    "            if ((x == -2 || x == 2) && (y == -2 || y == 2)) continue;\n" \
+    "            ivec2 t = clamp(e + ivec2(x, y), lo, hi);\n" \
+    "            uint word = texel_word(t.x, t.y);\n" \
+    "            nb_word[nbi(x, y)] = word;\n" \
+    "            nb[nbi(x, y)] = word == 0u ? vec4(0.0) : vec4(expand(word) / 255.0, 1.0);\n" \
+    "        }\n" \
+    "    }\n" \
+    "    vec2 best = tcorner(1, 1, q, w), k = tcorner(-1, 1, vec2(1.0 - q.x, q.y), w);\n" \
+    "    if (k.y > best.y) best = k;\n" \
+    "    k = tcorner(1, -1, vec2(q.x, 1.0 - q.y), w);\n" \
+    "    if (k.y > best.y) best = k;\n" \
+    "    k = tcorner(-1, -1, 1.0 - q, w);\n" \
+    "    if (k.y > best.y) best = k;\n" \
+    "    centre_word = nb_word[12];\n" \
+    "    near_word = nb_word[int(best.x)];\n" \
+    "    return vec4(expand(near_word), best.y);\n" \
+    "}\n"
 
 /* op 0: a primitive. flags: 1 raw texture, 2 semi-transparent, 4 textured.
  * page: page x, page y, palette x, palette y. mode: depth, blend mode, bank.
@@ -250,11 +322,13 @@ static const char *fragment_source =
     "uniform int pass;\n"
     "uniform int scale;\n"
     "uniform ivec2 copy_offset;\n"
+    "uniform int tex_xbr;\n"
     "noperspective in vec2 uv;\n"
     "noperspective in vec3 rgb;\n"
     "flat in int flags;\n"
     "flat in ivec4 page;\n"
     "flat in ivec4 mode;\n"
+    "flat in ivec4 bounds;\n"
     "out vec4 fragment;\n"
     "vec3 expand(uint word) {\n"
     "    uint r = word & 31u, g = (word >> 5) & 31u, b = (word >> 10) & 31u;\n"
@@ -264,6 +338,22 @@ static const char *fragment_source =
     "    if (mode.z != 0) return texelFetch(banks, ivec3(x & 1023, y & 511, mode.z - 1), 0).r;\n"
     "    return texelFetch(vram, ivec2(x & 1023, y & 511), 0).r;\n"
     "}\n"
+    /* Texel u,v (0 to 255) of the primitive's page through the window. */
+    "uint texel_word(int u, int v) {\n"
+    "    u = ((u & ~window.x) | window.z) & 255;\n"
+    "    v = ((v & ~window.y) | window.w) & 255;\n"
+    "    int y = page.y + v;\n"
+    "    if (mode.x == 0) {\n"
+    "        uint w = word_at(page.x + u / 4, y);\n"
+    "        return word_at(page.z + int((w >> uint((u & 3) * 4)) & 15u), page.w);\n"
+    "    }\n"
+    "    if (mode.x == 1) {\n"
+    "        uint w = word_at(page.x + u / 2, y);\n"
+    "        return word_at(page.z + int((w >> uint((u & 1) * 8)) & 255u), page.w);\n"
+    "    }\n"
+    "    return word_at(page.x + u, y);\n"
+    "}\n"
+    TEXTURE_XBR_SOURCE
     "void main() {\n"
     "    if (op == 1) {\n"
     "        ivec2 at = ivec2(gl_FragCoord.xy) / scale;\n"
@@ -276,6 +366,10 @@ static const char *fragment_source =
     "    }\n"
     "    vec3 c = floor(rgb + 1.0 / 256.0);\n"
     "    bool semi = (flags & 2) != 0;\n"
+    /* Taken before any discard: where in its texel the pixel's centre lies,
+     * and how many texels a pixel spans (texture xBR). */
+    "    vec2 half_step = 0.5 * (dFdx(uv) + dFdy(uv));\n"
+    "    float spread = max(fwidth(uv.x), fwidth(uv.y));\n"
     "    if ((flags & 4) != 0) {\n"
     "        float ub = uv.x + 1.0 / 256.0, vb = uv.y + 1.0 / 256.0;\n"
     "        int u = int(floor(ub)) & 255, v = int(floor(vb)) & 255;\n"
@@ -308,19 +402,14 @@ static const char *fragment_source =
      * glyph's palette as ever. */
     "            ivec2 at = clamp(ivec2(floor(vec2(ub, vb) * float(scale))), ivec2(0), textureSize(glyphs, 0) - 1);\n"
     "            word = word_at(page.z + int(texelFetch(glyphs, at, 0).r), page.w);\n"
+    "        } else if (tex_xbr != 0 && (flags & 8) == 0) {\n"
+    "            vec4 k = texture_xbr(vec2(ub, vb), half_step, spread);\n"
+    "            word = k.a > 0.5 ? near_word : centre_word;\n"
+    "            if (word == 0u) discard;\n"
+    "            t = centre_word != 0u && near_word != 0u ? mix(expand(centre_word), k.rgb, k.a) : expand(word);\n"
+    "            replaced = true;\n"
     "        } else {\n"
-    "        u = ((u & ~window.x) | window.z) & 255;\n"
-    "        v = ((v & ~window.y) | window.w) & 255;\n"
-    "        y = page.y + v;\n"
-    "        if (mode.x == 0) {\n"
-    "            uint w = word_at(page.x + u / 4, y);\n"
-    "            word = word_at(page.z + int((w >> uint((u & 3) * 4)) & 15u), page.w);\n"
-    "        } else if (mode.x == 1) {\n"
-    "            uint w = word_at(page.x + u / 2, y);\n"
-    "            word = word_at(page.z + int((w >> uint((u & 1) * 8)) & 255u), page.w);\n"
-    "        } else {\n"
-    "            word = word_at(page.x + u, y);\n"
-    "        }\n"
+    "            word = texel_word(u, v);\n"
     "        }\n"
     "        semi = semi && (word & 0x8000u) != 0u;\n"
     "        if (!replaced) {\n"
@@ -377,6 +466,7 @@ static int make_program(void)
     gl_BindAttribLocation(program, 2, "colour");
     gl_BindAttribLocation(program, 3, "texture_page");
     gl_BindAttribLocation(program, 4, "texture_mode");
+    gl_BindAttribLocation(program, 6, "texture_bounds");
     gl_LinkProgram(program);
     gl_DeleteShader(vs);
     gl_DeleteShader(fs);
@@ -393,6 +483,7 @@ static int make_program(void)
     u_pass = gl_GetUniformLocation(program, "pass");
     u_scale = gl_GetUniformLocation(program, "scale");
     u_copy_offset = gl_GetUniformLocation(program, "copy_offset");
+    u_tex_xbr = gl_GetUniformLocation(program, "tex_xbr");
     u_vram = gl_GetUniformLocation(program, "vram");
     u_scratch = gl_GetUniformLocation(program, "scratch");
     u_banks = gl_GetUniformLocation(program, "banks");
@@ -495,6 +586,7 @@ typedef struct GlVertex {
     uint8_t r, g, b, flags;
     uint16_t page_x, page_y, clut_x, clut_y;
     uint16_t depth, blend, bank, unused;
+    uint16_t bounds[4]; /* the primitive's texels: first u, v, last u, v */
 } GlVertex;
 
 /* A run of vertices drawn under one scissor and texture window, all of one
@@ -527,6 +619,9 @@ static struct {
 typedef struct Vertex {
     int x, y, r, g, b, u, v;
 } Vertex;
+
+/* The texels of the primitive being read (GlVertex's bounds). */
+static int bounds_now[4];
 
 /* A subtractive primitive is a run of its own: its two passes (opaque
  * texels, then the semi-transparent ones) must not straddle a later
@@ -600,6 +695,10 @@ static void set_vertex(GlVertex *out, float x, float y, float u, float v, const 
     out->depth = (uint16_t)state.depth;
     out->blend = (uint16_t)state.blend;
     out->bank = (uint16_t)state.bank;
+    out->bounds[0] = (uint16_t)bounds_now[0];
+    out->bounds[1] = (uint16_t)bounds_now[1];
+    out->bounds[2] = (uint16_t)bounds_now[2];
+    out->bounds[3] = (uint16_t)bounds_now[3];
 }
 
 /* A triangle as the software pass rasterizes it: its edges are tested at
@@ -638,6 +737,10 @@ static void block(int x, int y, int w, int h, int u0, int v0, int u1, int v1, co
     float half = 0.5f / (float)scale;
     float s0 = (float)u0 - half, t0 = (float)v0 - half, s1 = (float)u1 - half, t1 = (float)v1 - half;
     if (!out) return;
+    bounds_now[0] = u0;
+    bounds_now[1] = v0;
+    bounds_now[2] = u1 - 1;
+    bounds_now[3] = v1 - 1;
     set_vertex(&out[0], x0, y0, s0, t0, colour, flags);
     set_vertex(&out[1], x1, y0, s1, t0, colour, flags);
     set_vertex(&out[2], x1, y1, s1, t1, colour, flags);
@@ -731,6 +834,14 @@ static size_t polygon(const uint32_t *words, size_t count)
             state.pack = 0;
             flags |= 16;
         }
+    }
+    bounds_now[0] = bounds_now[2] = v[0].u;
+    bounds_now[1] = bounds_now[3] = v[0].v;
+    for (i = 1; i < vertices_n; i++) {
+        if (v[i].u < bounds_now[0]) bounds_now[0] = v[i].u;
+        if (v[i].v < bounds_now[1]) bounds_now[1] = v[i].v;
+        if (v[i].u > bounds_now[2]) bounds_now[2] = v[i].u;
+        if (v[i].v > bounds_now[3]) bounds_now[3] = v[i].v;
     }
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
@@ -1075,11 +1186,13 @@ static void bind_attributes(void)
     gl_EnableVertexAttribArray(2);
     gl_EnableVertexAttribArray(3);
     gl_EnableVertexAttribArray(4);
+    gl_EnableVertexAttribArray(6);
     gl_VertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GlVertex), &base->x);
     gl_VertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GlVertex), &base->u);
     gl_VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(GlVertex), &base->r);
     gl_VertexAttribIPointer(3, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->page_x);
     gl_VertexAttribIPointer(4, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->depth);
+    gl_VertexAttribIPointer(6, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->bounds[0]);
 }
 
 /* The banks this flush samples, uploaded where they changed. */
@@ -1121,6 +1234,7 @@ static void unbind_attributes(void)
 {
     int i;
     for (i = 0; i < 5; i++) gl_DisableVertexAttribArray(i);
+    gl_DisableVertexAttribArray(6);
     gl_BindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
@@ -1543,6 +1657,7 @@ int GlPicture_Replay(void)
     gl_Uniform1i(u_place_map, 4);
     gl_Uniform1i(u_pack, 5);
     gl_Uniform1i(u_glyphs, 6);
+    gl_Uniform1i(u_tex_xbr, Settings_Get(SET_XBR));
     hd_text = HdText_Enabled();
     if (overflow || wanted_resync) {
         /* Too much for the arena: from VRAM as it is now, with the state
