@@ -44,6 +44,7 @@ typedef enum {
     SET_HD_HUD,
     SET_OPPONENT_NAME,
     SET_PGXP,
+    SET_CARD_DROPS,
     SET_COUNT
 } SettingId;
 

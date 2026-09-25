@@ -71,7 +71,8 @@ static int ui = 1;
 #define C_KNOB_EDGE 0x1e1f22u
 #define C_MARK 0x9a9ca3u
 
-/* ITEM_SUBMENU opens submenus[value] beside its row; one level deep. */
+/* ITEM_SUBMENU opens submenus[value] beside its row; one level deep. An
+ * ITEM_SLIDER's value is how far a key or wheel step moves it (0: 5). */
 typedef enum { ITEM_ACTION, ITEM_CHECK, ITEM_RADIO, ITEM_SLIDER, ITEM_SEPARATOR, ITEM_SUBMENU } ItemKind;
 enum { ITEM_DISABLED = 1, ITEM_GROUP_BREAK = 2 };
 
@@ -137,9 +138,10 @@ static Menu menus[MENU_COUNT] = {
               {"Game speed", 0, ITEM_SUBMENU, 0, -1, SUB_SPEED},
               {"Frame rate", 0, ITEM_SUBMENU, 0, -1, SUB_FPS},
               {"Title screen after the credits", 0, ITEM_CHECK, 0, SET_RETURN_AFTER_CREDITS, 0, ITEM_GROUP_BREAK},
+              {"Card drops", 0, ITEM_SLIDER, 0, SET_CARD_DROPS, 1},
               {"Deck slots...", "F6", ITEM_ACTION, MENU_ITEM_DECKS, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED},
               {"Use deck slots", 0, ITEM_CHECK, 0, SET_DECK_SLOTS},
-              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 8},
+              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 9},
     {"View", {{"Fusion helper", 0, ITEM_CHECK, 0, SET_FUSION_HELPER}}, 1},
     {"Debug", {{"Jump to", 0, ITEM_SUBMENU, 0, -1, SUB_JUMP},
                {"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1, 0, ITEM_GROUP_BREAK},
@@ -898,6 +900,11 @@ static void set_slider(const Item *item, int value)
     Settings_Set(item->setting, value);
 }
 
+static int slider_step(const Item *item)
+{
+    return item->value > 0 ? item->value : 5;
+}
+
 static void slider_from_pointer(int level, int index, int px)
 {
     const Item *item = &level_menu(level)->items[index];
@@ -1084,7 +1091,7 @@ int Menu_Event(const MenuEvent *event, int *quit)
         if (open_menu >= 0 && *active_hot() >= 0) {
             const Item *item = &level_menu(active_level())->items[*active_hot()];
             if (item->kind == ITEM_SLIDER && !(item->flags & ITEM_DISABLED)) {
-                set_slider(item, Settings_Get(item->setting) + 5 * event->wheel);
+                set_slider(item, Settings_Get(item->setting) + slider_step(item) * event->wheel);
                 Settings_Save();
                 return 1;
             }
@@ -1145,7 +1152,7 @@ int Menu_Event(const MenuEvent *event, int *quit)
             int level = active_level(), *hot = active_hot();
             const Item *item = *hot >= 0 ? &level_menu(level)->items[*hot] : NULL;
             if (item && item->kind == ITEM_SLIDER) {
-                set_slider(item, Settings_Get(item->setting) + (event->key == MENU_KEY_RIGHT ? 5 : -5));
+                set_slider(item, Settings_Get(item->setting) + (event->key == MENU_KEY_RIGHT ? 1 : -1) * slider_step(item));
                 Settings_Save();
             } else if (event->key == MENU_KEY_RIGHT && item && item->kind == ITEM_SUBMENU) {
                 open_submenu(*hot);

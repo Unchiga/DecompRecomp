@@ -30,6 +30,9 @@
 #include "display_object_helpers.h"
 #include "display_object_core.h"
 #include "display_object_config.h"
+#ifdef MEMORIES_PC
+#include "pc/cards/drops.h"
+#endif
 
 void DuelScene_UpdateResultRewards(void)
 {
@@ -104,6 +107,9 @@ void DuelScene_UpdateResultRewards(void)
             count--;
         } while (count >= 0);
         gDuel_wSelectedCardID = 0;
+#ifdef MEMORIES_PC
+        CardDrops_Begin();
+#endif
         if (D_8009B360[0] < 0 && gDuel_bOpponentID >= 0) {
             if (gDuel_bWinnerSide)
                 goto side_result;
@@ -111,7 +117,12 @@ void DuelScene_UpdateResultRewards(void)
             score = 2 * (D_8009B1E8->is_tec_rank != 0);
             if (D_8009B1E8->rank_tier < 3)
                 score = 1;
+#ifdef MEMORIES_PC
+            /* Game > Card drops: the rest are dealt first (drops.h). */
+            dropped_card = CardDrops_Roll(score);
+#else
             dropped_card = Duel_SelectCardDrop(score);
+#endif
             count = 0;
             gDuel_wSelectedCardID = dropped_card;
             D_8009B1E8->dropped_card_id = dropped_card;
@@ -169,6 +180,9 @@ side_result:
                             D_8009B1E8->starchip_prize;
                         if (D_8009B1D8[0]->starchips > 999999)
                             D_8009B1D8[0]->starchips = 999999;
+#ifdef MEMORIES_PC
+                        CardDrops_Award();
+#endif
                         Duel_AwardCard(D_8009B1E8->dropped_card_id);
                     } else {
                         value = D_8009B1D8[gDuel_bWinnerSide]->duel_wins + 1;
@@ -186,6 +200,13 @@ side_result:
             }
         }
     } else if (gInput_wPad1Repeat & 0xA000) {
+#ifdef MEMORIES_PC
+        /* Game > Card drops' pages sit between SPOILS and the statistics
+           (drops.h); without them this is the console's 0, 1, 2. */
+        D_8009B1E8->page_index = CardDrops_TurnPage(
+            (s8)D_8009B1E8->page_index, gInput_wPad1Repeat & 0x8000 ? -1 : 1);
+        (void)page;
+#else
         D_8009B1E8->page_index++;
         if (gInput_wPad1Repeat & 0x8000) {
             page = D_8009B1E8->page_index - 2;
@@ -195,6 +216,7 @@ side_result:
         }
         if ((s8)D_8009B1E8->page_index >= 3)
             D_8009B1E8->page_index = 0;
+#endif
         SD_SEPlayFull(6);
 show_page:
         Duel_ShowResultPage((s8)D_8009B1E8->page_index);

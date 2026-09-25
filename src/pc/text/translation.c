@@ -8,6 +8,7 @@
 #include "pc/platform/paths.h"
 #include "pc/platform/settings.h"
 #include "pc/cards/tables.h"
+#include "pc/cards/drops.h"
 #include "pc/debug/log.h"
 #include "game/card_constants.h"
 #include <ctype.h>
@@ -258,7 +259,8 @@ static const unsigned char *results_copy(const unsigned char *retail)
 const unsigned char *Text_Resolve(int id, const unsigned char *retail)
 {
     const unsigned char *own = overrides && id >= 0 && id <= 0xFFFF ? overrides[id] : NULL;
-    const unsigned char *side = side_name(id);
+    const unsigned char *side = side_name(id), *drops = CardDrops_Text(id);
+    if (drops) return drops; /* the results screen's added pages (drops.h) */
     if (side) return side;
     if (!own && id >= TEXT_RESULTS_FIRST && id <= TEXT_RESULTS_LAST) {
         const unsigned char *copy = results_copy(retail);
