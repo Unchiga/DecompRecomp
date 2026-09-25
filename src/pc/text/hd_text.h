@@ -35,6 +35,21 @@ void HdText_TitleUploaded(int card, int x, int y);
 int HdText_Title(int page_x, int page_y, int u, int v, int factor, int *atlas_u, int *atlas_v, int *title_u,
                  int *title_v);
 
+/* HD numbers and labels (Video > HD numbers and labels): the duel's digits
+ * (life points, deck counts, the field cards' ATK and DEF, the menus') and
+ * the life-point panel's LP, COM and YOU, which are sprites from sheets of
+ * their own, not the font's cells. A digit's picture is set in the font
+ * like a glyph's, to the lines, weight and colours measured from its
+ * sheet's ten digits; the panel's is its texels made larger with the
+ * labels set anew. Only where the retail sheets and panel are: a sheet
+ * whose digits cannot be measured, or another panel (a mod's), stays. The
+ * picture of the sprite at u, v, w x h of a page (depth 0 4-bit, 1 8-bit)
+ * through the palette at clut_x, clut_y: where its texel u, v is in the
+ * atlas. Returns 0 for any other sprite. */
+int HdText_HudEnabled(void);
+int HdText_Hud(int depth, int page_x, int page_y, int clut_x, int clut_y, int u, int v, int w, int h, int factor,
+               int *atlas_u, int *atlas_v);
+
 /* The atlas: 8-bit indices, *side x *side pixels (0 before the first
  * cell). The rows from *first to *last have changed since the last call
  * (none when *last < *first); the generation changes when the atlas is

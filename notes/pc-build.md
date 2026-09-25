@@ -993,6 +993,42 @@ strip, or a piece of the turning card) samples the picture instead. Twenty
 titles are kept, the least recently drawn made over. So no pack needs to
 carry names, and a card a mod adds reads like the rest.
 
+### HD numbers and labels
+
+Video > HD numbers and labels (`hd_hud`, `MEMORIES_HD_HUD=1`, off by
+default) does for the duel's numbers and labels what HD text does for the
+text. They are sprites from sheets of their own, not the font's cells, so
+HD text never reached them. It works in the OpenGL picture at 2x and up; 1x
+and the software picture never change.
+
+- **Digits.** Covered: the life points, the deck counts, the hand's and
+  field's ATK and DEF (8x8, 8-bit, beside the duel's terrain at (896, 256)),
+  the field cards' 12x16 numbers, and the menus' 8x8 digits (the deck
+  builder's list and the card bar, at (704, 0)).
+  - Each sheet is measured from its own ten digits: the outline (the index
+    next to nothing), the fill (the commonest inside), the ramp of indices
+    between them, their feet, heads and stroke weight.
+  - A digit is then set in the text's font like an HD glyph and coloured
+    through the ramp, so the game's palettes still decide the colours (the
+    inactive side's dimming too).
+  - A colour off the way from outline to fill, like the purple the duel's
+    digits have in a few corners, is left out.
+- **Labels.**
+  - The life-point panel's LP, COM and YOU are set anew in the font, over
+    the panel's own texels made larger, in the box's colours.
+  - The hand's Magic, Equip, Trap and Ritual are set in the plates' serif
+    face (Times) with their outline.
+  - Only where the retail panel and words are (a hash of their words). A
+    mod's own panel is left as it is.
+- **Texture packs come first.** A sprite a pack paints is drawn from the
+  pack, so an HD pack's art for these is never overridden: with a pack that
+  covers them the picture is the same, pixel for pixel, with this on or off.
+
+The pictures share HD text's atlas (four rows of cells above the titles).
+
+Not covered yet: the card-detail panel's 6x13 digits, the FIELD box, the
+ATK/DEF icon cell.
+
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every

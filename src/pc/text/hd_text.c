@@ -41,9 +41,13 @@
 #define SLOTS_ACROSS 32                      /* the atlas: 32 x 32 cells */
 #define SLOT_COUNT (SLOTS_ACROSS * SLOTS_ACROSS)
 /* The atlas's last rows of cells hold card titles (96 x 14 texels, five
- * to a row of cells); the glyphs have the rest. */
+ * to a row of cells), the rows above them the duel's numbers and labels
+ * (HUD_*); the glyphs have the rest. */
 #define TITLE_ROWS 4
-#define GLYPH_SLOTS (SLOT_COUNT - SLOTS_ACROSS * TITLE_ROWS)
+#define HUD_ROWS 4
+#define TITLE_TOP (SLOTS_ACROSS - TITLE_ROWS)  /* the first row of titles, in cells */
+#define HUD_TOP (TITLE_TOP - HUD_ROWS)
+#define GLYPH_SLOTS (HUD_TOP * SLOTS_ACROSS)
 #define TITLES_ACROSS (SLOTS_ACROSS * CELL / CARD_TITLE_WIDTH)
 #define TITLE_PLACES (TITLES_ACROSS * TITLE_ROWS)
 #define TITLE_UPLOADS 16
@@ -120,6 +124,13 @@ typedef struct {
     double body[CELL];                  /* and its average over the letters' strokes */
     double base, cap, x_height, ascender, descender; /* the rows of those edges */
     double stem, bar;                   /* texels across a stem, down a bar */
+    /* A sheet of the duel's digits (the HUD section below) has no shading
+     * down its cells: its indices are a ramp from the outline (ramp[0]) to
+     * the fill, level[] each index's step on it (0 off it). The font's
+     * pages have none (ramp_n 0). */
+    int ramp_n;
+    unsigned char ramp[8];
+    unsigned char level[256];
 } Retail;
 
 static Retail retail[2] = {{.page = -1}, {.page = -1}};
@@ -158,7 +169,9 @@ static double median(double *values, int count)
  * share. */
 static double coverage(const Retail *r, const unsigned char cell[CELL][CELL], int x, int y)
 {
-    double c = cell[y][x] > r->dark ? (cell[y][x] - r->dark) / (SATURATE * (r->shade[y] - r->dark)) : 0;
+    double c;
+    if (r->ramp_n) return r->level[cell[y][x]] / (double)(r->ramp_n - 1);
+    c = cell[y][x] > r->dark ? (cell[y][x] - r->dark) / (SATURATE * (r->shade[y] - r->dark)) : 0;
     return c > 1 ? 1 : c;
 }
 
@@ -373,17 +386,25 @@ static void fill(unsigned char cover[CELL * MAX_FACTOR][CELL * MAX_FACTOR], doub
     }
 }
 
-/* The picture of `character` for a cell into atlas slot `slot`; 0 when no
- * font sets it or the cell holds no letter. */
-static int render(int slot, const unsigned char cell[CELL][CELL], int large, uint32_t character, const Retail *r)
+/* Rows y0 to y1 (atlas pixels) of the atlas have changed. */
+static void changed(int y0, int y1)
+{
+    if (y0 < first_dirty || last_dirty < first_dirty) first_dirty = y0;
+    if (y1 > last_dirty) last_dirty = y1;
+}
+
+/* The picture of `character` for a cell `cells_high` texels high into the
+ * atlas at cell (at_column, at_row) of CELL texels; 0 when no font sets it or the
+ * cell holds no letter. */
+static int render_at(int at_column, int at_row, const unsigned char cell[CELL][CELL], int cells_high, uint32_t character,
+                     const Retail *r)
 {
     static unsigned char cover[CELL * MAX_FACTOR][CELL * MAX_FACTOR];
     static unsigned short distance[CELL * MAX_FACTOR][CELL * MAX_FACTOR];
-    int f = factor, cells_high = large ? 16 : 12, width = CELL * f, height = cells_high * f;
+    int f = factor, width = CELL * f, height = cells_high * f;
     int x, y, i, n = 0, main = 0, pass, upper = character < 128 && (isupper((int)character) || isdigit((int)character));
     int lower = character < 128 && islower((int)character);
-    uint8_t *origin =
-        atlas + (size_t)(slot / SLOTS_ACROSS) * CELL * f * side + (size_t)(slot % SLOTS_ACROSS) * CELL * f;
+    uint8_t *origin = atlas + (size_t)at_row * CELL * f * side + (size_t)at_column * CELL * f;
     FT_Face face = (FT_Face)Glyphs_Face(character);
     const Font *font = face ? measure_font(face) : NULL;
     double from[5], to[5], tops[5], room, sx, sv, ex = 0, ey = 0, centre_f, centre_r, stem_f, width_f;
@@ -493,10 +514,20 @@ static int render(int slot, const unsigned char cell[CELL][CELL], int large, uin
     for (y = 0; y < height; y++) {
         /* The row's shading, between the texel rows' either side. */
         double at = (y + 0.5) / f - 0.5, shade;
-        int row = at < 0 ? 0 : (int)at, next = row + 1 < cells_high ? row + 1 : row;
-        double t = at < 0 ? 0 : at - row;
-        shade = r->shade[row] + (r->shade[next] - r->shade[row]) * t;
-        shade = shade * BRIGHT + (1 - BRIGHT) * (r->body[row] + (r->body[next] - r->body[row]) * t);
+        int line = at < 0 ? 0 : (int)at, next = line + 1 < cells_high ? line + 1 : line;
+        double t = at < 0 ? 0 : at - line;
+        shade = r->shade[line] + (r->shade[next] - r->shade[line]) * t;
+        shade = shade * BRIGHT + (1 - BRIGHT) * (r->body[line] + (r->body[next] - r->body[line]) * t);
+        if (r->ramp_n) {
+            /* A digit sheet: the nearest step of its ramp, the outline
+             * round it as for the text. */
+            for (x = 0; x < width; x++) {
+                int step = (int)(cover[y][x] * (r->ramp_n - 1) / 255.0 + 0.5);
+                if (step > 0) origin[(size_t)y * side + x] = r->ramp[step];
+                else if (distance[y][x] <= 3u * (unsigned)f) origin[(size_t)y * side + x] = r->ramp[0];
+            }
+            continue;
+        }
         for (x = 0; x < width; x++) {
             /* Coverage on the run from the outline's index to the shade;
              * too little to rise above it is outline, as the cells'
@@ -506,10 +537,13 @@ static int render(int slot, const unsigned char cell[CELL][CELL], int large, uin
             else if (distance[y][x] <= 3u * (unsigned)f) origin[(size_t)y * side + x] = (uint8_t)r->outline;
         }
     }
-    y = (slot / SLOTS_ACROSS) * CELL * f;
-    if (y < first_dirty || last_dirty < first_dirty) first_dirty = y;
-    if (y + CELL * f - 1 > last_dirty) last_dirty = y + CELL * f - 1;
+    changed(at_row * CELL * f, (at_row + 1) * CELL * f - 1);
     return 1;
+}
+
+static int render(int slot, const unsigned char cell[CELL][CELL], int large, uint32_t character, const Retail *r)
+{
+    return render_at(slot % SLOTS_ACROSS, slot / SLOTS_ACROSS, cell, large ? 16 : 12, character, r);
 }
 
 /* A new atlas for another factor: every picture is made again. */
@@ -659,7 +693,7 @@ int HdText_Title(int page_x, int page_y, int u, int v, int wanted, int *atlas_u,
     if (place < 0) {
         /* The place asked for longest ago: few titles show at once. */
         int x0 = (oldest % TITLES_ACROSS) * CARD_TITLE_WIDTH * factor;
-        int y0 = (GLYPH_SLOTS / SLOTS_ACROSS + oldest / TITLES_ACROSS) * CELL * factor, y;
+        int y0 = (TITLE_TOP + oldest / TITLES_ACROSS) * CELL * factor, y;
         for (y = 0; y < CELL * factor; y++) memset(atlas + (size_t)(y0 + y) * side + x0, 0, (size_t)CARD_TITLE_WIDTH * factor);
         titles[oldest].card = 0;
         if (!CardArt_TitlePicture(name, factor, atlas + (size_t)y0 * side + x0, side)) return 0;
@@ -671,8 +705,536 @@ int HdText_Title(int page_x, int page_y, int u, int v, int wanted, int *atlas_u,
     }
     titles[place].used = title_clock;
     *atlas_u = (place % TITLES_ACROSS) * CARD_TITLE_WIDTH;
-    *atlas_v = (GLYPH_SLOTS / SLOTS_ACROSS + place / TITLES_ACROSS) * CELL;
+    *atlas_v = (TITLE_TOP + place / TITLES_ACROSS) * CELL;
     *title_u = (upload->x - page_x) * 4;
     *title_v = upload->y - page_y;
     return 1;
+}
+
+/* --- the duel's numbers and labels -------------------------------------- */
+
+/* A texel of a 4-bit (depth 0) or 8-bit (1) page. */
+static int texel(const uint16_t *words, int depth, int page_x, int page_y, int u, int v)
+{
+    uint16_t word = words[((page_y + v) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH +
+                          ((page_x + (depth ? u / 2 : u / 4)) & (SOFT_GPU_WIDTH - 1))];
+    return depth ? (word >> ((u & 1) * 8)) & 255 : (word >> ((u & 3) * 4)) & 15;
+}
+
+/* A palette entry as 0-255 red, green, blue. */
+static void colour(const uint16_t *words, int clut_x, int clut_y, int index, double rgb[3])
+{
+    uint16_t word = words[(clut_y & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((clut_x + index) & (SOFT_GPU_WIDTH - 1))];
+    rgb[0] = (word & 31) * 8.0;
+    rgb[1] = ((word >> 5) & 31) * 8.0;
+    rgb[2] = ((word >> 10) & 31) * 8.0;
+}
+
+/* The ramp from index `from` to index `to` through the indices between
+ * them: those of `used` whose colours lie on the way (near the line from
+ * one colour to the other, in order along it). A colour off the way, like
+ * the purple the duel's digits have in a few corners, is left out. */
+static int make_ramp(const uint16_t *words, int clut_x, int clut_y, int from, int to, const int *used, int count,
+                     unsigned char *ramp, int room)
+{
+    double a[3], b[3], ab[3], length2, along[256];
+    int i, j, k, n = 1, middle[256], middles = 0;
+    colour(words, clut_x, clut_y, from, a);
+    colour(words, clut_x, clut_y, to, b);
+    for (k = 0; k < 3; k++) ab[k] = b[k] - a[k];
+    length2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    if (length2 <= 0) return 0;
+    for (i = 0; i < count; i++) {
+        double c[3], t = 0, off = 0;
+        if (used[i] == from || used[i] == to) continue;
+        colour(words, clut_x, clut_y, used[i], c);
+        for (k = 0; k < 3; k++) t += (c[k] - a[k]) * ab[k];
+        t /= length2;
+        for (k = 0; k < 3; k++) {
+            double d = c[k] - (a[k] + t * ab[k]);
+            off += d * d;
+        }
+        if (t <= 0 || t >= 1 || off > 0.02 * length2) continue;
+        along[used[i]] = t;
+        /* In order along the way. */
+        for (j = middles; j > 0 && along[middle[j - 1]] > t; j--) middle[j] = middle[j - 1];
+        middle[j] = used[i];
+        middles++;
+    }
+    ramp[0] = (unsigned char)from;
+    for (i = 0; i < middles && n < room - 1; i++) ramp[n++] = (unsigned char)middle[i];
+    ramp[n++] = (unsigned char)to;
+    return n;
+}
+
+/* The sheets the duel draws numbers from: digit d is the cell at
+ * u + d * step, v. Each is measured from its own ten digits: the outline
+ * (the index round them), the fill (the commonest inside), the ramp between
+ * and the lines of their feet and heads, as the font's pages are. */
+typedef struct {
+    int depth, page_x, page_y, clut_x, clut_y; /* where, and the palette it is read through */
+    int u, v, step, width, height;             /* the digits' cells */
+    int column, row;                           /* the first digit's picture: its cell in the HUD rows */
+    uint32_t sum;                              /* the digits' texels when measured */
+    unsigned made;                             /* the atlas generation the pictures are of */
+    int ok;
+    signed char drawn[10];                     /* 1 drawn, -1 none, 0 not yet */
+    Retail r;
+} Sheet;
+
+static Sheet sheets[] = {
+    /* The life points, the deck counts and the field cards' ATK and DEF
+     * (duel_draw_status_numbers.c, duel_card_frame_draw.c): 8-bit. */
+    {1, 896, 256, 256, 241, 0, 0x58, 8, 8, 8, 4, 0},
+    /* The menus' (duel_card_stat_display.c, the deck builder's list). */
+    {0, 704, 0, 656, 250, 0x80, 0x70, 8, 8, 8, 4, 1},
+    /* The field cards' larger numbers, 12 x 16 (duel_card_frame_draw.c). */
+    {1, 896, 256, 256, 241, 0, 0x70, 12, 12, 16, 4, 3},
+};
+
+static uint32_t read_digit(const uint16_t *words, const Sheet *s, int d, unsigned char cell[CELL][CELL],
+                           uint32_t sum)
+{
+    int x, y;
+    memset(cell, 0, CELL * CELL);
+    for (y = 0; y < s->height; y++) {
+        for (x = 0; x < s->width; x++) {
+            cell[y][x] = (unsigned char)texel(words, s->depth, s->page_x, s->page_y, s->u + d * s->step + x, s->v + y);
+            sum = (sum ^ cell[y][x]) * 16777619u;
+        }
+    }
+    return sum;
+}
+
+static int measure_sheet(Sheet *s, const uint16_t *words)
+{
+    unsigned char cell[CELL][CELL];
+    int border[256] = {0}, inside[256] = {0}, used[256], count = 0, outline = 0, fill = 0, d, x, y, i;
+    double tops[10], bottoms[10];
+    float cover[CELL * CELL];
+    Retail *r = &s->r;
+    memset(r, 0, sizeof(*r));
+    for (d = 0; d < 10; d++) {
+        read_digit(words, s, d, cell, 0);
+        for (y = 0; y < CELL; y++) {
+            for (x = 0; x < CELL; x++) {
+                int c = cell[y][x];
+                if (!c) continue;
+                if ((x > 0 && !cell[y][x - 1]) || (x + 1 < CELL && !cell[y][x + 1]) || (y > 0 && !cell[y - 1][x]) ||
+                    (y + 1 < CELL && !cell[y + 1][x]) || !x || !y) {
+                    border[c]++;
+                } else {
+                    inside[c]++;
+                }
+            }
+        }
+    }
+    for (i = 1; i < 256; i++) {
+        if (border[i] + inside[i]) used[count++] = i;
+        if (border[i] > border[outline]) outline = i;
+    }
+    for (i = 1; i < 256; i++) {
+        if (i != outline && inside[i] > inside[fill]) fill = i;
+    }
+    if (!outline || !fill) return 0;
+    r->ramp_n = make_ramp(words, s->clut_x, s->clut_y, outline, fill, used, count, r->ramp, 8);
+    if (r->ramp_n < 2) return 0;
+    for (i = 0; i < r->ramp_n; i++) r->level[r->ramp[i]] = (unsigned char)i;
+    r->outline = r->dark = outline;
+    /* Their feet and heads, and their strokes across and down. */
+    for (d = 0; d < 10; d++) {
+        Box box;
+        read_digit(words, s, d, cell, 0);
+        if (!extents(r, cell, s->height, &box)) return 0;
+        tops[d] = box.top;
+        bottoms[d] = box.bottom;
+    }
+    r->cap = median(tops, 10);
+    r->base = median(bottoms, 10);
+    /* No lower-case lines: render_at uses a digit's own. */
+    r->x_height = r->ascender = r->cap;
+    r->descender = r->base;
+    for (i = 0; i < 2; i++) {
+        int runs = 0;
+        for (d = 0; d < 10; d++) {
+            read_digit(words, s, d, cell, 0);
+            for (y = 0; y < CELL; y++) {
+                for (x = 0; x < CELL; x++) cover[y * CELL + x] = y < s->height ? (float)coverage(r, cell, x, y) : 0;
+            }
+            add_runs(cover, CELL, CELL, i, run_list, &runs, RUN_LIMIT);
+        }
+        if (!runs) return 0;
+        if (i) r->bar = median(run_list, runs);
+        else r->stem = median(run_list, runs);
+    }
+    return r->cap < r->base && r->stem > 0 && r->bar > 0;
+}
+
+/* The life-point panel (duel_init_scene.c): one 64 x 40 sprite of both
+ * sides' boxes, their LP, COM and YOU drawn in, from the duel's common
+ * page. Its picture is the panel's texels made `factor` times larger with
+ * the labels set anew in the font, where the retail panel is (its words
+ * hash to PANEL_SUM); any other panel, a mod's, is left as it is. */
+#define PANEL_PAGE_X 704
+#define PANEL_PAGE_Y 0
+#define PANEL_CLUT_X 736
+#define PANEL_CLUT_Y 252
+#define PANEL_U 128
+#define PANEL_V 128
+#define PANEL_W 64
+#define PANEL_H 40
+#define PANEL_SUM 0x14e82665u
+
+/* Each label's box in the panel (first texel to one past the last): the
+ * background round the retail letters, and the letters. */
+static const struct {
+    int x0, y0, x1, y1;
+    const char *text;
+} panel_labels[] = {
+    {16, 3, 29, 8, "LP"},
+    {2, 11, 25, 17, "COM"},
+    {2, 23, 25, 29, "YOU"},
+    {16, 32, 29, 37, "LP"},
+};
+
+static unsigned panel_made;
+static int panel_ok;
+
+static uint32_t panel_sum(const uint16_t *words)
+{
+    uint32_t sum = 2166136261u;
+    int x, y;
+    for (y = 0; y < PANEL_H; y++) {
+        for (x = 0; x < PANEL_W / 4; x++) {
+            sum = (sum ^ words[((PANEL_PAGE_Y + PANEL_V + y) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH +
+                               ((PANEL_PAGE_X + PANEL_U / 4 + x) & (SOFT_GPU_WIDTH - 1))]) *
+                  16777619u;
+        }
+    }
+    return sum;
+}
+
+/* Text set anew over a sprite's lettering: `texels` (the sprite's, `pitch`
+ * across) are what the retail letters are measured from, the box x0, y0 to
+ * x1, y1 (texels, one past the last) is cleared to `ramp[0]` in the
+ * picture at `origin` and the text is set there. As high as the retail
+ * letters from their baseline (the commonest foot of their columns) to
+ * their tops, at most as wide, centred, as heavy (no more than a fifth of
+ * their height: a pixel font's two-texel strokes would blot a font's), in
+ * the ramp's colours by coverage. `outlined`: ramp[0] is an outline a texel
+ * wide round the letters, the rest of the box clear (0). */
+static int set_text(void *face_pointer, const unsigned char *texels, int pitch, int x0, int y0, int x1, int y1,
+                    const char *text, const unsigned char *ramp, int n, int outlined, uint8_t *origin)
+{
+    enum { WIDE = 32 * MAX_FACTOR, HIGH = 16 * MAX_FACTOR };
+    static unsigned char cover[HIGH][WIDE], one[HIGH][WIDE];
+    static unsigned short distance[HIGH][WIDE];
+    static float strokes[16 * 32];
+    FT_Face face = (FT_Face)face_pointer;
+    const Font *font = face ? measure_font(face) : NULL;
+    int f = factor, width = (x1 - x0) * f, height = (y1 - y0) * f, x, y, i, runs = 0;
+    int left = x1, right = x0, top = y1, feet[16] = {0}, baseline = y0, level[256] = {0};
+    double sv, sx, ex, pen, ink_left = 1e9, ink_right = -1e9, stem;
+    const char *c;
+    if (!font || width > WIDE || height > HIGH || x1 - x0 > 32 || y1 - y0 > 16 || n < 2) return 0;
+    for (i = 1; i < n; i++) level[ramp[i]] = i;
+    /* Where the letters are, how heavy (runs of them across), and their
+     * baseline. */
+    memset(strokes, 0, sizeof(strokes));
+    for (x = x0; x < x1; x++) {
+        int foot = -1;
+        for (y = y0; y < y1; y++) {
+            int step = level[texels[y * pitch + x]];
+            if (!step) continue;
+            strokes[(y - y0) * 32 + (x - x0)] = (float)step / (n - 1);
+            if (x < left) left = x;
+            if (x + 1 > right) right = x + 1;
+            if (y < top) top = y;
+            foot = y + 1;
+        }
+        if (foot > y0) feet[foot - y0 - 1]++;
+    }
+    if (right <= left) return 0;
+    for (i = 0, baseline = y0; i < y1 - y0; i++) {
+        if (feet[i] && (baseline == y0 || feet[i] > feet[baseline - y0 - 1])) baseline = y0 + i + 1;
+    }
+    add_runs(strokes, 32, y1 - y0, 0, run_list, &runs, RUN_LIMIT);
+    stem = median(run_list, runs);
+    if (stem > (baseline - top) * 0.2) stem = (baseline - top) * 0.2;
+    /* The text across the font, from the first letter's ink to the last's. */
+    for (pen = 0, c = text; *c; c++) {
+        FT_BBox bbox;
+        if (!load(face, (unsigned char)*c)) return 0;
+        FT_Outline_Get_BBox(&face->glyph->outline, &bbox);
+        if (pen + bbox.xMin / 64.0 < ink_left) ink_left = pen + bbox.xMin / 64.0;
+        if (pen + bbox.xMax / 64.0 > ink_right) ink_right = pen + bbox.xMax / 64.0;
+        pen += face->glyph->advance.x / 64.0;
+    }
+    /* The capitals as high as the retail letters, the heaviness taken off;
+     * as wide as they are, a quarter wider than the font's proportions at
+     * most. */
+    ex = stem - font->stem * (baseline - top) / font->cap;
+    sv = (baseline - top - (ex > 0 ? ex : 0)) / font->cap;
+    /* Never lighter: a serif face's hairlines would break. */
+    ex = stem - font->stem * sv;
+    if (ex < 0) ex = 0;
+    sx = (right - left - ex) / (ink_right - ink_left);
+    if (sx > sv * 1.25) sx = sv * 1.25;
+    memset(cover, 0, sizeof(cover));
+    for (pen = 0, c = text; *c; c++) {
+        FT_Outline *outline;
+        FT_Bitmap bitmap;
+        double start = (left + right) / 2.0 - (ink_right - ink_left) * sx / 2 - ink_left * sx;
+        if (!load(face, (unsigned char)*c)) return 0;
+        outline = &face->glyph->outline;
+        for (i = 0; i < outline->n_points; i++) {
+            double column = start + (pen + outline->points[i].x / 64.0) * sx - x0;
+            double row = baseline - ex / 2 - outline->points[i].y / 64.0 * sv - y0;
+            outline->points[i].x = (FT_Pos)(column * f * 64);
+            outline->points[i].y = (FT_Pos)((y1 - y0 - row) * f * 64);
+        }
+        FT_Outline_EmboldenXY(outline, (FT_Pos)(ex * f * 64), (FT_Pos)(ex * f * 64));
+        memset(one, 0, sizeof(one));
+        memset(&bitmap, 0, sizeof(bitmap));
+        bitmap.rows = (unsigned)height;
+        bitmap.width = (unsigned)width;
+        bitmap.pitch = WIDE;
+        bitmap.buffer = &one[0][0];
+        bitmap.num_grays = 256;
+        bitmap.pixel_mode = FT_PIXEL_MODE_GRAY;
+        if (FT_Outline_Get_Bitmap(face->glyph->library, outline, &bitmap)) return 0;
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < width; x++) {
+                if (one[y][x] > cover[y][x]) cover[y][x] = one[y][x];
+            }
+        }
+        pen += face->glyph->advance.x / 64.0;
+    }
+    if (outlined) {
+        /* The outline: within a texel of the half-covered pixels (chamfer
+         * distance, as render_at). */
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < width; x++) {
+                unsigned d = cover[y][x] >= 128 ? 0 : 0xFFFF;
+                if (x > 0 && distance[y][x - 1] + 3u < d) d = distance[y][x - 1] + 3u;
+                if (y > 0 && distance[y - 1][x] + 3u < d) d = distance[y - 1][x] + 3u;
+                if (x > 0 && y > 0 && distance[y - 1][x - 1] + 4u < d) d = distance[y - 1][x - 1] + 4u;
+                if (x + 1 < width && y > 0 && distance[y - 1][x + 1] + 4u < d) d = distance[y - 1][x + 1] + 4u;
+                distance[y][x] = (unsigned short)d;
+            }
+        }
+        for (y = height - 1; y >= 0; y--) {
+            for (x = width - 1; x >= 0; x--) {
+                unsigned d = distance[y][x];
+                if (x + 1 < width && distance[y][x + 1] + 3u < d) d = distance[y][x + 1] + 3u;
+                if (y + 1 < height && distance[y + 1][x] + 3u < d) d = distance[y + 1][x] + 3u;
+                if (x + 1 < width && y + 1 < height && distance[y + 1][x + 1] + 4u < d) d = distance[y + 1][x + 1] + 4u;
+                if (x > 0 && y + 1 < height && distance[y + 1][x - 1] + 4u < d) d = distance[y + 1][x - 1] + 4u;
+                distance[y][x] = (unsigned short)d;
+            }
+        }
+    }
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
+            int step = (int)(cover[y][x] * (n - 1) / 255.0 + 0.5);
+            uint8_t index = ramp[step];
+            if (!step && outlined) index = distance[y][x] <= 3u * (unsigned)f ? ramp[0] : 0;
+            origin[(size_t)(y0 * f + y) * side + x0 * f + x] = index;
+        }
+    }
+    return 1;
+}
+
+/* One of the panel's labels, in the font the text is set in: its box's
+ * background (the commonest index across the panel in the label's rows:
+ * inside the label the letters can be the commoner) to the letters' colour
+ * farthest from it. */
+static int set_label(const uint16_t *words, uint8_t *origin, unsigned char texels[PANEL_H][PANEL_W], int label)
+{
+    int x0 = panel_labels[label].x0, y0 = panel_labels[label].y0, x1 = panel_labels[label].x1;
+    int y1 = panel_labels[label].y1, counts[16] = {0}, inside[16] = {0}, used[16], n_used = 0, background = 0;
+    int far = 0, x, y, i, n;
+    unsigned char ramp[8];
+    double far_by = -1, bg[3];
+    for (y = y0; y < y1; y++) {
+        for (x = 0; x < PANEL_W; x++) counts[texels[y][x]]++;
+        for (x = x0; x < x1; x++) inside[texels[y][x]]++;
+    }
+    for (i = 1; i < 16; i++) {
+        if (counts[i] > counts[background]) background = i;
+    }
+    colour(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, bg);
+    for (i = 1; i < 16; i++) {
+        double rgb[3], by;
+        if (!inside[i] || i == background) continue;
+        used[n_used++] = i;
+        colour(words, PANEL_CLUT_X, PANEL_CLUT_Y, i, rgb);
+        by = (rgb[0] - bg[0]) * (rgb[0] - bg[0]) + (rgb[1] - bg[1]) * (rgb[1] - bg[1]) + (rgb[2] - bg[2]) * (rgb[2] - bg[2]);
+        if (by > far_by) far_by = by, far = i;
+    }
+    if (!background || !far) return 0;
+    n = make_ramp(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, far, used, n_used, ramp, 8);
+    return set_text(Glyphs_Face((unsigned char)panel_labels[label].text[0]), &texels[0][0], PANEL_W, x0, y0, x1, y1,
+                    panel_labels[label].text, ramp, n, 0, origin);
+}
+
+static int make_panel(const uint16_t *words)
+{
+    static unsigned char texels[PANEL_H][PANEL_W];
+    int f = factor, x, y, i;
+    uint8_t *origin = atlas + (size_t)HUD_TOP * CELL * f * side;
+    for (y = 0; y < PANEL_H; y++) {
+        for (x = 0; x < PANEL_W; x++) {
+            texels[y][x] = (unsigned char)texel(words, 0, PANEL_PAGE_X, PANEL_PAGE_Y, PANEL_U + x, PANEL_V + y);
+        }
+    }
+    for (y = 0; y < PANEL_H * f; y++) {
+        for (x = 0; x < PANEL_W * f; x++) origin[(size_t)y * side + x] = texels[y / f][x / f];
+    }
+    changed(HUD_TOP * CELL * f, HUD_TOP * CELL * f + PANEL_H * f - 1);
+    for (i = 0; i < (int)(sizeof(panel_labels) / sizeof(panel_labels[0])); i++) {
+        if (!set_label(words, origin, texels, i)) return 0;
+    }
+    return 1;
+}
+
+/* The hand's cards' kinds, beside the digits (duel_card_frame_draw.c):
+ * 32 x 16 each, set anew in the plates' serif face with their outline,
+ * where the retail words are (WORDS_SUM). Pictures in the HUD rows' third
+ * row, two cells each from column 4. */
+#define WORDS_V 0x60
+#define WORDS_W 32
+#define WORDS_H 16
+#define WORDS_SUM 0x09f33d18u
+static const char *const kinds[] = {"Magic", "Equip", "Trap", "Ritual"};
+static unsigned words_made;
+static signed char words_drawn[4];
+
+static uint32_t words_sum(const uint16_t *words)
+{
+    uint32_t sum = 2166136261u;
+    int x, y;
+    for (y = 0; y < WORDS_H; y++) {
+        for (x = 0; x < WORDS_W * 4 / 2; x++) {
+            sum = (sum ^ words[((256 + WORDS_V + y) & (SOFT_GPU_HEIGHT - 1)) * SOFT_GPU_WIDTH + ((896 + x) & (SOFT_GPU_WIDTH - 1))]) *
+                  16777619u;
+        }
+    }
+    return sum;
+}
+
+static int make_word(const uint16_t *words, int k)
+{
+    static unsigned char texels[WORDS_H][WORDS_W];
+    int border[256] = {0}, all[256] = {0}, used[256], count = 0, outline = 0, fill = 0, x, y, i, n, f = factor;
+    unsigned char ramp[8];
+    void *face = CardArt_SerifFace();
+    uint8_t *origin = atlas + (size_t)(HUD_TOP + 2) * CELL * f * side + (size_t)(4 + 2 * k) * CELL * f;
+    for (y = 0; y < WORDS_H; y++) {
+        for (x = 0; x < WORDS_W; x++) texels[y][x] = (unsigned char)texel(words, 1, 896, 256, k * WORDS_W + x, WORDS_V + y);
+    }
+    /* The outline is what stands next to nothing, the fill the commonest
+     * of the rest. */
+    for (y = 0; y < WORDS_H; y++) {
+        for (x = 0; x < WORDS_W; x++) {
+            int c = texels[y][x];
+            if (!c) continue;
+            all[c]++;
+            if (!x || !y || x + 1 == WORDS_W || y + 1 == WORDS_H || !texels[y][x - 1] || !texels[y][x + 1] ||
+                !texels[y - 1][x] || !texels[y + 1][x]) {
+                border[c]++;
+            }
+        }
+    }
+    for (i = 1; i < 256; i++) {
+        if (all[i]) used[count++] = i;
+        if (border[i] > border[outline]) outline = i;
+    }
+    for (i = 1; i < 256; i++) {
+        if (i != outline && all[i] > all[fill]) fill = i;
+    }
+    if (!outline || !fill) return 0;
+    n = make_ramp(words, 256, 241, outline, fill, used, count, ramp, 8);
+    if (!set_text(face ? face : Glyphs_Face('M'), &texels[0][0], WORDS_W, 0, 0, WORDS_W, WORDS_H, kinds[k], ramp, n,
+                  1, origin)) {
+        return 0;
+    }
+    changed((HUD_TOP + 2) * CELL * f, (HUD_TOP + 3) * CELL * f - 1);
+    return 1;
+}
+
+int HdText_HudEnabled(void)
+{
+    return Settings_Get(SET_HD_HUD) != 0;
+}
+
+int HdText_Hud(int depth, int page_x, int page_y, int clut_x, int clut_y, int u, int v, int w, int h, int wanted,
+               int *atlas_u, int *atlas_v)
+{
+    const uint16_t *words = SoftGpu_Vram();
+    unsigned i;
+    if (wanted < 2 || wanted > MAX_FACTOR || !words || w < 1 || h < 1) return 0;
+    if (!depth && page_x == PANEL_PAGE_X && page_y == PANEL_PAGE_Y && clut_x == PANEL_CLUT_X &&
+        clut_y == PANEL_CLUT_Y && u == PANEL_U && v == PANEL_V && w == PANEL_W && h == PANEL_H) {
+        if (panel_sum(words) != PANEL_SUM) return 0;
+        if (wanted != factor && !make_atlas(wanted)) return 0;
+        if (panel_made != generation) {
+            panel_made = generation;
+            panel_ok = make_panel(words);
+        }
+        if (!panel_ok) return 0;
+        *atlas_u = 0;
+        *atlas_v = HUD_TOP * CELL;
+        return 1;
+    }
+    if (depth == 1 && page_x == 896 && page_y == 256 && clut_x == 256 && clut_y == 241 && v == WORDS_V &&
+        !(u % WORDS_W) && u / WORDS_W < 4 && w <= WORDS_W && h <= WORDS_H) {
+        int k = u / WORDS_W;
+        if (words_sum(words) != WORDS_SUM) return 0;
+        if (wanted != factor && !make_atlas(wanted)) return 0;
+        if (words_made != generation) {
+            words_made = generation;
+            memset(words_drawn, 0, sizeof(words_drawn));
+        }
+        if (!words_drawn[k]) words_drawn[k] = make_word(words, k) ? 1 : -1;
+        if (words_drawn[k] < 0) return 0;
+        *atlas_u = (4 + 2 * k) * CELL;
+        *atlas_v = (HUD_TOP + 2) * CELL;
+        return 1;
+    }
+    for (i = 0; i < sizeof(sheets) / sizeof(sheets[0]); i++) {
+        Sheet *s = &sheets[i];
+        unsigned char cell[CELL][CELL];
+        uint32_t sum = 2166136261u;
+        int d;
+        if (depth != s->depth || page_x != s->page_x || page_y != s->page_y || clut_x != s->clut_x ||
+            clut_y != s->clut_y || v != s->v || u < s->u) {
+            continue;
+        }
+        d = (u - s->u) / s->step;
+        if (d > 9 || u != s->u + d * s->step || w > s->width || h > s->height) return 0;
+        if (wanted != factor && !make_atlas(wanted)) return 0;
+        for (d = 0; d < 10; d++) sum = read_digit(words, s, d, cell, sum);
+        d = (u - s->u) / s->step;
+        if (sum != s->sum || s->made != generation) {
+            /* Measured again when the sheet changes (another package). */
+            s->sum = sum;
+            s->made = generation;
+            s->ok = measure_sheet(s, words);
+            memset(s->drawn, 0, sizeof(s->drawn));
+        }
+        if (!s->ok) return 0;
+        if (!s->drawn[d]) {
+            read_digit(words, s, d, cell, 0);
+            s->drawn[d] = render_at(s->column + d, HUD_TOP + s->row, (const unsigned char (*)[CELL])cell, s->height,
+                                    (uint32_t)('0' + d), &s->r)
+                              ? 1
+                              : -1;
+        }
+        if (s->drawn[d] < 0) return 0;
+        *atlas_u = (s->column + d) * CELL;
+        *atlas_v = (HUD_TOP + s->row) * CELL;
+        return 1;
+    }
+    return 0;
 }
