@@ -488,7 +488,7 @@ static void render(const Added *glyph, int font_page, int large, Cell *cell)
             for (x = 0; x < cell->width && rows[y][x]; x++) mask[y][x] = rows[y][x] == '#';
         }
     } else if (!face || FT_Set_Pixel_Sizes(face, 0, large ? 14 : 10) ||
-               FT_Load_Char(face, glyph->character, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL)) {
+               FT_Load_Char(face, glyph->character, FT_LOAD_RENDER | FT_LOAD_TARGET_NORMAL | FT_LOAD_NO_BITMAP)) {
         return;
     } else {
         FT_Bitmap *bitmap = &face->glyph->bitmap;
