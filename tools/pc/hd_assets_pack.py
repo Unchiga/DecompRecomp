@@ -41,7 +41,9 @@ dark (blend_ready), elsewhere as it is.
 
 --base takes an existing pack (hd_screen_pack.py's output): a reading it
 has starts from its image, the assets drawn over it. --merge adds another
-pack's entries as they are (a portraits mod). The result is one mod.
+pack's entries as they are (a portraits mod). The result is one mod, in
+parts the player can switch off in the Mods window (PARTS; each merged pack
+is a part of its own, named as that mod is).
 
 Usage: hd_assets_pack.py --assets <folder> --out <mod folder> [--data game/DATA]
                          [--base <pack>] [--merge <pack> ...] [--thumb-crops crops.json]
@@ -67,6 +69,13 @@ PACKAGES = [("deck", 0x10C4800, 0x10E8800), ("library", 0xEE6800, 0xF06800), ("p
     (f"duel-{name}", 0xB63000 + i * 0xEB * SECTOR, 0xB63000 + i * 0xEB * SECTOR + 64 * SECTOR)
     for i, name in enumerate(("normal", "forest", "wasteland", "mountain", "meadow", "sea", "dark"))]
 DECK_BLOCK = 0x10E8800
+# The mod's parts: its settings, and each manifest entry's "setting".
+PARTS = {
+    "card_art": ("Card art", "The redrawn pictures on the cards."),
+    "thumbnails": ("Card thumbnails", "The small pictures in the duel hand and on the field."),
+    "card_frames": ("Card frames", "Frames, card back, attribute balls, level stars and the card view's digits and labels."),
+    "build_deck": ("Build Deck screen", "The Build Deck and Trade screen's panels, icons and labels."),
+}
 FRAMES = {8: "frame_monster.png", 9: "frame_magic.png", 10: "frame_trap.png", 11: "frame_ritual.png"}
 ATTRIBUTES = ("light", "dark", "earth", "water", "fire", "wind", "magic", "trap")
 # The game's ball has a one-texel rim it subtracts from the name bar (a
@@ -86,6 +95,7 @@ class Pack:
     def __init__(self, data, out):
         self.wa = open(os.path.join(data, WA), "rb").read()
         self.out, self.entries, self.images = out, [], {}
+        self.part, self.parts = None, {}   # the part entries are added to now, and every part's (label, help)
         os.makedirs(os.path.join(out, "textures"), exist_ok=True)
 
     def original(self, offset, words, rows, bpp, clut, entries):
@@ -108,7 +118,8 @@ class Pack:
         self.entries.append({"file": self.images[key], "alias": alias, "archive": WA, "offset": offset,
                              "words": words, "rows": rows, "bpp": bpp, "width": words * {4: 4, 8: 2}[bpp],
                              "height": rows, "crop_left": 0, "clut_offset": clut, "clut_entries": entries,
-                             "stride": words, "row_offsets": None})
+                             "stride": words, "row_offsets": None, "setting": self.part})
+        self.parts.setdefault(self.part, PARTS.get(self.part))
 
 
 def load(path, size=None):
@@ -282,6 +293,7 @@ def build(args):
     back = load(os.path.join(A, "backcard", "Back.png"), (128 * S, 192 * S))
 
     # The frame sheet and the card back, per package and row.
+    pack.part = "card_frames"
     for name, phase, block in PACKAGES:
         ref = [pack.original(phase + c * 0x8000, 64, 256, 8, block + 8 * 0x200, 256) for c in (0, 1)]
         for row in range(8, 14):
@@ -357,6 +369,7 @@ def build(args):
             replaced.update({(c3, 4, block + STAR_PALETTE), (c3, 4, block + LABEL_PALETTE)})
 
     # The rest of the base pack as it is.
+    pack.part = "build_deck"
     if args.base:
         with open(os.path.join(args.base, "textures", "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
@@ -379,6 +392,7 @@ def build(args):
         base = card_base(n)
         if n in files["cards"]:
             art = load(files["cards"][n])
+            pack.part = "card_art"
             pack.add(f"card-{n:03d}.png", art.resize((102 * S, 96 * S), Image.LANCZOS), base, 0x33, 0x60, 8,
                      base + 0x2640, 256, f"card {n} art", paletted=True)
             if n in crops:
@@ -386,18 +400,22 @@ def build(args):
                 sx, sy = art.width / 102, art.height / 96
                 thumb = art.crop((round(x * sx), round(y * sy), round((x + w) * sx), round((y + h) * sy)))
                 small = (n - 1) * SECTOR
+                pack.part = "thumbnails"
                 pack.add(f"thumb-{n:03d}.png", thumb.resize((40 * S, 32 * S), Image.LANCZOS), small, 20, 32, 8,
                          small + 0x500, 64, f"card {n} thumbnail", paletted=True)
 
     # Other packs as they are.
     for other in args.merge or []:
         with open(os.path.join(other, "mod.json"), encoding="utf-8") as handle:
-            folder = os.path.join(other, json.load(handle)["textures"])
+            merged = json.load(handle)
+        folder = os.path.join(other, merged["textures"])
+        part = merged.get("id") or os.path.basename(os.path.normpath(other))
+        pack.parts[part] = (merged.get("name", part), merged.get("description", ""))
         with open(os.path.join(folder, "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
                 target = os.path.join(pack.out, "textures", os.path.basename(folder) + "-" + entry["file"])
                 shutil.copyfile(os.path.join(folder, entry["file"]), target)
-                pack.entries.append(dict(entry, file=os.path.basename(target)))
+                pack.entries.append(dict(entry, file=os.path.basename(target), setting=part))
 
     with open(os.path.join(pack.out, "textures", "manifest.json"), "w", encoding="utf-8") as handle:
         json.dump(pack.entries, handle, indent=1)
@@ -423,7 +441,10 @@ def main():
                 "description": "HD card art, thumbnails, frames, card back, attribute balls and the "
                                "Build Deck screen; the Free Duel portraits. Shows best at View > Internal 4x "
                                "with HD text on.",
-                "enabled": True, "textures": "textures"}
+                "enabled": True, "textures": "textures",
+                "settings": [{"key": key, "label": label, "type": "bool", "default": 1, "description": help}
+                             for key, (label, help) in sorted(pack.parts.items(), key=lambda part: (
+                                 list(PARTS).index(part[0]) if part[0] in PARTS else len(PARTS)))]}
     with open(os.path.join(args.out, "mod.json"), "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=4)
     print(f"{args.out}: {len(pack.entries)} entries, {len(pack.images)} images")
