@@ -39,14 +39,15 @@ carry the semi-transparency bit, which a pack pixel keeps from the original
 texel): over those texels a letter is written as the grey that subtracts to
 dark (blend_ready), elsewhere as it is.
 
---base takes an existing pack (hd_screen_pack.py's output): a reading it
-has starts from its image, the assets drawn over it. --merge adds another
+--base takes an existing pack (hd_screen_pack.py's output; repeat it for
+several): a reading it has starts from its image, the assets drawn over it,
+and its other entries join the part its recipe names. --merge adds another
 pack's entries as they are (a portraits mod). The result is one mod, in
 parts the player can switch off in the Mods window (PARTS; each merged pack
 is a part of its own, named as that mod is).
 
 Usage: hd_assets_pack.py --assets <folder> --out <mod folder> [--data game/DATA]
-                         [--base <pack>] [--merge <pack> ...] [--thumb-crops crops.json]
+                         [--base <pack> ...] [--merge <pack> ...] [--thumb-crops crops.json]
                          [--id forbidden-memories-hd] [--name "Forbidden Memories HD"]
 """
 import argparse
@@ -75,6 +76,8 @@ PARTS = {
     "thumbnails": ("Card thumbnails", "The small pictures in the duel hand and on the field."),
     "card_frames": ("Card frames", "Frames, card back, attribute balls, level stars and the card view's digits and labels."),
     "build_deck": ("Build Deck screen", "The Build Deck and Trade screen's panels, icons and labels."),
+    "duel": ("Duel arena and HUD", "The platform of all seven fields, the cards' frames in the hand, their labels "
+             "and numbers, the FIELD box and the life points."),
 }
 FRAMES = {8: "frame_monster.png", 9: "frame_magic.png", 10: "frame_trap.png", 11: "frame_ritual.png"}
 ATTRIBUTES = ("light", "dark", "earth", "water", "fire", "wind", "magic", "trap")
@@ -107,11 +110,15 @@ class Pack:
         """One entry; the same pixels already written are the same file.
         `paletted`: an opaque picture kept as 256 colours of its own
         (libimagequant, dithered), as the game keeps its card art; about a
-        third of the size, and decoded to the same pixels' worth in game."""
+        third of the size, and decoded to the same pixels' worth in game;
+        "alpha" keeps the transparency (the duel's sheets)."""
         key = image.tobytes()
         if key not in self.images:
             self.images[key] = name
-            if paletted:
+            if paletted == "alpha":
+                image = image.convert("RGBA").quantize(256, method=Image.Quantize.LIBIMAGEQUANT,
+                                                       dither=Image.Dither.FLOYDSTEINBERG)
+            elif paletted:
                 image = image.convert("RGB").quantize(256, method=Image.Quantize.LIBIMAGEQUANT,
                                                       dither=Image.Dither.FLOYDSTEINBERG)
             image.save(os.path.join(self.out, "textures", name), optimize=True)
@@ -283,13 +290,12 @@ def build(args):
     pack = Pack(args.data, args.out)
     A = args.assets
     bases = {}
-    if args.base:
-        with open(os.path.join(args.base, "textures", "manifest.json"), encoding="utf-8") as handle:
+    replaced = set()   # the base readings the assets draw over, added with them below
+    for base in args.base or []:
+        with open(os.path.join(base, "textures", "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
                 bases[(entry["offset"], entry["bpp"], entry.get("clut_offset"))] = \
-                    os.path.join(args.base, "textures", entry["file"])
-        # the base's own readings first; those the assets draw over are replaced below
-        replaced = set()
+                    os.path.join(base, "textures", entry["file"])
     back = load(os.path.join(A, "backcard", "Back.png"), (128 * S, 192 * S))
 
     # The frame sheet and the card back, per package and row.
@@ -316,8 +322,7 @@ def build(args):
                     sheet.paste(back.crop((0, 0, 128 * S, 128 * S)), (0, 128 * S))
                 pack.add(f"frame-r{row}-c{c}.png", sheet, offset, 64, 256, 8, clut, 256,
                          f"card frame ({name}, row {row}), column {c}")
-                if args.base:
-                    replaced.add((offset, 8, clut))
+                replaced.add((offset, 8, clut))
     digits, labels = stats_pieces(load(os.path.join(A, "stats", "stats.png")))
     # The back's foot (third column) and the fourth column's pieces: the same
     # words at the same places in every package.
@@ -328,8 +333,7 @@ def build(args):
             sheet = column_base(pack, bases, c2, 8, clut)
             sheet.paste(back.crop((0, 128 * S, 128 * S, 192 * S)), (0, 0))
             pack.add(f"back-{pname}-r{row}.png", sheet, c2, 64, 256, 8, clut, 256, f"card back foot ({pname}, row {row})")
-            if args.base:
-                replaced.add((c2, 8, clut))
+            replaced.add((c2, 8, clut))
         for k, attribute in enumerate(ATTRIBUTES):
             clut = block + 0x1E00 + k * 0x20
             sheet = column_base(pack, bases, c3, 4, clut)
@@ -344,8 +348,7 @@ def build(args):
             sheet = drop_blended(sheet, semi_texels(pack.wa, c3, 64, 256, clut), (16 * k, 128, 16, 16))
             pack.add(f"attribute-{pname}-{attribute}.png", sheet, c3, 64, 256, 4, clut, 16,
                      f"attribute ball: {attribute} ({pname})")
-            if args.base:
-                replaced.add((c3, 4, clut))
+            replaced.add((c3, 4, clut))
         clut = block + STAR_PALETTE
         original = pack.original(c3, 64, 256, 4, clut, 16)
         sheet = column_base(pack, bases, c3, 4, clut)
@@ -365,19 +368,20 @@ def build(args):
         for rect in DIGITS + LABELS:
             sheet = blend_ready(sheet, semi, rect, True)
         pack.add(f"stats-{pname}.png", sheet, c3, 64, 256, 4, clut, 16, f"digits, card-kind labels, ATK, DFD ({pname})")
-        if args.base:
-            replaced.update({(c3, 4, block + STAR_PALETTE), (c3, 4, block + LABEL_PALETTE)})
+        replaced.update({(c3, 4, block + STAR_PALETTE), (c3, 4, block + LABEL_PALETTE)})
 
-    # The rest of the base pack as it is.
-    pack.part = "build_deck"
-    if args.base:
-        with open(os.path.join(args.base, "textures", "manifest.json"), encoding="utf-8") as handle:
+    # The rest of the base packs as they are, each entry in the part its recipe
+    # names (a pack from before recipes had parts is the Build Deck's).
+    for base in args.base or []:
+        with open(os.path.join(base, "textures", "manifest.json"), encoding="utf-8") as handle:
             for entry in json.load(handle):
                 if (entry["offset"], entry["bpp"], entry.get("clut_offset")) in replaced:
                     continue
-                image = Image.open(os.path.join(args.base, "textures", entry["file"])).convert("RGBA")
+                pack.part = entry.get("setting", "build_deck")
+                image = Image.open(os.path.join(base, "textures", entry["file"])).convert("RGBA")
                 pack.add("screen-" + entry["file"], image, entry["offset"], entry["words"], entry["rows"],
-                         entry["bpp"], entry["clut_offset"], entry["clut_entries"], entry["alias"])
+                         entry["bpp"], entry["clut_offset"], entry["clut_entries"], entry["alias"],
+                         paletted="alpha" if pack.part == "duel" else False)
 
     # Card art and thumbnails.
     crops = {}
@@ -427,7 +431,7 @@ def main():
     parser.add_argument("--assets", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--data", default="game/DATA")
-    parser.add_argument("--base")
+    parser.add_argument("--base", action="append", help="a hd_screen_pack.py pack (repeat for several)")
     parser.add_argument("--merge", action="append")
     parser.add_argument("--thumb-crops")
     parser.add_argument("--id", default="forbidden-memories-hd")
@@ -438,9 +442,9 @@ def main():
         shutil.rmtree(os.path.join(args.out, "textures"))
     pack = build(args)
     manifest = {"id": args.id, "name": args.name, "version": "1.0", "author": args.author,
-                "description": "HD card art, thumbnails, frames, card back, attribute balls and the "
-                               "Build Deck screen; the Free Duel portraits. Shows best at View > Internal 4x "
-                               "with HD text on.",
+                "description": "HD card art, thumbnails, frames, card back, attribute balls, the "
+                               "Build Deck screen and the duel (arena, hand, FIELD box, life points); the Free "
+                               "Duel portraits. Shows best at View > Internal 4x with HD text on.",
                 "enabled": True, "textures": "textures",
                 "settings": [{"key": key, "label": label, "type": "bool", "default": 1, "description": help}
                              for key, (label, help) in sorted(pack.parts.items(), key=lambda part: (

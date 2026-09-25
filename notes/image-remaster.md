@@ -283,6 +283,50 @@ What was found on the way:
    pack), and the mod declares them as bool settings, so the Mods window
    switches each part on and off at once (`notes/modding.md`).
 
+## Third: the duel (September 2026)
+
+`tools/pc/hd_recipes/duel.json` does the duel the same way; it is the
+Forbidden Memories HD mod's "duel" part (`hd_assets_pack.py --base` takes
+it beside Build Deck's). It was captured with the campaign duel of
+`tests/pc/smoke/duel-hand-camera.json` and `MEMORIES_DUMP_TEXTURES_FROM`
+set once the duel began, then every field was drawn by setting
+`gDuel_bTerrain` (0x8009B364) from a throwaway change on the PC side.
+
+1. **The platform is phase 12 of each terrain's package**: the floor is its
+   first column (five bands of five 51x51 tiles, band k through the
+   package's palette row at +0x7F00 + 0x20k), the sides and trim its second
+   (ten palettes from +0xF120). One code draws every field, so the normal
+   field's pieces are every field's at each package's offsets. The tiles are
+   enlarged one by one (`alone`), so no tile's edge takes its neighbour's.
+2. **The hand's card frames** are an 8-bit reading of phase 0's third
+   column, palette rows 1-6 (monster, magic, trap, ritual, purple, orange;
+   `extract_images.py` knew rows 1 and 2 only). The same sheet holds the
+   face-down back, the card-kind words, two sets of small digits and a large
+   one, and the sword and shield (`pixel`: xBR on a painted reading).
+   Phase 0 is the same words in all seven packages, and a reading of the
+   same pixels is made once.
+3. **The same digits are drawn plain and subtracted.** The hand draws its
+   numbers and card-kind words with the subtracting blend (the entries carry
+   the semi-transparency bit), the life points draw the same texels plain,
+   and a pack pixel over a clear texel is never blended. A letter reaching
+   past the game's own therefore showed dark squares in one place or light
+   letters in the other; the recipe's labels are `clip`ped to the game's
+   glyph texels, which reads right in both.
+4. **The FIELD box and the life points** are in the resident UI package
+   (0xB50000, palettes 0xB609A0 and 0xB609C0). The box's middle is one
+   piece repeated, done alone with its edges carried on so the repeats meet
+   without a seam. The field names are anti-aliased words cut into pieces
+   drawn side by side, some through a letter (MEAD + OW, DA + RK): a
+   `strip` label sets the word once across them and cuts it back.
+5. **Cropping a reading to its rows broke the life points.** The pack gives
+   each VRAM word one entry's geometry, whatever palette draws it, so two
+   readings of one sheet cropped differently took each other's words. Every
+   entry keeps the whole sheet; `trim` instead leaves what a reading never
+   draws as its texels four times, and the duel's images are stored as 256
+   colours with transparency. The part adds 13 MB to the mod.
+6. The upscaler has twice left a truncated output on a full tmpfs `/tmp`;
+   the tool checks every output and runs again (`TMPDIR` on a disk helps).
+
 ## Not done
 
 - The campaign map's own pictures (uploaded by the overworld overlay from

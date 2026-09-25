@@ -19,6 +19,7 @@
 #include "pc/debug/crash.h"
 #include "pc/mods/mods.h"
 #include "pc/render/texture_pack.h"
+#include "pc/render/texture_dump.h"
 #include "pc/compat/signal.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
@@ -262,7 +263,9 @@ void Memories_PresentDisplay(void)
          * byte lacks 0x80; a present comes before its check. */
         const char *mode_at = getenv("MEMORIES_MODE_AT");
         static int mode_step, mode_seen = -1;
+        const char *dump_from = getenv("MEMORIES_DUMP_TEXTURES_FROM");
         if (shot && frames_presented == atoi(shot)) Platform_Screenshot(1);
+        if (dump_from && frames_presented == (unsigned)atoi(dump_from)) TextureDump_Restart();
         if (mode_at) {
             extern unsigned char D_8009B26C; /* main_mode_state.h: the active mode */
             const char *at = mode_at;

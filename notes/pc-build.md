@@ -855,7 +855,10 @@ palette offset, the pixel crop within the first word, and the hash of the
 PNG it was drawn as. `extract_images.py --assets <dir>/assets.txt` then
 writes those images from the archives, and every one comes out identical
 to the PNG the game drew (76 of 76 through the title and main menu), which
-is the proof of the provenance. A state load restores VRAM without
+is the proof of the provenance. `MEMORIES_DUMP_TEXTURES_FROM=<frame>` starts
+both lists over at that frame, so a dump holds everything one screen draws,
+also what an earlier screen drew first (the duel's digits after the Build
+Deck's). A state load restores VRAM without
 deliveries, so it clears the tags: the textures traced after it are the
 ones loaded after it.
 
@@ -935,6 +938,31 @@ texels of the main menu's top row. Whatever the game draws every frame
 comes out the same. As in the software GPU, a target's sides are made
 black when it is shown with nothing drawn into it since it was last shown
 (a movie, a still loaded into VRAM).
+
+Video > Anti-aliasing (`msaa`, `MEMORIES_MSAA`: 0 off, 2, 4 or 8 samples)
+draws the OpenGL picture and widescreen's targets into multisampled
+renderbuffers, which smooths the edges of polygons: the 3D monsters, the
+duel table, the cards laid on it. Sprites and textures are drawn as before.
+Each buffer is resolved into its texture wherever the texture is read: a
+move's source, a target's centre, and the end of each replay, for
+presenting and frame dumps. A GPU cannot copy into a multisampled buffer,
+so the pass draws what it copies in as a quad.
+
+The buffers cover all of VRAM at the scale. With 8 samples that is about
+256 MB of video memory at 4x and 1 GB at 8x. Where the driver has no room,
+it says so once, and the picture is drawn without until the setting or the
+scale changes. (With the allocation made to fail, the duel comes out
+identical to off, in 4:3 and widescreen.) A driver with fewer samples
+gives what it has, and says so.
+
+Turning anti-aliasing on or off mid-game carries the picture over. After
+a switch, the duel case's frame is identical to one run with the new
+setting from the start. The widescreen targets are made again, so their
+sides are black for a frame, as after a resync. With anti-aliasing off,
+the picture is identical to before. In widescreen the centre of a target
+is identical to the 4:3 picture, with it on or off.
+
+It changes nothing at 1x, and nothing in the software picture.
 
 ### HD text
 
