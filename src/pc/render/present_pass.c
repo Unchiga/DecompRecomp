@@ -13,8 +13,9 @@
  *   the same as Nearest.
  *   xBR pixel smoothing (Video > Effects): the picture is read through xBR
  *   (XBR_SOURCE below) instead of one texel at a time. It works on the
- *   texels of the texture shown, so it does most at internal resolution 1x;
- *   at 4x the picture's texels are already small.
+ *   texels of the texture shown, so it is for internal resolution 1x. At 2x
+ *   and up the OpenGL picture smooths each primitive's textures instead
+ *   (gl_picture.c, TEXTURE_XBR_SOURCE) and it is not done here.
  *   Reduce flashes (Video > Effects): when the picture's average brightness
  *   would rise faster than FLASH_RISE per second, the whole picture is
  *   darkened to that rise, as a camera's exposure would follow it. A flash
@@ -352,13 +353,15 @@ static void measure_level(GLuint picture, GLint unit, float s0, float t0, float 
     primed = 1;
 }
 
-/* Whether an effect other than the flash reduction is on. */
-static int others_wanted(void)
+/* Whether an effect other than the flash reduction is on, xBR here or not. */
+static int others_wanted_with(int xbr)
 {
     return Settings_Get(SET_BRIGHTNESS) != 100 || Settings_Get(SET_CONTRAST) != 100 ||
-           Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT) ||
-           Settings_Get(SET_XBR) || Settings_Get(SET_FILTER) == 2;
+           Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT) || xbr ||
+           Settings_Get(SET_FILTER) == 2;
 }
+
+static int others_wanted(void) { return others_wanted_with(Settings_Get(SET_XBR)); }
 
 int PresentPass_Wanted(void)
 {
@@ -366,10 +369,12 @@ int PresentPass_Wanted(void)
     return others_wanted() || Settings_Get(SET_FLASH);
 }
 
-int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float s1, float t1)
+int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float s1, float t1,
+                      int textures_smoothed)
 {
     GLint unit = 0;
     int multiple = (source_h + 120) / 240;
+    int xbr = Settings_Get(SET_XBR) && !textures_smoothed;
     if (!state) {
         state = build() ? 1 : -1;
         if (state < 0) fprintf(stderr, "memories-pc: present pass unavailable; colour settings do nothing\n");
@@ -392,7 +397,7 @@ int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float 
             flash_on = 1;
         }
     }
-    if (!flash_on && !others_wanted()) return 0; /* nothing to do: the plain quad, exactly */
+    if (!flash_on && !others_wanted_with(xbr)) return 0; /* nothing to do: the plain quad, exactly */
     pp_UseProgram(program);
     pp_Uniform1i(u_picture, unit - GL_TEXTURE0);
     pp_Uniform1i(u_level, 1);
@@ -404,8 +409,8 @@ int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float 
     pp_Uniform1i(u_crt, Settings_Get(SET_CRT));
     /* 1 xBR, 2 sharp bilinear (xBR first: both are how the picture is
      * read). */
-    pp_Uniform1i(u_scaler, Settings_Get(SET_XBR) ? 1 : Settings_Get(SET_FILTER) == 2 ? 2 : 0);
-    if (Settings_Get(SET_XBR) || Settings_Get(SET_FILTER) == 2) {
+    pp_Uniform1i(u_scaler, xbr ? 1 : Settings_Get(SET_FILTER) == 2 ? 2 : 0);
+    if (xbr || Settings_Get(SET_FILTER) == 2) {
         /* xBR works on the texture's own texels, inside the picture's
          * rectangle of them; sharp bilinear on its texels too. */
         GLint w = 1, h = 1;
