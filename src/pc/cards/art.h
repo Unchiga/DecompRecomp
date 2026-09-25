@@ -29,5 +29,10 @@ int CardArt_TitleFromImage(const char *path, unsigned char *plate, char *why, si
 /* `name` in UTF-8. 0 when no serif font could be found; the plate is left
  * as it was. */
 int CardArt_TitleFromName(const char *name, unsigned char *plate);
+/* The same plate at `factor` pixels per texel, as the plate's 4-bit inks
+ * (0 clear, 1 the darkest to 7 the faintest), CARD_TITLE_WIDTH * factor by
+ * CARD_TITLE_HEIGHT * factor into `indices`, `pitch` bytes a row: what HD
+ * text draws a card's title from (hd_text.h). 0 when no serif font. */
+int CardArt_TitlePicture(const char *name, int factor, unsigned char *indices, int pitch);
 
 #endif

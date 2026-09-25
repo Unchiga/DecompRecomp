@@ -720,6 +720,17 @@ static size_t polygon(const uint32_t *words, size_t count)
             state.pack = 0;
             flags |= 16;
         }
+    } else if (textured && hd_text && state.depth == 0 && !state.bank) {
+        /* A card's title plate, whole or a piece of the turning card. */
+        int atlas_u, atlas_v, title_u, title_v;
+        if (HdText_Title(state.page_x, state.page_y, v[0].u, v[0].v, scale, &atlas_u, &atlas_v, &title_u, &title_v)) {
+            for (i = 0; i < vertices_n; i++) {
+                v[i].u = atlas_u + v[i].u - title_u;
+                v[i].v = atlas_v + v[i].v - title_v;
+            }
+            state.pack = 0;
+            flags |= 16;
+        }
     }
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
@@ -760,6 +771,16 @@ static size_t rectangle(const uint32_t *words, size_t count)
             state.pack = 0;
             block(base.x * scale, base.y * scale, w * scale, h * scale, atlas_u, atlas_v, atlas_u + w, atlas_v + h,
                   &base, flags | 16);
+            return need;
+        }
+    }
+    if (w && h && textured && hd_text && state.depth == 0 && !state.bank) {
+        int atlas_u, atlas_v, title_u, title_v;
+        if (HdText_Title(state.page_x, state.page_y, base.u, base.v, scale, &atlas_u, &atlas_v, &title_u, &title_v)) {
+            state.pack = 0;
+            block(base.x * scale, base.y * scale, w * scale, h * scale, atlas_u + base.u - title_u,
+                  atlas_v + base.v - title_v, atlas_u + base.u - title_u + w, atlas_v + base.v - title_v + h, &base,
+                  flags | 16);
             return need;
         }
     }

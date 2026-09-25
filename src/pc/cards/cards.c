@@ -11,6 +11,7 @@
 #include "art.h"
 #include "tables.h"
 #include "pc/text/glyphs.h"
+#include "pc/text/text.h"
 #include "pc/mods/mods.h"
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
@@ -694,6 +695,44 @@ void Cards_MarkSeen(int id)
 const unsigned char *Cards_NameText(int id)
 {
     return Cards_Valid(id) ? names[id] : NULL;
+}
+
+int Cards_NameUtf8(int id, char *out, size_t size)
+{
+    const unsigned char *name;
+    size_t n = 0;
+    if (!Cards_Valid(id) || !size) return 0;
+    name = Cards_NameText(id);
+    if (!name) {
+        int base = Cards_BaseId(id);
+        const unsigned short *offsets = (const unsigned short *)(uintptr_t)RETAIL_NAME_OFFSETS;
+        name = Text_Resolve(0x8000 + base, (const unsigned char *)(uintptr_t)(TEXT_BANK + offsets[base]));
+    }
+    while (name && *name < 0xF6) {
+        int code = *name++;
+        uint32_t c;
+        if (code >= 0xF0) code = ((code - 0xF0) << 8) | *name++;
+        c = code ? Glyphs_Character(code) : ' ';
+        if (!c) c = '?';
+        if (c < 0x80 && n + 1 < size) out[n++] = (char)c;
+        else if (c < 0x800 && n + 2 < size) {
+            out[n++] = (char)(0xC0 | c >> 6);
+            out[n++] = (char)(0x80 | (c & 0x3F));
+        } else if (c < 0x10000 && n + 3 < size) {
+            out[n++] = (char)(0xE0 | c >> 12);
+            out[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
+            out[n++] = (char)(0x80 | (c & 0x3F));
+        } else if (c >= 0x10000 && n + 4 < size) {
+            out[n++] = (char)(0xF0 | c >> 18);
+            out[n++] = (char)(0x80 | ((c >> 12) & 0x3F));
+            out[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
+            out[n++] = (char)(0x80 | (c & 0x3F));
+        } else {
+            break;
+        }
+    }
+    out[n] = '\0';
+    return 1;
 }
 
 const unsigned char *Cards_DescriptionText(int id)

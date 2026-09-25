@@ -24,6 +24,17 @@ int HdText_Enabled(void);
  * and again when the cell's pixels change. Returns 0 when there is none. */
 int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int factor, int *atlas_u, int *atlas_v);
 
+/* Card titles: the game's plate for a card (96 x 14 texels, 4-bit) set
+ * anew from the card's name (CardArt_TitlePicture) at `factor`, so a card
+ * a mod adds and a translated name read like the rest. func_800289BC tells
+ * where it put a card's plate; a 4-bit primitive sampling those words
+ * (while they are still the plate) draws from the picture: where the
+ * title's texel (0, 0) is in the atlas, and in the page (title_u, title_v),
+ * so a texel u, v is at atlas u + (u - title_u). */
+void HdText_TitleUploaded(int card, int x, int y);
+int HdText_Title(int page_x, int page_y, int u, int v, int factor, int *atlas_u, int *atlas_v, int *title_u,
+                 int *title_v);
+
 /* The atlas: 8-bit indices, *side x *side pixels (0 before the first
  * cell). The rows from *first to *last have changed since the last call
  * (none when *last < *first); the generation changes when the atlas is
