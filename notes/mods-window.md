@@ -7,8 +7,12 @@ text scale when resized. SDL and X11 use the same drawing and input code.
 
 Select a mod to see its description, author, version, source directory, current
 runtime status and native-code/content classification. The Settings tab renders
-the mod's declared integer sliders, toggles, choices and pad-button bindings.
-Restore defaults resets the selected mod's staged settings. Compatibility lists
+the mod's declared integer sliders, toggles, choices and pad-button bindings,
+one block each: the label beside `-` value `+`, the description wrapped under
+them, then an integer's slider. The value box is sized for the widest value the
+setting can take, so choices are never cut off; clicking it steps forward.
+Restore defaults (above the list, which scrolls under it) resets the selected
+mod's staged settings. Compatibility lists
 requirements, ordering constraints, declared conflicts and potential data or
 texture overlap. Lower Order values load first, subject to dependencies.
 
@@ -43,9 +47,15 @@ Apply edits before saving a profile. Profiles do not copy the mods themselves.
 Keyboard: Up/Down select a mod; Left/Right disable/enable; Enter toggles; Tab
 focuses search, then the profile name, then the list. Escape leaves text entry,
 cancels a confirmation, or closes the window. The mouse wheel scrolls whichever
-pane is under the pointer; integer sliders support dragging.
+pane is under the pointer. Both panes show a scrollbar when their contents do
+not fit: drag its thumb, or press the track to jump there. The details scroll by
+pixels, so every tab (About, Settings, Compatibility) reaches its last line;
+integer sliders support dragging.
 
 Implementation: `src/pc/platform/mods_window.c`, `src/pc/mods/manager.c`, and
 window ownership in `sdl.c` / `x11.c`. `pc_mods_window` exercises real settings
 and manifests with a fake renderer/restart. `tools/pc/test_mods_context.sh`
 checks actual SDL/OpenGL context ownership during secondary-window operations.
+`tools/pc/preview_mods.sh` renders the window with the real font and the
+repository's `mods/` to `tmp/pc/mods-*.ppm` for review (`PREVIEW_SCALE=2` for
+the doubled UI).

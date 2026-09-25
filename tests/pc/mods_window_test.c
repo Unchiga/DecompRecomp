@@ -51,9 +51,17 @@ int main(void)
         snprintf(path, sizeof(path), "mods/mod%02d", i);
         make_dir(path);
         snprintf(path, sizeof(path), "mods/mod%02d/mod.json", i);
-        write_text(path, i ? "{}"
-                           : "{\"restart\":true,\"settings\":[{\"key\":\"speed\",\"label\":\"Speed\",\"default\":5,"
-                             "\"min\":0,\"max\":10}]}");
+        if (i == 1) { /* more settings than the details show at once */
+            char json[2048] = "{\"settings\":[";
+            for (int j = 0; j < 12; j++)
+                snprintf(json + strlen(json), sizeof(json) - strlen(json), "%s{\"key\":\"s%d\",\"type\":\"bool\"}",
+                         j ? "," : "", j);
+            strcat(json, "]}");
+            write_text(path, json);
+        } else
+            write_text(path, i ? "{}"
+                               : "{\"restart\":true,\"settings\":[{\"key\":\"speed\",\"label\":\"Speed\",\"default\":5,"
+                                 "\"min\":0,\"max\":10}]}");
     }
     snprintf(path, sizeof(path), "%s/mods", root);
     setenv("MEMORIES_MODS_DIR", path, 1);
@@ -77,16 +85,16 @@ int main(void)
     click(800, 610);
     assert(restarts == 1 && Mods_Enabled(0));
     ModsWindow_Init();
-    click(580, 277); /* settings tab */
-    click(800, 395);
-    input(MENU_EVENT_MOTION, 878, 395, MENU_KEY_OTHER, NULL);
-    input(MENU_EVENT_BUTTON_UP, 878, 395, MENU_KEY_OTHER, NULL);
+    click(620, 238); /* settings tab */
+    click(800, 357);
+    input(MENU_EVENT_MOTION, 878, 357, MENU_KEY_OTHER, NULL);
+    input(MENU_EVENT_BUTTON_UP, 878, 357, MENU_KEY_OTHER, NULL);
     assert(Mods_OptionValue(0, 0) == 5); /* slider edits are staged */
     click(800, 610);
     click(800, 610);
     assert(Mods_OptionValue(0, 0) == 10);
     click(790, 80); /* save Default profile */
-    click(380, 230);
+    click(800, 165); /* disable */
     click(800, 610);
     click(800, 610);
     assert(!Mods_Enabled(0));
@@ -95,6 +103,32 @@ int main(void)
     click(800, 610);
     click(800, 610);
     assert(Mods_Enabled(0) && Mods_OptionValue(0, 0) == 10);
+    ModsWindow_Init();
+    {
+        /* Twelve settings scroll: by wheel, then by dragging the scrollbar. */
+        int many = find("mod01");
+        MenuEvent wheel = {0};
+        wheel.type = MENU_EVENT_WHEEL;
+        wheel.x = 600;
+        wheel.y = 450;
+        click(100, 142 + many * 58 + 20);
+        click(620, 238);
+        wheel.wheel = -1;
+        for (int i = 0; i < 20; i++)
+            ModsWindow_Event(&wheel);
+        click(858, 505); /* the last setting's + */
+        click(800, 610);
+        assert(Mods_OptionValue(many, 11) == 1 && Mods_OptionValue(many, 0) == 0);
+        wheel.wheel = 1;
+        for (int i = 0; i < 20; i++)
+            ModsWindow_Event(&wheel);
+        click(889, 310);
+        input(MENU_EVENT_MOTION, 889, 600, MENU_KEY_OTHER, NULL);
+        input(MENU_EVENT_BUTTON_UP, 889, 600, MENU_KEY_OTHER, NULL);
+        click(858, 505);
+        click(800, 610);
+        assert(Mods_OptionValue(many, 11) == 0 && Mods_OptionValue(many, 0) == 0);
+    }
     ModsWindow_Init();
     click(50, 80);
     input(MENU_EVENT_TEXT, 0, 0, MENU_KEY_OTHER, "mod79");
