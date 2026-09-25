@@ -415,6 +415,15 @@ static const char *fragment_source =
      * Taken before any discard: where in its texel the pixel's centre lies,
      * and how many texels a pixel spans (texture xBR). */
     "    vec2 st = (flags & 32) != 0 ? uv / q : uv;\n"
+    /* The console takes a pixel's texel at its top-left corner. Where the
+     * texels run backwards across the screen, the rest of the pixel lies
+     * below that texel: moved back up (by at most one), a mirrored sprite
+     * shows the console's texels, not the next picture's column. The
+     * vertices' attributes are at the picture pixels' corners (triangle()),
+     * so the last of a pixel's `scale` columns is (scale - 1) / scale on,
+     * as soft_gpu.c moves it; at 1x nothing moves. */
+    "    vec2 back = min(max(-dFdx(st), 0.0) * float(scale), 1.0) + min(max(-dFdy(st), 0.0) * float(scale), 1.0);\n"
+    "    st += back * (1.0 - 1.0 / float(scale));\n"
     "    vec2 half_step = 0.5 * (dFdx(st) + dFdy(st));\n"
     "    float spread = max(fwidth(st.x), fwidth(st.y));\n"
     "    if ((flags & 4) != 0) {\n"
@@ -871,17 +880,20 @@ static void triangle(const Vertex *a, const Vertex *b, const Vertex *c, int flag
     }
 }
 
-/* Whether the first triangle's texels (u, or v with `axis` 1) grow across
- * the screen: rightwards, or downwards where they do not change across.
- * A flat or degenerate triangle counts as growing. */
-static int texels_grow(const Vertex *v, int axis)
+/* Which end of the first triangle's texels (u, or v with `axis` 1) the
+ * console never draws: the rasterizer stops short of the right and bottom
+ * edges, so where the texels grow towards them, the last (1); where they
+ * shrink a texel or more a pixel, the first (2), as a mirrored sprite; else
+ * neither (0). A flat or degenerate triangle counts as growing. */
+static int texel_left_out(const Vertex *v, int axis)
 {
     long long dx1 = v[1].x - v[0].x, dy1 = v[1].y - v[0].y, dx2 = v[2].x - v[0].x, dy2 = v[2].y - v[0].y;
     long long dt1 = axis ? v[1].v - v[0].v : v[1].u - v[0].u, dt2 = axis ? v[2].v - v[0].v : v[2].u - v[0].u;
     long long area = dx1 * dy2 - dx2 * dy1;
     long long across = dt1 * dy2 - dt2 * dy1, down = dx1 * dt2 - dx2 * dt1; /* times the area */
     long long slope = across ? across : down;
-    return !area || !slope || (slope > 0) == (area > 0);
+    if (!area || !slope || (slope > 0) == (area > 0)) return 1;
+    return (slope < 0 ? -slope : slope) >= (area < 0 ? -area : area) ? 2 : 0;
 }
 
 /* A block of pixels x,y,w,h in picture units with the given corners' texels. */
@@ -1024,12 +1036,13 @@ static size_t polygon(const uint32_t *words, size_t count)
         if (v[i].u > bounds_now[2]) bounds_now[2] = v[i].u;
         if (v[i].v > bounds_now[3]) bounds_now[3] = v[i].v;
     }
-    /* The rasterizer stops short of the right and bottom edges (as block()
-     * does), so where the texels grow towards them the last one is never
-     * drawn: past it, an atlas holds the next picture. A mirrored sprite
-     * starts from that texel and draws it. */
-    if (bounds_now[2] > bounds_now[0] && texels_grow(v, 0)) bounds_now[2]--;
-    if (bounds_now[3] > bounds_now[1] && texels_grow(v, 1)) bounds_now[3]--;
+    /* The texels the console draws (as block() does for rectangles): past
+     * them, an atlas holds the next picture. */
+    for (i = 0; i < 2; i++) {
+        int rule = bounds_now[i + 2] > bounds_now[i] ? texel_left_out(v, i) : 0;
+        if (rule == 1) bounds_now[i + 2]--;
+        if (rule == 2) bounds_now[i]++;
+    }
     /* Both halves of a quad or neither, or its diagonal would show. */
     if (textured && v[0].precise && v[1].precise && v[2].precise && (!quad || v[3].precise)) flags |= 32;
     triangle(&v[0], &v[1], &v[2], flags);
