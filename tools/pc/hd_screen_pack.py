@@ -20,6 +20,14 @@ rectangles of the reading), and how each reading is enlarged:
           each piece, wrapped around at its edges so the repeat stays
           seamless.
 
+A sheet may add `alone` (every piece enlarged on its own, its edges carried
+on: tiles, a box's repeated middle) and `pixel` (rectangles of a painted
+reading done by xBR instead: an icon beside a frame). Readings of the same
+pixels (one sheet in several packages) are made once. A recipe's `trim`
+leaves what a reading never draws as its texels four times (small files);
+its `part` is written into each entry as the HD mod's setting
+(hd_assets_pack.py).
+
 Every result is then pulled back to the original: each 4x4 block's average
 is made the texel it came from (a few rounds of back-projection), so colours
 and shading stay the game's and only the detail is new. Transparency keeps
@@ -33,9 +41,16 @@ DECK, the small digits). No scaler makes clean letters of 7-texel ones, so
 after the rest they are set anew in a bold sans (--font; by default the one
 HD text uses), each fitted to the game's letters and drawn in the reading's
 own palette entries: `shadow` style, a word with its shadow a texel down
-and right; `outline` style, one character a cell inside a texel of outline.
-A label names every palette the game reads it with, and each of those
-readings gets it.
+and right (over clear texels when `background` is entry 0, with an `edge`
+colour round the fill if given); `outline` style, one character (or word,
+when `text` is a list) a cell inside a texel of outline;
+`strip` style, a word the game cuts into pieces drawn side by side, set once
+across them and anti-aliased from the background to the fill. A label names
+every palette the game reads it with (and `offset` may list the packages),
+and each of those readings gets it; `bpp` 8 reads an 8-bit sheet, `font` is
+a fontconfig pattern of its own ("serif:bold"), and `clip` keeps an
+outlined letter to the game's glyph texels (texels drawn both plain and
+subtracted).
 
 Usage: hd_screen_pack.py tools/pc/hd_recipes/build_deck.json
                          [--data game/DATA] [--out <mods>/<id>]
@@ -100,8 +115,8 @@ class Scaler:
     def unpad(self, big):
         return big[PAD * S:-PAD * S, PAD * S:-PAD * S]
 
-    def xbr(self, rgb):
-        return self.unpad(self.ffmpeg([self.pad(rgb, "symmetric")], "xbr=4")[0])
+    def xbr(self, rgb, mode="symmetric"):
+        return self.unpad(self.ffmpeg([self.pad(rgb, mode)], "xbr=4")[0])
 
     def ffmpeg(self, images, filt):
         out = []
@@ -124,11 +139,18 @@ class Scaler:
         padded = [self.pad(rgb, mode) for rgb, mode in jobs]
         for i, image in enumerate(padded):
             Image.fromarray(image).save(os.path.join(src, f"{i:05d}.png"))
-        result = subprocess.run([self.upscaler, "-i", src, "-o", dst, "-m", self.models, "-n", self.model,
-                                 "-s", "4", "-f", "png"], capture_output=True)
-        self.runs += 1
-        if result.returncode != 0:
-            sys.exit(f"{self.upscaler} failed:\n{result.stderr.decode('utf-8', 'replace')[-2000:]}")
+        for attempt in range(3):
+            result = subprocess.run([self.upscaler, "-i", src, "-o", dst, "-m", self.models, "-n", self.model,
+                                     "-s", "4", "-f", "png"], capture_output=True)
+            self.runs += 1
+            if result.returncode != 0:
+                sys.exit(f"{self.upscaler} failed:\n{result.stderr.decode('utf-8', 'replace')[-2000:]}")
+            # the upscaler has been seen to exit with an output not yet whole: run it again
+            if all(readable(os.path.join(dst, f"{i:05d}.png")) for i in range(len(padded))):
+                break
+        else:
+            bad = [i for i in range(len(padded)) if not readable(os.path.join(dst, f"{i:05d}.png"))]
+            sys.exit(f"{self.upscaler} left {len(bad)} unreadable outputs in {dst} (first {bad[:5]})")
         out = []
         for i, image in enumerate(padded):
             model = np.array(Image.open(os.path.join(dst, f"{i:05d}.png")).convert("RGB"), dtype=np.float64)
@@ -137,6 +159,15 @@ class Scaler:
             mixed = np.clip(model * self.share + lanczos * (1 - self.share), 0, 255).round().astype(np.uint8)
             out.append(self.unpad(mixed))
         return out
+
+
+def readable(path):
+    try:
+        with Image.open(path) as image:
+            image.load()
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def fill_transparent(rgb, mask):
@@ -200,9 +231,11 @@ class Reading:
         self.rgb, self.mask = image[..., :3], image[..., 3] >= 128
         self.out = blocks(image).copy()
         self.method = sheet["method"]
+        self.alone = sheet.get("alone", False)
+        self.pixel = [tuple(r) for r in sheet.get("pixel", [])]
         self.rects = sorted({tuple(r) for r in sheet["rects"]}, key=lambda r: -r[2] * r[3])
         used = np.zeros(self.mask.shape, bool)
-        for x, y, w, h in self.rects:
+        for x, y, w, h in self.rects + self.pixel:
             used[y:y + h, x:x + w] = True
         self.used = used
 
@@ -246,7 +279,24 @@ SCALER = None
 
 
 def build(readings):
-    """Every reading's pieces through its method, the model's in two batched runs."""
+    """Every reading's pieces through its method, the model's in two batched runs.
+    Readings of the same pixels by the same recipe (one sheet in several
+    packages) are made once."""
+    made, copies = {}, []
+    for reading in readings:
+        key = (reading.rgb.tobytes(), reading.mask.tobytes(), reading.method, reading.alone, tuple(reading.rects))
+        if key in made:
+            copies.append((reading, made[key]))
+        else:
+            made[key] = reading
+    readings = list(made.values())
+    cuts = build_unique(readings)
+    for reading, same in copies:
+        reading.out = same.out.copy()
+    return cuts
+
+
+def build_unique(readings):
     first, jobs = [], []
     for reading in readings:
         if reading.method == "tile":
@@ -255,6 +305,15 @@ def build(readings):
                 rgb = fill_transparent(reading.rgb[y:y + h, x:x + w], region)
                 first.append((reading, y, x, region, rgb, True))
                 jobs.append((rgb, "wrap"))
+            continue
+        if reading.method == "pixel" and reading.alone:
+            # pieces the game repeats side by side (a box's middle): each
+            # alone, its edges carried on, so the repeats meet without a seam
+            for x, y, w, h in reading.rects:
+                region = reading.mask[y:y + h, x:x + w]
+                if region.any():
+                    rgb = fill_transparent(reading.rgb[y:y + h, x:x + w], region)
+                    reading.lay(y, x, region, SCALER.xbr(rgb, "edge"), rgb)
             continue
         for y0, x0, region in reading.pieces():
             h, w = region.shape
@@ -278,13 +337,25 @@ def build(readings):
         sheet = Image.fromarray(np.dstack([reading.rgb, reading.mask * 255]).astype(np.uint8))
         for x, y, w, h in reading.rects:
             region = reading.mask[y:y + h, x:x + w]
-            if w < 2 or h < 2 or not region.any() or not cut_stands_out(sheet, (x, y, w, h)):
+            if w < 2 or h < 2 or not region.any():
+                continue
+            if not reading.alone and not cut_stands_out(sheet, (x, y, w, h)):
                 continue
             rgb = fill_transparent(reading.rgb[y:y + h, x:x + w], region)
             cuts.append((reading, x, y, w, h, region, rgb))
             jobs.append((rgb, "edge"))
     for (reading, x, y, w, h, region, rgb), big in zip(cuts, SCALER.models_run(jobs)):
         reading.out[y * S:(y + h) * S, x * S:(x + w) * S, :3] = back_project(big, rgb, region)
+    # few-colour pieces on a painted sheet (an icon beside a frame): xBR, each region alone
+    for reading in readings:
+        for x, y, w, h in reading.pixel:
+            labels, count = regions(reading.mask[y:y + h, x:x + w])
+            for label in range(1, count + 1):
+                ys, xs = np.nonzero(labels == label)
+                y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+                region = (labels == label)[y0:y1, x0:x1]
+                rgb = fill_transparent(reading.rgb[y + y0:y + y1, x + x0:x + x1], region)
+                reading.lay(y + y0, x + x0, region, SCALER.xbr(rgb), rgb)
     return len(cuts)
 
 
@@ -329,7 +400,7 @@ def grow(cover, radius):
 
 
 def indices(data, entry, rect):
-    """The 4-bit palette indices of a reading's rectangle (x, y, w, h)."""
+    """The 4- or 8-bit palette indices of a reading's rectangle (x, y, w, h)."""
     x0, y0, w, h = rect
     stride = entry.get("stride") or entry["words"]
     rows = entry.get("row_offsets")
@@ -337,14 +408,17 @@ def indices(data, entry, rect):
     for y in range(h):
         at = entry["offset"] + (rows[y0 + y] if rows else (y0 + y) * stride * 2)
         for x in range(w):
+            if entry["bpp"] == 8:
+                out[y, x] = data[at + x0 + x]
+                continue
             byte = data[at + (x0 + x) // 2]
             out[y, x] = byte >> 4 if (x0 + x) & 1 else byte & 15
     return out
 
 
-def colours(data, clut):
-    return np.frombuffer(b"".join(extract_images.expand(c) for c in extract_images.read_palette(data, clut, 16)),
-                         np.uint8).reshape(16, 4).astype(np.float64)
+def colours(data, clut, entries=16):
+    return np.frombuffer(b"".join(extract_images.expand(c) for c in extract_images.read_palette(data, clut, entries)),
+                         np.uint8).reshape(entries, 4).astype(np.float64)
 
 
 def paint(picture, cover, colour):
@@ -360,25 +434,52 @@ def paint(picture, cover, colour):
 def draw_label(label, data, entry, reading, font_file):
     """A label set anew in the font, in place of the game's letters.
     `shadow`: a word (CHEST) in `fill`, with a shadow in the first of
-    `shadow` a texel down and right, as big as the game's letters (the texels
-    of `rect` that are neither `background` nor `shadow`); every other texel
-    of `rect` becomes the background round it. `outline`: characters, one per
-    cell, in `fill` inside a texel of `outline`, each as tall as the game's."""
-    palette = colours(data, entry["clut_offset"])
+    `shadow` (if any) a texel down and right, and under the fill an `edge`
+    (if given) round it, as big as the game's letters (the texels of `rect`
+    that are neither `background` nor `shadow`); every other texel of `rect`
+    becomes the background round it, or stays clear where the background is
+    the transparent entry 0. `outline`: characters, or words when `text` is a
+    list, one per cell, in `fill` inside a texel of `outline`, each as tall
+    as the game's."""
+    palette = colours(data, entry["clut_offset"], 256 if entry["bpp"] == 8 else 16)
+    if label["style"] == "strip":
+        # A word the game cuts into pieces drawn side by side (MEAD + OW),
+        # some through a letter: set once across the pieces laid in a row,
+        # anti-aliased from `background` to `fill` as the game's letters are,
+        # and cut back at the same places. Clear texels stay clear.
+        rects = label["rects"]
+        index = np.concatenate([indices(data, entry, r) for r in rects], 1)
+        ys, xs = np.nonzero(~np.isin(index, [0] + label["background"]))
+        x0, y0, x1, y1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+        ink = np.zeros((index.shape[0] * S, index.shape[1] * S))
+        ink[y0 * S:y1 * S, x0 * S:x1 * S] = text_cover(label["text"], font_file, (x1 - x0) * S, (y1 - y0) * S)
+        back, front = palette[label["background"][0]], palette[label["fill"]]
+        picture = back * (1 - ink[..., None]) + front * ink[..., None]
+        picture[..., 3] = blocks(index != 0) * 255
+        at = 0
+        for x, y, w, h in rects:
+            reading.out[y * S:(y + h) * S, x * S:(x + w) * S] = picture[:, at * S:(at + w) * S].round().astype(np.uint8)
+            at += w
+        return
     if label["style"] == "shadow":
         x, y, w, h = label["rect"]
         index = indices(data, entry, label["rect"])
+        shadows = label.get("shadow", [])
         clear = np.isin(index, label["background"])
-        ys, xs = np.nonzero(~clear & ~np.isin(index, label["shadow"]))
+        ys, xs = np.nonzero(~clear & ~np.isin(index, shadows))
         x0, y0, x1, y1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
         picture = blocks(fill_transparent(palette[index][..., :3], clear)).astype(np.float64)
-        picture = np.concatenate([picture, np.full(picture.shape[:2] + (1,), 255.0)], -1)
+        opaque = clear & (index != 0) if 0 in label["background"] else np.ones(index.shape, bool)
+        picture = np.concatenate([picture, blocks(opaque)[..., None] * 255.0], -1)
         body = text_cover(label["text"], font_file, (x1 - x0) * S, (y1 - y0) * S)
-        shade = np.zeros((h * S, w * S))
-        shade[(y0 + 1) * S:(y1 + 1) * S, (x0 + 1) * S:(x1 + 1) * S] = body[:(h - y0 - 1) * S, :(w - x0 - 1) * S]
-        paint(picture, shade, palette[label["shadow"][0]])
+        if shadows:
+            shade = np.zeros((h * S, w * S))
+            shade[(y0 + 1) * S:(y1 + 1) * S, (x0 + 1) * S:(x1 + 1) * S] = body[:(h - y0 - 1) * S, :(w - x0 - 1) * S]
+            paint(picture, shade, palette[shadows[0]])
         ink = np.zeros((h * S, w * S))
         ink[y0 * S:y1 * S, x0 * S:x1 * S] = body
+        if "edge" in label:
+            paint(picture, grow(ink, S // 2), palette[label["edge"]])
         paint(picture, ink, palette[label["fill"]])
         reading.out[y * S:(y + h) * S, x * S:(x + w) * S] = picture.round().astype(np.uint8)
         return
@@ -397,7 +498,31 @@ def draw_label(label, data, entry, reading, font_file):
         picture = np.zeros((h * S, w * S, 4))
         paint(picture, grow(ink, S), palette[label["outline"]])
         paint(picture, ink, palette[label["fill"]])
+        if label.get("clip"):
+            # Only over the game's own letter: the same texels are drawn plain
+            # in one place and subtracted in another (the hand's numbers and
+            # the life points), and a pack pixel over a clear texel is never
+            # blended, so a letter reaching past the old one would show there
+            # in the wrong colours.
+            picture[..., 3] *= blocks(index != 0)
         reading.out[y * S:(y + h) * S, x * S:(x + w) * S] = picture.round().astype(np.uint8)
+
+
+def label_font(label, default):
+    """The label's own font (a fontconfig pattern, "serif:bold"), else the default."""
+    pattern = label.get("font")
+    if not pattern:
+        return default
+    if shutil.which("fc-match"):
+        found = subprocess.run(["fc-match", "-f", "%{file}", pattern], capture_output=True, text=True)
+        if found.returncode == 0 and os.path.isfile(found.stdout):
+            return found.stdout
+    if os.name == "nt" and "serif" in pattern and "sans" not in pattern:
+        fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        for name in ("georgiab.ttf", "timesbd.ttf"):
+            if os.path.isfile(os.path.join(fonts, name)):
+                return os.path.join(fonts, name)
+    return default
 
 
 def main():
@@ -439,25 +564,37 @@ def main():
             reading.name = entry["file"].replace("sheets/", "").replace("/", "-")
             readings.append(reading)
             entries.append(dict(entry, file=reading.name, alias=f"{recipe['name']}: {sheet['what']}"))
+            if "part" in recipe:   # the HD mod's part (hd_assets_pack.py); a pack alone ignores it
+                entries[-1]["setting"] = recipe["part"]
         print(f"{len(readings)} readings: model {upscaler} ({args.model}), xBR through ffmpeg")
         cuts = build(readings)
+        if recipe.get("trim"):
+            # Outside what the game draws with a reading, its texels four
+            # times: nothing there is ever seen, and it keeps the files small.
+            for reading in readings:
+                keep = blocks(reading.used)[..., None]
+                plain = blocks(np.dstack([reading.rgb, reading.mask * 255]).astype(np.uint8))
+                reading.out = np.where(keep, reading.out, plain)
         labels = recipe.get("labels", [])
         if labels:
             font_file = args.font or default_font()
             data = {}
             for label in labels:
                 wanted = {int(p, 16) for p in label["palettes"]}
+                offsets = label["offset"] if isinstance(label["offset"], list) else [label["offset"]]
+                offsets = {int(o, 16) for o in offsets}
+                font = label_font(label, font_file)
                 drawn = 0
                 for reading in readings:
                     e = reading.entry
-                    if (e["archive"], e["offset"], e["bpp"]) == (label["archive"], int(label["offset"], 16), 4) \
-                            and e.get("clut_offset") in wanted:
+                    if e["archive"] == label["archive"] and e["offset"] in offsets \
+                            and e["bpp"] == label.get("bpp", 4) and e.get("clut_offset") in wanted:
                         if e["archive"] not in data:
                             data[e["archive"]] = extractor.archive(e["archive"])
-                        draw_label(label, data[e["archive"]], e, reading, font_file)
+                        draw_label(label, data[e["archive"]], e, reading, font)
                         drawn += 1
-                if drawn != len(wanted):
-                    sys.exit(f"label {label['what']}: {drawn} of {len(wanted)} palettes are readings of the recipe")
+                if drawn != len(wanted) * len(offsets):
+                    sys.exit(f"label {label['what']}: {drawn} of {len(wanted) * len(offsets)} readings are in the recipe")
             print(f"{len(labels)} labels set in {font_file}")
         if os.path.isdir(out):
             shutil.rmtree(out)

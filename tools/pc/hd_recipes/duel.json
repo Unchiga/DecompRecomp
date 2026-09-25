@@ -1,0 +1,7855 @@
+{
+ "id": "hd-duel",
+ "name": "HD Duel",
+ "version": "1.0",
+ "author": "Unchiga",
+ "part": "duel",
+ "trim": true,
+ "description": "The duel redrawn at 4x from your own disc: the platform of all seven fields, the hand's card frames, their words and numbers, the FIELD box and the life points. Shows best at View > Internal 4x.",
+ "capture": "A campaign duel from a cold boot (tests/pc/smoke/duel-hand-camera.json's input), dumped with MEMORIES_DUMP_TEXTURES_FROM once the duel began; the arena is drawn by one code for every field, so the normal field's pieces are every field's, at each package's offsets.",
+ "sheets": [
+  {
+   "what": "normal field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbc8800",
+   "bpp": 4,
+   "palette": "0xbd0700",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "normal field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbc8800",
+   "bpp": 4,
+   "palette": "0xbd0720",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "normal field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbc8800",
+   "bpp": 4,
+   "palette": "0xbd0740",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "normal field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbc8800",
+   "bpp": 4,
+   "palette": "0xbd0760",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "normal field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbc8800",
+   "bpp": 4,
+   "palette": "0xbd0780",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7920",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7940",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7960",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7980",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd79a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7a20",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7a40",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7a60",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "normal field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbd0800",
+   "bpp": 4,
+   "palette": "0xbd7a80",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "forest field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc3e000",
+   "bpp": 4,
+   "palette": "0xc45f00",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "forest field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc3e000",
+   "bpp": 4,
+   "palette": "0xc45f20",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "forest field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc3e000",
+   "bpp": 4,
+   "palette": "0xc45f40",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "forest field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc3e000",
+   "bpp": 4,
+   "palette": "0xc45f60",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "forest field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc3e000",
+   "bpp": 4,
+   "palette": "0xc45f80",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d120",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d140",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d160",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d180",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d1a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d220",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d240",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d260",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "forest field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc46000",
+   "bpp": 4,
+   "palette": "0xc4d280",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcb3800",
+   "bpp": 4,
+   "palette": "0xcbb700",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcb3800",
+   "bpp": 4,
+   "palette": "0xcbb720",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcb3800",
+   "bpp": 4,
+   "palette": "0xcbb740",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcb3800",
+   "bpp": 4,
+   "palette": "0xcbb760",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcb3800",
+   "bpp": 4,
+   "palette": "0xcbb780",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2920",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2940",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2960",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2980",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc29a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2a20",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2a40",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2a60",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "wasteland field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcbb800",
+   "bpp": 4,
+   "palette": "0xcc2a80",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd29000",
+   "bpp": 4,
+   "palette": "0xd30f00",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd29000",
+   "bpp": 4,
+   "palette": "0xd30f20",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd29000",
+   "bpp": 4,
+   "palette": "0xd30f40",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd29000",
+   "bpp": 4,
+   "palette": "0xd30f60",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd29000",
+   "bpp": 4,
+   "palette": "0xd30f80",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38120",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38140",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38160",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38180",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd381a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38220",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38240",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38260",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "mountain field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd31000",
+   "bpp": 4,
+   "palette": "0xd38280",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd9e800",
+   "bpp": 4,
+   "palette": "0xda6700",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd9e800",
+   "bpp": 4,
+   "palette": "0xda6720",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd9e800",
+   "bpp": 4,
+   "palette": "0xda6740",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd9e800",
+   "bpp": 4,
+   "palette": "0xda6760",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd9e800",
+   "bpp": 4,
+   "palette": "0xda6780",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdad920",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdad940",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdad960",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdad980",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdad9a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdada00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdada20",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdada40",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdada60",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "meadow field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xda6800",
+   "bpp": 4,
+   "palette": "0xdada80",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "sea field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe14000",
+   "bpp": 4,
+   "palette": "0xe1bf00",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "sea field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe14000",
+   "bpp": 4,
+   "palette": "0xe1bf20",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "sea field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe14000",
+   "bpp": 4,
+   "palette": "0xe1bf40",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "sea field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe14000",
+   "bpp": 4,
+   "palette": "0xe1bf60",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "sea field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe14000",
+   "bpp": 4,
+   "palette": "0xe1bf80",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23120",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23140",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23160",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23180",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe231a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23220",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23240",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23260",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "sea field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe1c000",
+   "bpp": 4,
+   "palette": "0xe23280",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "dark field: floor tiles, band 1",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe89800",
+   "bpp": 4,
+   "palette": "0xe91700",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     0,
+     51,
+     51
+    ],
+    [
+     51,
+     0,
+     51,
+     51
+    ],
+    [
+     102,
+     0,
+     51,
+     51
+    ],
+    [
+     153,
+     0,
+     51,
+     51
+    ],
+    [
+     204,
+     0,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "dark field: floor tiles, band 2",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe89800",
+   "bpp": 4,
+   "palette": "0xe91720",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     52,
+     51,
+     51
+    ],
+    [
+     51,
+     52,
+     51,
+     51
+    ],
+    [
+     102,
+     52,
+     51,
+     51
+    ],
+    [
+     153,
+     52,
+     51,
+     51
+    ],
+    [
+     204,
+     52,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "dark field: floor tiles, band 3",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe89800",
+   "bpp": 4,
+   "palette": "0xe91740",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     104,
+     51,
+     51
+    ],
+    [
+     51,
+     104,
+     51,
+     51
+    ],
+    [
+     102,
+     104,
+     51,
+     51
+    ],
+    [
+     153,
+     104,
+     51,
+     51
+    ],
+    [
+     204,
+     104,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "dark field: floor tiles, band 4",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe89800",
+   "bpp": 4,
+   "palette": "0xe91760",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     156,
+     51,
+     51
+    ],
+    [
+     51,
+     156,
+     51,
+     51
+    ],
+    [
+     102,
+     156,
+     51,
+     51
+    ],
+    [
+     153,
+     156,
+     51,
+     51
+    ],
+    [
+     204,
+     156,
+     51,
+     51
+    ]
+   ]
+  },
+  {
+   "what": "dark field: floor tiles, band 5",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe89800",
+   "bpp": 4,
+   "palette": "0xe91780",
+   "method": "model",
+   "alone": true,
+   "rects": [
+    [
+     0,
+     208,
+     48,
+     45
+    ],
+    [
+     48,
+     208,
+     53,
+     45
+    ],
+    [
+     101,
+     208,
+     53,
+     45
+    ],
+    [
+     154,
+     208,
+     53,
+     45
+    ],
+    [
+     207,
+     208,
+     48,
+     45
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98920",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     64,
+     63
+    ],
+    [
+     0,
+     0,
+     127,
+     63
+    ],
+    [
+     64,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98940",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     0,
+     64,
+     63
+    ],
+    [
+     128,
+     0,
+     127,
+     63
+    ],
+    [
+     192,
+     0,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98960",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98980",
+   "method": "model",
+   "rects": [
+    [
+     64,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe989a0",
+   "method": "model",
+   "rects": [
+    [
+     128,
+     64,
+     64,
+     63
+    ],
+    [
+     128,
+     64,
+     127,
+     63
+    ],
+    [
+     192,
+     64,
+     63,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     48,
+     20
+    ],
+    [
+     0,
+     128,
+     48,
+     95
+    ],
+    [
+     20,
+     128,
+     55,
+     20
+    ],
+    [
+     20,
+     148,
+     55,
+     56
+    ],
+    [
+     48,
+     128,
+     47,
+     20
+    ],
+    [
+     48,
+     128,
+     47,
+     95
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98a20",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98a40",
+   "method": "model",
+   "rects": [
+    [
+     144,
+     128,
+     47,
+     63
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98a60",
+   "method": "model",
+   "rects": [
+    [
+     192,
+     128,
+     63,
+     47
+    ]
+   ]
+  },
+  {
+   "what": "dark field: the platform's sides and trim",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe91800",
+   "bpp": 4,
+   "palette": "0xe98a80",
+   "method": "model",
+   "rects": [
+    [
+     96,
+     192,
+     4,
+     15
+    ],
+    [
+     96,
+     192,
+     25,
+     5
+    ],
+    [
+     96,
+     192,
+     51,
+     5
+    ],
+    [
+     96,
+     202,
+     25,
+     5
+    ],
+    [
+     100,
+     192,
+     47,
+     5
+    ],
+    [
+     100,
+     197,
+     47,
+     5
+    ],
+    [
+     100,
+     202,
+     47,
+     5
+    ],
+    [
+     121,
+     192,
+     26,
+     5
+    ],
+    [
+     121,
+     202,
+     26,
+     5
+    ],
+    [
+     147,
+     192,
+     25,
+     5
+    ],
+    [
+     147,
+     197,
+     25,
+     5
+    ],
+    [
+     147,
+     202,
+     25,
+     5
+    ],
+    [
+     172,
+     192,
+     26,
+     5
+    ],
+    [
+     172,
+     192,
+     47,
+     5
+    ],
+    [
+     172,
+     192,
+     51,
+     5
+    ],
+    [
+     172,
+     197,
+     47,
+     5
+    ],
+    [
+     172,
+     202,
+     26,
+     5
+    ],
+    [
+     172,
+     202,
+     47,
+     5
+    ],
+    [
+     198,
+     192,
+     25,
+     5
+    ],
+    [
+     198,
+     202,
+     25,
+     5
+    ],
+    [
+     219,
+     192,
+     4,
+     15
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palette": "0xb83200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palette": "0xb83400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palette": "0xb83600",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palette": "0xb83800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palette": "0xb83a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palette": "0xb83c00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (normal)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb7b000",
+   "bpp": 4,
+   "palette": "0xb83000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palette": "0xbf8a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palette": "0xbf8c00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palette": "0xbf8e00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palette": "0xbf9000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palette": "0xbf9200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palette": "0xbf9400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (forest)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbf0800",
+   "bpp": 4,
+   "palette": "0xbf8800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palette": "0xc6e200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palette": "0xc6e400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palette": "0xc6e600",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palette": "0xc6e800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palette": "0xc6ea00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palette": "0xc6ec00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (wasteland)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc66000",
+   "bpp": 4,
+   "palette": "0xc6e000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palette": "0xce3a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palette": "0xce3c00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palette": "0xce3e00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palette": "0xce4000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palette": "0xce4200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palette": "0xce4400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (mountain)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcdb800",
+   "bpp": 4,
+   "palette": "0xce3800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palette": "0xd59200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palette": "0xd59400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palette": "0xd59600",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palette": "0xd59800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palette": "0xd59a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palette": "0xd59c00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (meadow)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd51000",
+   "bpp": 4,
+   "palette": "0xd59000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palette": "0xdcea00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palette": "0xdcec00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palette": "0xdcee00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palette": "0xdcf000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palette": "0xdcf200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palette": "0xdcf400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (sea)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdc6800",
+   "bpp": 4,
+   "palette": "0xdce800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, monster (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palette": "0xe44200",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, magic (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palette": "0xe44400",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, trap (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palette": "0xe44600",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, ritual (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palette": "0xe44800",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, purple (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palette": "0xe44a00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "hand card frame and back, orange (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palette": "0xe44c00",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     128,
+     52,
+     60
+    ],
+    [
+     58,
+     130,
+     48,
+     56
+    ]
+   ],
+   "pixel": [
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ]
+  },
+  {
+   "what": "card info bar (dark)",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe3c000",
+   "bpp": 4,
+   "palette": "0xe44000",
+   "method": "model",
+   "rects": [
+    [
+     0,
+     0,
+     128,
+     64
+    ],
+    [
+     0,
+     64,
+     64,
+     64
+    ],
+    [
+     127,
+     56,
+     128,
+     8
+    ],
+    [
+     128,
+     56,
+     128,
+     8
+    ],
+    [
+     176,
+     0,
+     64,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "FIELD box",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "bpp": 4,
+   "palette": "0xb609a0",
+   "method": "pixel",
+   "alone": true,
+   "rects": [
+    [
+     24,
+     96,
+     8,
+     24
+    ],
+    [
+     32,
+     96,
+     8,
+     24
+    ],
+    [
+     40,
+     96,
+     24,
+     24
+    ],
+    [
+     48,
+     96,
+     16,
+     24
+    ],
+    [
+     112,
+     64,
+     16,
+     16
+    ],
+    [
+     24,
+     88,
+     40,
+     8
+    ]
+   ]
+  },
+  {
+   "what": "life points panel",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "bpp": 4,
+   "palette": "0xb609c0",
+   "method": "pixel",
+   "rects": [
+    [
+     128,
+     128,
+     64,
+     40
+    ]
+   ]
+  },
+  {
+   "what": "turn arrows",
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "bpp": 4,
+   "palette": "0xb60840",
+   "method": "pixel",
+   "rects": [
+    [
+     0,
+     144,
+     15,
+     16
+    ],
+    [
+     15,
+     144,
+     16,
+     16
+    ],
+    [
+     31,
+     144,
+     16,
+     16
+    ],
+    [
+     47,
+     144,
+     16,
+     16
+    ],
+    [
+     63,
+     144,
+     16,
+     8
+    ],
+    [
+     79,
+     144,
+     16,
+     16
+    ],
+    [
+     95,
+     144,
+     16,
+     16
+    ],
+    [
+     111,
+     144,
+     16,
+     16
+    ]
+   ]
+  }
+ ],
+ "labels": [
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palettes": [
+    "0xb83200",
+    "0xb83400",
+    "0xb83600",
+    "0xb83800",
+    "0xb83a00",
+    "0xb83c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (normal)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palettes": [
+    "0xb83200",
+    "0xb83400",
+    "0xb83600",
+    "0xb83800",
+    "0xb83a00",
+    "0xb83c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (normal)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palettes": [
+    "0xb83200",
+    "0xb83400",
+    "0xb83600",
+    "0xb83800",
+    "0xb83a00",
+    "0xb83c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (normal)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb73000",
+   "bpp": 8,
+   "palettes": [
+    "0xb83200",
+    "0xb83400",
+    "0xb83600",
+    "0xb83800",
+    "0xb83a00",
+    "0xb83c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (normal)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palettes": [
+    "0xbf8a00",
+    "0xbf8c00",
+    "0xbf8e00",
+    "0xbf9000",
+    "0xbf9200",
+    "0xbf9400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (forest)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palettes": [
+    "0xbf8a00",
+    "0xbf8c00",
+    "0xbf8e00",
+    "0xbf9000",
+    "0xbf9200",
+    "0xbf9400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (forest)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palettes": [
+    "0xbf8a00",
+    "0xbf8c00",
+    "0xbf8e00",
+    "0xbf9000",
+    "0xbf9200",
+    "0xbf9400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (forest)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xbe8800",
+   "bpp": 8,
+   "palettes": [
+    "0xbf8a00",
+    "0xbf8c00",
+    "0xbf8e00",
+    "0xbf9000",
+    "0xbf9200",
+    "0xbf9400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (forest)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palettes": [
+    "0xc6e200",
+    "0xc6e400",
+    "0xc6e600",
+    "0xc6e800",
+    "0xc6ea00",
+    "0xc6ec00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (wasteland)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palettes": [
+    "0xc6e200",
+    "0xc6e400",
+    "0xc6e600",
+    "0xc6e800",
+    "0xc6ea00",
+    "0xc6ec00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (wasteland)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palettes": [
+    "0xc6e200",
+    "0xc6e400",
+    "0xc6e600",
+    "0xc6e800",
+    "0xc6ea00",
+    "0xc6ec00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (wasteland)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xc5e000",
+   "bpp": 8,
+   "palettes": [
+    "0xc6e200",
+    "0xc6e400",
+    "0xc6e600",
+    "0xc6e800",
+    "0xc6ea00",
+    "0xc6ec00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (wasteland)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palettes": [
+    "0xce3a00",
+    "0xce3c00",
+    "0xce3e00",
+    "0xce4000",
+    "0xce4200",
+    "0xce4400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (mountain)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palettes": [
+    "0xce3a00",
+    "0xce3c00",
+    "0xce3e00",
+    "0xce4000",
+    "0xce4200",
+    "0xce4400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (mountain)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palettes": [
+    "0xce3a00",
+    "0xce3c00",
+    "0xce3e00",
+    "0xce4000",
+    "0xce4200",
+    "0xce4400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (mountain)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xcd3800",
+   "bpp": 8,
+   "palettes": [
+    "0xce3a00",
+    "0xce3c00",
+    "0xce3e00",
+    "0xce4000",
+    "0xce4200",
+    "0xce4400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (mountain)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palettes": [
+    "0xd59200",
+    "0xd59400",
+    "0xd59600",
+    "0xd59800",
+    "0xd59a00",
+    "0xd59c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (meadow)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palettes": [
+    "0xd59200",
+    "0xd59400",
+    "0xd59600",
+    "0xd59800",
+    "0xd59a00",
+    "0xd59c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (meadow)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palettes": [
+    "0xd59200",
+    "0xd59400",
+    "0xd59600",
+    "0xd59800",
+    "0xd59a00",
+    "0xd59c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (meadow)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xd49000",
+   "bpp": 8,
+   "palettes": [
+    "0xd59200",
+    "0xd59400",
+    "0xd59600",
+    "0xd59800",
+    "0xd59a00",
+    "0xd59c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (meadow)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palettes": [
+    "0xdcea00",
+    "0xdcec00",
+    "0xdcee00",
+    "0xdcf000",
+    "0xdcf200",
+    "0xdcf400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (sea)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palettes": [
+    "0xdcea00",
+    "0xdcec00",
+    "0xdcee00",
+    "0xdcf000",
+    "0xdcf200",
+    "0xdcf400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (sea)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palettes": [
+    "0xdcea00",
+    "0xdcec00",
+    "0xdcee00",
+    "0xdcf000",
+    "0xdcf200",
+    "0xdcf400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (sea)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xdbe800",
+   "bpp": 8,
+   "palettes": [
+    "0xdcea00",
+    "0xdcec00",
+    "0xdcee00",
+    "0xdcf000",
+    "0xdcf200",
+    "0xdcf400"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (sea)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palettes": [
+    "0xe44200",
+    "0xe44400",
+    "0xe44600",
+    "0xe44800",
+    "0xe44a00",
+    "0xe44c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "card kind words (dark)",
+   "font": "serif:bold",
+   "text": [
+    "Magic",
+    "Equip",
+    "Trap",
+    "Ritual"
+   ],
+   "cells": [
+    [
+     0,
+     96,
+     32,
+     16
+    ],
+    [
+     32,
+     96,
+     32,
+     16
+    ],
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     96,
+     96,
+     32,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palettes": [
+    "0xe44200",
+    "0xe44400",
+    "0xe44600",
+    "0xe44800",
+    "0xe44a00",
+    "0xe44c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "hand ATK/DEF and life point digits (dark)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     88,
+     8,
+     8
+    ],
+    [
+     8,
+     88,
+     8,
+     8
+    ],
+    [
+     16,
+     88,
+     8,
+     8
+    ],
+    [
+     24,
+     88,
+     8,
+     8
+    ],
+    [
+     32,
+     88,
+     8,
+     8
+    ],
+    [
+     40,
+     88,
+     8,
+     8
+    ],
+    [
+     48,
+     88,
+     8,
+     8
+    ],
+    [
+     56,
+     88,
+     8,
+     8
+    ],
+    [
+     64,
+     88,
+     8,
+     8
+    ],
+    [
+     72,
+     88,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palettes": [
+    "0xe44200",
+    "0xe44400",
+    "0xe44600",
+    "0xe44800",
+    "0xe44a00",
+    "0xe44c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "small digits, second set (dark)",
+   "text": "0123456789",
+   "cells": [
+    [
+     8,
+     80,
+     8,
+     8
+    ],
+    [
+     16,
+     80,
+     8,
+     8
+    ],
+    [
+     24,
+     80,
+     8,
+     8
+    ],
+    [
+     32,
+     80,
+     8,
+     8
+    ],
+    [
+     40,
+     80,
+     8,
+     8
+    ],
+    [
+     48,
+     80,
+     8,
+     8
+    ],
+    [
+     56,
+     80,
+     8,
+     8
+    ],
+    [
+     64,
+     80,
+     8,
+     8
+    ],
+    [
+     72,
+     80,
+     8,
+     8
+    ],
+    [
+     80,
+     80,
+     8,
+     8
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xe34000",
+   "bpp": 8,
+   "palettes": [
+    "0xe44200",
+    "0xe44400",
+    "0xe44600",
+    "0xe44800",
+    "0xe44a00",
+    "0xe44c00"
+   ],
+   "style": "outline",
+   "fill": 114,
+   "outline": 112,
+   "clip": true,
+   "what": "large digits (dark)",
+   "text": "0123456789",
+   "cells": [
+    [
+     0,
+     112,
+     12,
+     16
+    ],
+    [
+     12,
+     112,
+     12,
+     16
+    ],
+    [
+     24,
+     112,
+     12,
+     16
+    ],
+    [
+     36,
+     112,
+     12,
+     16
+    ],
+    [
+     48,
+     112,
+     12,
+     16
+    ],
+    [
+     60,
+     112,
+     12,
+     16
+    ],
+    [
+     72,
+     112,
+     12,
+     16
+    ],
+    [
+     84,
+     112,
+     12,
+     16
+    ],
+    [
+     96,
+     112,
+     12,
+     16
+    ],
+    [
+     108,
+     112,
+     12,
+     16
+    ]
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "FIELD",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "shadow",
+   "text": "FIELD",
+   "rect": [
+    24,
+    88,
+    40,
+    8
+   ],
+   "fill": 9,
+   "shadow": [
+    4
+   ],
+   "background": [
+    0
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "LP (COM)",
+   "palettes": [
+    "0xb609c0"
+   ],
+   "style": "shadow",
+   "text": "LP",
+   "rect": [
+    144,
+    130,
+    14,
+    7
+   ],
+   "fill": 5,
+   "background": [
+    12,
+    13
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "COM",
+   "palettes": [
+    "0xb609c0"
+   ],
+   "style": "shadow",
+   "text": "COM",
+   "rect": [
+    130,
+    138,
+    23,
+    8
+   ],
+   "fill": 15,
+   "edge": 14,
+   "background": [
+    12,
+    13
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "YOU",
+   "palettes": [
+    "0xb609c0"
+   ],
+   "style": "shadow",
+   "text": "YOU",
+   "rect": [
+    130,
+    150,
+    23,
+    8
+   ],
+   "fill": 11,
+   "edge": 10,
+   "background": [
+    8,
+    9
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "LP (YOU)",
+   "palettes": [
+    "0xb609c0"
+   ],
+   "style": "shadow",
+   "text": "LP",
+   "rect": [
+    144,
+    159,
+    14,
+    7
+   ],
+   "fill": 4,
+   "background": [
+    8,
+    9
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "field name FOREST",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "strip",
+   "text": "FOREST",
+   "rects": [
+    [
+     64,
+     112,
+     32,
+     16
+    ]
+   ],
+   "fill": 15,
+   "background": [
+    1
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "field name WASTELAND",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "strip",
+   "text": "WASTELAND",
+   "rects": [
+    [
+     96,
+     80,
+     32,
+     16
+    ],
+    [
+     112,
+     32,
+     16,
+     16
+    ]
+   ],
+   "fill": 15,
+   "background": [
+    1
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "field name MOUNTAIN",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "strip",
+   "text": "MOUNTAIN",
+   "rects": [
+    [
+     64,
+     96,
+     32,
+     16
+    ],
+    [
+     112,
+     96,
+     16,
+     16
+    ]
+   ],
+   "fill": 15,
+   "background": [
+    1
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "field name MEADOW",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "strip",
+   "text": "MEADOW",
+   "rects": [
+    [
+     64,
+     80,
+     32,
+     16
+    ],
+    [
+     112,
+     48,
+     16,
+     16
+    ]
+   ],
+   "fill": 15,
+   "background": [
+    1
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "field name SEA",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "strip",
+   "text": "SEA",
+   "rects": [
+    [
+     96,
+     112,
+     24,
+     16
+    ]
+   ],
+   "fill": 15,
+   "background": [
+    1
+   ]
+  },
+  {
+   "archive": "WA_MRG.MRG",
+   "offset": "0xb50000",
+   "what": "field name DARK",
+   "palettes": [
+    "0xb609a0"
+   ],
+   "style": "strip",
+   "text": "DARK",
+   "rects": [
+    [
+     96,
+     96,
+     16,
+     16
+    ],
+    [
+     120,
+     112,
+     8,
+     16
+    ]
+   ],
+   "fill": 15,
+   "background": [
+    1
+   ]
+  }
+ ]
+}

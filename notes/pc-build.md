@@ -846,7 +846,10 @@ palette offset, the pixel crop within the first word, and the hash of the
 PNG it was drawn as. `extract_images.py --assets <dir>/assets.txt` then
 writes those images from the archives, and every one comes out identical
 to the PNG the game drew (76 of 76 through the title and main menu), which
-is the proof of the provenance. A state load restores VRAM without
+is the proof of the provenance. `MEMORIES_DUMP_TEXTURES_FROM=<frame>` starts
+both lists over at that frame, so a dump holds everything one screen draws,
+also what an earlier screen drew first (the duel's digits after the Build
+Deck's). A state load restores VRAM without
 deliveries, so it clears the tags: the textures traced after it are the
 ones loaded after it.
 

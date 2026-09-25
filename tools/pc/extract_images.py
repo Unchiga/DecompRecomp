@@ -394,7 +394,8 @@ class Extractor:
             base = 0xB63000 + index * 0xEB * SECTOR
             palette1, palette5 = base + 64 * SECTOR, base + 106 * SECTOR
             sheet(WA, base, 64, 0x300, 0x100, f"sheets/duel/{name}-p0", f"duel {name} image (phase 0)",
-                  rows8(palette1, 1, 2) + cluts4(palette1, 0, 0x20, 0x60, 0x80, 0xA0, 0xC0), "duel-p0")
+                  # rows 1-6 are the hand's card frames: monster, magic, trap, ritual, purple, orange
+                  rows8(palette1, 1, 2, 3, 4, 5, 6) + cluts4(palette1, 0, 0x20, 0x60, 0x80, 0xA0, 0xC0), "duel-p0")
             sheet(WA, base + 108 * SECTOR, 32, 0x200, 0x100, f"sheets/duel/{name}-p6", f"duel {name} image (phase 6)",
                   rows8(palette5, 0), "duel-p6")
             sheet(WA, base + 190 * SECTOR, 8, 0x340, 0, f"sheets/duel/{name}-p10", f"duel {name} image (phase 10)",
