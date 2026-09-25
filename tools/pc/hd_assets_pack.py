@@ -432,7 +432,7 @@ def main():
     parser.add_argument("--thumb-crops")
     parser.add_argument("--id", default="forbidden-memories-hd")
     parser.add_argument("--name", default="Forbidden Memories HD")
-    parser.add_argument("--author", default="Unchiga")
+    parser.add_argument("--author", default="Unchiga, X@nder")
     args = parser.parse_args()
     if os.path.isdir(os.path.join(args.out, "textures")):
         shutil.rmtree(os.path.join(args.out, "textures"))
