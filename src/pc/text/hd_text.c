@@ -29,6 +29,7 @@
 #include "pc/render/soft_gpu.h"
 #include "pc/cards/art.h"
 #include "pc/cards/cards.h"
+#include "pc/cards/tables.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
@@ -307,6 +308,17 @@ static int load(FT_Face face, uint32_t character)
     return FT_Set_Pixel_Sizes(face, 0, FONT_SIZE) == 0 &&
            FT_Load_Char(face, character, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) == 0 &&
            face->glyph->format == FT_GLYPH_FORMAT_OUTLINE && face->glyph->outline.n_points > 0;
+}
+
+/* The character loaded at FONT_SIZE, outline or none (a space): its
+ * advance in pixels, or -1 when the face cannot load it. */
+static double advance(FT_Face face, uint32_t character)
+{
+    if (FT_Set_Pixel_Sizes(face, 0, FONT_SIZE) ||
+        FT_Load_Char(face, character, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP)) {
+        return -1;
+    }
+    return face->glyph->advance.x / 64.0;
 }
 
 static const Font *measure_font(FT_Face face)
@@ -929,9 +941,12 @@ static uint32_t panel_sum(const uint16_t *words)
  * their height: a pixel font's two-texel strokes would blot a font's), in
  * the ramp's colours by coverage. `outlined`: ramp[0] is an outline a texel
  * wide round the letters, the rest of the box clear (0). `shadow`: that
- * index a texel right of and below the letters, where they are not. */
+ * index a texel right of and below the letters, where they are not.
+ * `span`: across the whole box (a texel in from each side) rather than as
+ * wide as the retail letters, which still give the height and weight. */
 static int set_text(void *face_pointer, const unsigned char *texels, int pitch, int x0, int y0, int x1, int y1,
-                    const char *text, const unsigned char *ramp, int n, int outlined, int shadow, uint8_t *origin)
+                    const char *text, const unsigned char *ramp, int n, int outlined, int shadow, int span,
+                    uint8_t *origin)
 {
     enum { WIDE = 64 * MAX_FACTOR, HIGH = 16 * MAX_FACTOR };
     static unsigned char cover[HIGH][WIDE], one[HIGH][WIDE];
@@ -963,6 +978,7 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
         if (foot > y0) feet[foot - y0 - 1]++;
     }
     if (right <= left) return 0;
+    if (span) left = x0 + 1, right = x1 - 1;
     for (i = 0, baseline = y0; i < y1 - y0; i++) {
         if (feet[i] && (baseline == y0 || feet[i] > feet[baseline - y0 - 1])) baseline = y0 + i + 1;
     }
@@ -972,12 +988,16 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
     /* The text across the font, from the first letter's ink to the last's. */
     for (pen = 0, c = text; *c; c++) {
         FT_BBox bbox;
-        if (!load(face, (unsigned char)*c)) return 0;
-        FT_Outline_Get_BBox(&face->glyph->outline, &bbox);
-        if (pen + bbox.xMin / 64.0 < ink_left) ink_left = pen + bbox.xMin / 64.0;
-        if (pen + bbox.xMax / 64.0 > ink_right) ink_right = pen + bbox.xMax / 64.0;
-        pen += face->glyph->advance.x / 64.0;
+        double step = advance(face, (unsigned char)*c);
+        if (step < 0) return 0;
+        if (load(face, (unsigned char)*c)) {
+            FT_Outline_Get_BBox(&face->glyph->outline, &bbox);
+            if (pen + bbox.xMin / 64.0 < ink_left) ink_left = pen + bbox.xMin / 64.0;
+            if (pen + bbox.xMax / 64.0 > ink_right) ink_right = pen + bbox.xMax / 64.0;
+        }
+        pen += step;
     }
+    if (ink_right <= ink_left) return 0;
     /* The capitals as high as the retail letters, the heaviness taken off;
      * as wide as they are, a quarter wider than the font's proportions at
      * most. A narrow word squeezes the font across, which thins its stems:
@@ -998,7 +1018,11 @@ static int set_text(void *face_pointer, const unsigned char *texels, int pitch, 
         FT_Outline *outline;
         FT_Bitmap bitmap;
         double start = (left + right) / 2.0 - (ink_right - ink_left) * sx / 2 - ink_left * sx;
-        if (!load(face, (unsigned char)*c)) return 0;
+        double step = advance(face, (unsigned char)*c);
+        if (!load(face, (unsigned char)*c)) {
+            pen += step; /* a space */
+            continue;
+        }
         outline = &face->glyph->outline;
         for (i = 0; i < outline->n_points; i++) {
             double column = start + (pen + outline->points[i].x / 64.0) * sx - x0;
@@ -1094,7 +1118,7 @@ static int set_label(const uint16_t *words, uint8_t *origin, unsigned char texel
     if (!background || !far) return 0;
     n = make_ramp(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, far, used, n_used, ramp, 8);
     return set_text(Glyphs_Face((unsigned char)panel_labels[label].text[0]), &texels[0][0], PANEL_W, x0, y0, x1, y1,
-                    panel_labels[label].text, ramp, n, 0, 0, origin);
+                    panel_labels[label].text, ramp, n, 0, 0, 0, origin);
 }
 
 static int make_panel(const uint16_t *words)
@@ -1258,12 +1282,130 @@ static int make_label(const uint16_t *words, const Label *l, unsigned char texel
     if ((l->style != CLEAR && !from) || !to) return 0;
     n = make_ramp(words, l->clut_x, l->clut_y, from, to, used, count, ramp, 8);
     for (y = 0; y < CELL * f; y++) memset(origin + (size_t)y * side, 0, (size_t)(width + 15) / 16 * CELL * f);
-    if (!set_text(face, &texels[0][0], 64, 0, 0, width, height, l->text, ramp, n, l->style == OUTLINE, l->shadow,
+    if (!set_text(face, &texels[0][0], 64, 0, 0, width, height, l->text, ramp, n, l->style == OUTLINE, l->shadow, 0,
                   origin)) {
         return 0;
     }
     changed((HUD_TOP + l->row) * CELL * f, (HUD_TOP + l->row + 1) * CELL * f - 1);
     return 1;
+}
+
+/* The opponent's name in place of COM (hd_text.h): COM's box, rows 9 to
+ * 18 of the panel, made as long as the name needs, leftwards from where it
+ * meets the panel (column 25): its left end as the panel has it, then its
+ * rows' border and background, the name set over the background as COM
+ * is. Its picture is in the HUD rows' last row, cells 0 to 3. */
+#define NAME_TOP 9
+#define NAME_ROWS 10
+#define NAME_JOIN 25
+#define NAME_WIDE 64
+static int name_duelist, name_width;
+static unsigned name_made;
+
+static int make_name(const uint16_t *words, const char *name, int *width)
+{
+    static unsigned char texels[PANEL_H][PANEL_W], box[16][64];
+    int f = factor, x, y, i, n, counts[16] = {0}, background = 0, wide;
+    unsigned char ramp[8];
+    double pen = 0, sv, bg[3], far_by = -1;
+    int far = 0;
+    FT_Face face = (FT_Face)Glyphs_Face((unsigned char)name[0]);
+    const Font *font = face ? measure_font(face) : NULL;
+    uint8_t *origin = atlas + (size_t)(HUD_TOP + 3) * CELL * f * side;
+    int used[16], n_used = 0;
+    if (!font) return 0;
+    for (y = 0; y < PANEL_H; y++) {
+        for (x = 0; x < PANEL_W; x++) {
+            texels[y][x] = (unsigned char)texel(words, 0, PANEL_PAGE_X, PANEL_PAGE_Y, PANEL_U + x, PANEL_V + y);
+        }
+    }
+    /* COM's colours and its box's background, as set_label finds them. */
+    for (y = panel_labels[1].y0; y < panel_labels[1].y1; y++) {
+        for (x = 0; x < PANEL_W; x++) counts[texels[y][x]]++;
+    }
+    for (i = 1; i < 16; i++) {
+        if (counts[i] > counts[background]) background = i;
+    }
+    /* The letters' colour farthest from it. */
+    colour(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, bg);
+    for (y = panel_labels[1].y0; y < panel_labels[1].y1; y++) {
+        for (x = panel_labels[1].x0; x < panel_labels[1].x1; x++) {
+            double rgb[3], by;
+            int c = texels[y][x];
+            if (!c || c == background) continue;
+            colour(words, PANEL_CLUT_X, PANEL_CLUT_Y, c, rgb);
+            by = (rgb[0] - bg[0]) * (rgb[0] - bg[0]) + (rgb[1] - bg[1]) * (rgb[1] - bg[1]) +
+                 (rgb[2] - bg[2]) * (rgb[2] - bg[2]);
+            if (by > far_by) far_by = by, far = c;
+        }
+    }
+    for (i = 1; i < 16; i++) {
+        if (i != background) used[n_used++] = i;
+    }
+    if (!far) return 0;
+    n = make_ramp(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, far, used, n_used, ramp, 8);
+    if (n < 2) return 0;
+    /* As long as the name set as high as COM, and a texel each side. */
+    for (i = 0; name[i]; i++) {
+        double step = advance(face, (unsigned char)name[i]);
+        if (step < 0) return 0;
+        pen += step;
+    }
+    sv = (panel_labels[1].y1 - panel_labels[1].y0) / font->cap;
+    wide = (int)(pen * sv + 0.999) + 4;
+    if (wide < NAME_JOIN) wide = NAME_JOIN;
+    if (wide > NAME_WIDE) wide = NAME_WIDE;
+    /* The box: its left end (two columns) as the panel has it, then each
+     * row's border or background; COM's letters kept at its right, for
+     * set_text to measure. */
+    memset(box, 0, sizeof(box));
+    for (y = 0; y < NAME_ROWS; y++) {
+        int row = NAME_TOP + y, label = row >= panel_labels[1].y0 && row < panel_labels[1].y1;
+        for (x = 0; x < wide; x++) {
+            int from = x < 2 ? x : x >= wide - (NAME_JOIN - 2) ? x - (wide - NAME_JOIN) : 2;
+            int c = texels[row][from];
+            if (label && x >= 2) c = x >= wide - (NAME_JOIN - 2) ? texels[row][from] : background;
+            box[y][x] = (unsigned char)c;
+        }
+    }
+    for (y = 0; y < 16 * f; y++) memset(origin + (size_t)y * side, 0, (size_t)NAME_WIDE * f);
+    for (y = 0; y < NAME_ROWS * f; y++) {
+        for (x = 0; x < wide * f; x++) origin[(size_t)y * side + x] = box[y / f][x / f];
+    }
+    if (!set_text(face, &box[0][0], 64, panel_labels[1].x0, panel_labels[1].y0 - NAME_TOP, wide,
+                  panel_labels[1].y1 - NAME_TOP, name, ramp, n, 0, 0, 1, origin)) {
+        return 0;
+    }
+    changed((HUD_TOP + 3) * CELL * f, (HUD_TOP + 4) * CELL * f - 1);
+    *width = wide;
+    return 1;
+}
+
+int HdText_NameBox(int wanted, int *atlas_u, int *atlas_v, int *x, int *y, int *width, int *height)
+{
+    const uint16_t *words = SoftGpu_Vram();
+    int duelist = Tables_OpponentId();
+    const char *name = Tables_DuelistShortName(duelist);
+    if (!name || wanted < 2 || wanted > MAX_FACTOR || !words || panel_sum(words) != PANEL_SUM) return 0;
+    if (wanted != factor && !make_atlas(wanted)) return 0;
+    if (name_made != generation || name_duelist != duelist) {
+        name_made = generation;
+        name_duelist = duelist;
+        if (!make_name(words, name, &name_width)) name_width = 0;
+    }
+    if (!name_width) return 0;
+    *atlas_u = 0;
+    *atlas_v = (HUD_TOP + 3) * CELL;
+    *x = NAME_JOIN - name_width;
+    *y = NAME_TOP;
+    *width = name_width;
+    *height = NAME_ROWS;
+    return 1;
+}
+
+int HdText_NameEnabled(void)
+{
+    return Settings_Get(SET_OPPONENT_NAME) != 0;
 }
 
 int HdText_HudEnabled(void)

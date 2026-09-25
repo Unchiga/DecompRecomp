@@ -28,6 +28,28 @@ const char *const Tables_DuelistNames[TABLES_DUELIST_COUNT] = {
     "High Mage Martis", "Meadow Mage", "High Mage Kepura", "Labyrinth Mage", "Seto 2nd", "Guardian Sebek",
     "Guardian Neku", "Heishin 2nd", "Seto 3rd", "DarkNite", "Nitemare", "Duel Master K"};
 
+const char *Tables_DuelistShortName(int duelist)
+{
+    /* The names longer than 11 letters, shortened. */
+    static const struct {
+        int duelist;
+        const char *name;
+    } shorter[] = {{10, "Weevil"},   {11, "Mai"},       {12, "Keith"},    {18, "Soldier"},  {22, "Secmeton"},
+                   {24, "Anubisius"}, {25, "Mountain"},  {26, "Atenza"},   {28, "Martis"},   {30, "Kepura"},
+                   {31, "Labyrinth"}, {33, "Sebek"},     {34, "Neku"},     {39, "Master K"}};
+    unsigned i;
+    if (duelist < 1 || duelist >= TABLES_DUELIST_COUNT) return NULL;
+    for (i = 0; i < sizeof(shorter) / sizeof(shorter[0]); i++) {
+        if (shorter[i].duelist == duelist) return shorter[i].name;
+    }
+    return Tables_DuelistNames[duelist];
+}
+
+int Tables_OpponentId(void)
+{
+    return gDuel_bOpponentID;
+}
+
 static const char *const pool_names[TABLES_POOL_COUNT] = {"deck", "pow", "bcd", "tec"};
 static const char *const pool_long_names[TABLES_POOL_COUNT] = {"deck", "sa-pow", "b-c-d", "sa-tec"};
 

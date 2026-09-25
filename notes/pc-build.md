@@ -1032,6 +1032,27 @@ and the software picture never change.
 
 The pictures share HD text's atlas (four rows of cells above the titles).
 
+### Opponent's name for COM
+
+Video > Opponent's name for COM (`opponent_name`, `MEMORIES_OPPONENT_NAME=1`,
+off by default) shows the opponent's name in the life-point panel's COM
+box, in the OpenGL picture at 2x and up. A pack can't do this, because the
+panel is one texture for every opponent.
+
+- The name comes from the opponent id (`gDuel_bOpponentID`, 1-39) through
+  `Tables_DuelistShortName`. A name of up to 11 letters is shown whole.
+  Longer ones show the part that tells the duelist apart: Weevil, Mai,
+  Keith, Soldier, Secmeton, Anubisius, Mountain, Atenza, Martis, Kepura,
+  Labyrinth, Sebek, Neku, Master K.
+- The box is COM's, made from the panel's own texels: its left end, then its
+  rows' border and background, as long as the name needs, growing leftwards
+  from where it meets the panel. The name is set in the text's font in COM's
+  colours, through the panel's palette, so the inactive side's dimming still
+  applies.
+- It is drawn over the panel whatever drew the panel: the retail panel, HD
+  numbers and labels, or a texture pack's image.
+- A 2P duel (no opponent id) and a panel other than the retail one keep COM.
+
 Not covered yet: the sword and shield icons (pictures, not lettering).
 
 ### Deterministic PC checks

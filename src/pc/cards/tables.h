@@ -52,5 +52,12 @@ const unsigned short *Tables_PoolFor(int duelist, int pool, const unsigned short
  * one of them. */
 #define TABLES_DUELIST_COUNT 40
 extern const char *const Tables_DuelistNames[TABLES_DUELIST_COUNT];
+/* The name the duel shows for an opponent in place of COM (hd_text.h):
+ * the whole name up to 11 letters, else the part that tells them apart
+ * (High Mage Anubisius: Anubisius). NULL for no opponent (a 2P duel). */
+const char *Tables_DuelistShortName(int duelist);
+/* The opponent of the duel under way (gDuel_bOpponentID): 1-39, negative
+ * in a 2P duel. */
+int Tables_OpponentId(void);
 
 #endif
