@@ -13,7 +13,10 @@ int PresentPass_Wanted(void);
  * source_h texels high that the quad samples from the OpenGL texture
  * between coordinates (s0, t0) and (s1, t1), bound on the active unit or
  * not yet; End goes back to fixed function. Begin returns 0 (and End is not
- * needed) when the program cannot be built; the quad then draws plainly. */
-int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float s1, float t1);
+ * needed) when the program cannot be built; the quad then draws plainly.
+ * textures_smoothed: the OpenGL picture drew its textures through xBR
+ * already (gl_picture.c), so xBR is not done again here. */
+int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float s1, float t1,
+                      int textures_smoothed);
 void PresentPass_End(void);
 #endif

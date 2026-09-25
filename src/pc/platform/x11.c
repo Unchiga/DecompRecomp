@@ -430,6 +430,9 @@ int Platform_Open(const char *title)
     Menu_SetItemEnabled(MENU_ITEM_ASPECT_SQUARE, 0);
     Menu_SetItemEnabled(MENU_ITEM_ASPECT_WIDESCREEN, 0);
     Menu_SetItemEnabled(MENU_ITEM_FILTER, 0);
+    Menu_SetItemEnabled(MENU_ITEM_FILTER_NEAREST, 0);
+    Menu_SetItemEnabled(MENU_ITEM_FILTER_LINEAR, 0);
+    Menu_SetItemEnabled(MENU_ITEM_FILTER_SHARP, 0);
     Menu_SetItemEnabled(MENU_ITEM_VSYNC, 0);
     update_title();
     return 0;

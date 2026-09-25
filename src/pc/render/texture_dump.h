@@ -13,6 +13,7 @@
  * coordinates. A replacement pack names its files by the same hash. */
 extern int TextureDump_Enabled;
 void TextureDump_Init(void);
+void TextureDump_Restart(void);
 /* source: VRAM or a texture bank; u0..u1 and v0..v1 inclusive texel bounds
  * within the 256x256 page. */
 void TextureDump_Primitive(const uint16_t *source, int page_x, int page_y, int depth, int clut_x, int clut_y,

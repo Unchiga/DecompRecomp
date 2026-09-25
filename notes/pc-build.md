@@ -538,14 +538,35 @@ settings that are off at their defaults:
   average, and the game's own fades are slower than the limit. The rate is
   timed in real time, so it holds at every speed. Without framebuffer
   objects, only this effect is unavailable.
+- Sharp bilinear (Video > Filtering, `filter=2`; Nearest is 0, Smooth 1).
+  Each texel is drawn as a flat block of whole window pixels. Only the
+  window pixel a texel's edge falls inside blends the two neighbouring
+  texels. So an uneven scale, such as 4:3 at 4.5x on 1080 lines, shows
+  texels of equal width without bilinear's blur. At a whole scale every
+  window pixel samples its texel's centre, so it is identical to Nearest.
+  At a scale ending in .5 some edges fall exactly on a pixel's centre, and
+  rounding decides whether that column blends or not. xBR takes precedence
+  over it.
 - xBR pixel smoothing (Video > Effects, `xbr`). The picture is read through
   xBR level 2 (written from its published rules, in the same program). A
   texel's corner is cut along a 45, 30 or 60 degree edge found in its
   neighbours and filled with the nearer neighbour's colour. The cut is
-  antialiased over one window pixel, so it works at any window size. It
-  works on the texels of the texture shown, so it does most at internal
-  resolution 1x; at 4x the texels are already small. It replaces Smooth
-  filtering while it is on.
+  antialiased over one window pixel, so it works at any window size.
+  - At internal resolution 1x it works on the finished picture's texels,
+    and replaces Smooth and Sharp bilinear filtering while it is on.
+  - At 2x and up (the OpenGL picture) it works on the textures instead, in
+    `gl_picture.c`: each textured primitive's texels go through the same
+    rules as it is drawn, so sprites, fonts and 3D textures are smoothed
+    at the internal resolution, over whatever lies under them, and the
+    picture is not smoothed again (Filtering still applies to it).
+    Transparent texels count as one colour
+    far from all others, so a sprite's outline rounds too, and where a
+    corner is filled with transparency nothing is drawn. A primitive only
+    sees its own rectangle of texture (the edge repeats past it), so a
+    picture made of several rectangles shows no seams. HD text and texture
+    pack images are left as they are. A texel like the four beside it is
+    drawn after five reads, so at 4x the duel's replay time stays within
+    its noise (about 2 to 3.5 ms here, on or off).
 
 While every effect is at its default, the pass is not used, and the picture
 is drawn by the fixed-function quad exactly as before. The SDL_Render
@@ -846,7 +867,10 @@ palette offset, the pixel crop within the first word, and the hash of the
 PNG it was drawn as. `extract_images.py --assets <dir>/assets.txt` then
 writes those images from the archives, and every one comes out identical
 to the PNG the game drew (76 of 76 through the title and main menu), which
-is the proof of the provenance. A state load restores VRAM without
+is the proof of the provenance. `MEMORIES_DUMP_TEXTURES_FROM=<frame>` starts
+both lists over at that frame, so a dump holds everything one screen draws,
+also what an earlier screen drew first (the duel's digits after the Build
+Deck's). A state load restores VRAM without
 deliveries, so it clears the tags: the textures traced after it are the
 ones loaded after it.
 
@@ -926,6 +950,31 @@ texels of the main menu's top row. Whatever the game draws every frame
 comes out the same. As in the software GPU, a target's sides are made
 black when it is shown with nothing drawn into it since it was last shown
 (a movie, a still loaded into VRAM).
+
+Video > Anti-aliasing (`msaa`, `MEMORIES_MSAA`: 0 off, 2, 4 or 8 samples)
+draws the OpenGL picture and widescreen's targets into multisampled
+renderbuffers, which smooths the edges of polygons: the 3D monsters, the
+duel table, the cards laid on it. Sprites and textures are drawn as before.
+Each buffer is resolved into its texture wherever the texture is read: a
+move's source, a target's centre, and the end of each replay, for
+presenting and frame dumps. A GPU cannot copy into a multisampled buffer,
+so the pass draws what it copies in as a quad.
+
+The buffers cover all of VRAM at the scale. With 8 samples that is about
+256 MB of video memory at 4x and 1 GB at 8x. Where the driver has no room,
+it says so once, and the picture is drawn without until the setting or the
+scale changes. (With the allocation made to fail, the duel comes out
+identical to off, in 4:3 and widescreen.) A driver with fewer samples
+gives what it has, and says so.
+
+Turning anti-aliasing on or off mid-game carries the picture over. After
+a switch, the duel case's frame is identical to one run with the new
+setting from the start. The widescreen targets are made again, so their
+sides are black for a frame, as after a resync. With anti-aliasing off,
+the picture is identical to before. In widescreen the centre of a target
+is identical to the 4:3 picture, with it on or off.
+
+It changes nothing at 1x, and nothing in the software picture.
 
 ### HD text
 
