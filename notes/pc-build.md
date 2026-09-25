@@ -538,6 +538,15 @@ settings that are off at their defaults:
   average, and the game's own fades are slower than the limit. The rate is
   timed in real time, so it holds at every speed. Without framebuffer
   objects, only this effect is unavailable.
+- Sharp bilinear (Video > Filtering, `filter=2`; Nearest is 0, Smooth 1).
+  Each texel is drawn as a flat block of whole window pixels. Only the
+  window pixel a texel's edge falls inside blends the two neighbouring
+  texels. So an uneven scale, such as 4:3 at 4.5x on 1080 lines, shows
+  texels of equal width without bilinear's blur. At a whole scale every
+  window pixel samples its texel's centre, so it is identical to Nearest.
+  At a scale ending in .5 some edges fall exactly on a pixel's centre, and
+  rounding decides whether that column blends or not. xBR takes precedence
+  over it.
 - xBR pixel smoothing (Video > Effects, `xbr`). The picture is read through
   xBR level 2 (written from its published rules, in the same program). A
   texel's corner is cut along a 45, 30 or 60 degree edge found in its
