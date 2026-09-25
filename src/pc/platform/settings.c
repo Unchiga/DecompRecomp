@@ -78,6 +78,9 @@ static const SettingInfo info[SET_COUNT] = {
     /* Samples a pixel of the OpenGL picture is drawn with: 0 (off), 2, 4, 8
      * (gl_picture.c). */
     [SET_MSAA] = {"msaa", NULL, "MEMORIES_MSAA", NULL, 0, 0, 8},
+    /* 1: polygons at their precise positions, textures in perspective
+     * (pc/compat/pgxp.h). */
+    [SET_PGXP] = {"pgxp", NULL, "MEMORIES_PGXP", NULL, 0, 0, 1},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

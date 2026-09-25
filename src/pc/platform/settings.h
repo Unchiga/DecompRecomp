@@ -43,6 +43,7 @@ typedef enum {
     SET_MSAA,
     SET_HD_HUD,
     SET_OPPONENT_NAME,
+    SET_PGXP,
     SET_COUNT
 } SettingId;
 

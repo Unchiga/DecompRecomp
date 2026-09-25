@@ -21,6 +21,8 @@
 #include "pc/render/texture_pack.h"
 #include "pc/render/texture_dump.h"
 #include "pc/compat/signal.h"
+#include "pc/compat/pgxp.h"
+#include "pc/platform/settings.h"
 
 #define IMAGE ((MemoriesMemory *)(uintptr_t)MEMORIES_GUEST_RAM) /* unused token */
 #define MAX_FRAME_WORDS 0x80000u
@@ -32,6 +34,9 @@ static int display_enabled, frames_presented, frames_shown;
 static uint32_t frame_words[MAX_FRAME_WORDS];
 static size_t pending_words;
 static void flush_drawing(void);
+#define MAX_FRAME_PRECISE 65536
+static PgxpVertex frame_precise[MAX_FRAME_PRECISE];
+static size_t pending_precise;
 
 int ResetGraph(int mode)
 {
@@ -326,6 +331,8 @@ static void flush_drawing(void)
         return;
     }
     clock_gettime(CLOCK_MONOTONIC, &t0);
+    SoftGpu_SetPrecise(frame_precise, pending_precise);
+    pending_precise = 0;
     SoftGpu_Gp0(frame_words, count);
     clock_gettime(CLOCK_MONOTONIC, &t1);
     {
@@ -354,6 +361,29 @@ void DrawOTag(u32 *list)
         exit(70);
     }
     pending_words = count;
+    /* PGXP (pgxp.h): the frame's words that are vertices projected since the
+     * last DrawOTag, with where they really are; then the next frame's. */
+    pending_precise = 0;
+    if (Pgxp_Active) {
+        size_t i;
+        for (i = 0; i < count && pending_precise < MAX_FRAME_PRECISE; i++) {
+            PgxpVertex *vertex = &frame_precise[pending_precise];
+            if (Pgxp_Find(frame_words[i], &vertex->x, &vertex->y, &vertex->w)) {
+                vertex->index = (uint32_t)i;
+                pending_precise++;
+            }
+        }
+    }
+    if (Pgxp_Active) {
+        static unsigned frames, vertices;
+        vertices += (unsigned)pending_precise;
+        if (++frames == 120) {
+            LOG(LOG_FRAMES, "pgxp: %u precise vertex words per DrawOTag", vertices / 120);
+            frames = vertices = 0;
+        }
+    }
+    Pgxp_NextFrame();
+    Pgxp_Active = Settings_Get(SET_PGXP) && SoftGpu_Scale() > 1;
 }
 
 void GsDrawOt(void *descriptor)

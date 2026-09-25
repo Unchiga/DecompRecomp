@@ -105,7 +105,7 @@ static int load_functions(void)
 }
 
 /* --- the record ---------------------------------------------------------- */
-enum { OP_GP0 = 1, OP_LOAD, OP_MOVE, OP_FILL, OP_RESYNC };
+enum { OP_GP0 = 1, OP_LOAD, OP_MOVE, OP_FILL, OP_RESYNC, OP_PRECISE };
 #define ARENA_WORDS (8u << 20) /* 32 MiB: a frame's list is at most 2 MiB */
 static uint32_t *arena;
 static volatile size_t arena_used;
@@ -122,6 +122,17 @@ static uint32_t *reserve(size_t words)
         return NULL;
     }
     return arena + at;
+}
+
+/* PGXP: the precise vertices of the batch that follows, as they are
+ * (index, x, y, w: four words each). */
+static void record_precise(const PgxpVertex *vertices, size_t count)
+{
+    uint32_t *at = reserve(2 + count * 4);
+    if (!at) return;
+    at[0] = OP_PRECISE;
+    at[1] = (uint32_t)count;
+    memcpy(at + 2, vertices, count * sizeof(PgxpVertex));
 }
 
 static void record_gp0(const uint32_t *words, size_t count)
@@ -183,7 +194,8 @@ static void record_resync(int scale, const uint32_t state[6])
     memcpy(at + 2, state, 6 * sizeof(uint32_t));
 }
 
-static const SoftGpuRecorder recorder = {record_gp0, record_load, record_move, record_fill, record_resync};
+static const SoftGpuRecorder recorder = {record_gp0, record_load, record_move, record_fill, record_resync,
+                                          record_precise};
 
 /* --- GL objects ---------------------------------------------------------- */
 static int scale;                 /* of the picture in the framebuffer, 0 before the first resync */
@@ -232,6 +244,8 @@ static const char *vertex_source =
     "in vec4 colour;\n"
     "in ivec4 texture_page;\n"
     "in ivec4 texture_mode;\n"
+    "in float persp;\n"
+    "noperspective out float q;\n"
     "in ivec4 texture_bounds;\n"
     "noperspective out vec2 uv;\n"
     "noperspective out vec3 rgb;\n"
@@ -241,7 +255,10 @@ static const char *vertex_source =
     "flat out ivec4 bounds;\n"
     "void main() {\n"
     "    gl_Position = vec4(position.x / picture_size.x * 2.0 - 1.0, position.y / picture_size.y * 2.0 - 1.0, 0.0, 1.0);\n"
-    "    uv = texcoord;\n"
+    /* PGXP: a triangle with its depths (flag 32) interpolates uv / w and
+     * 1 / w across the screen, and divides back, which is perspective. */
+    "    uv = (int(colour.a) & 32) != 0 ? texcoord * persp : texcoord;\n"
+    "    q = persp;\n"
     "    rgb = colour.rgb;\n"
     "    flags = int(colour.a);\n"
     "    page = texture_page;\n"
@@ -351,6 +368,7 @@ static const char *fragment_source =
     "uniform ivec2 copy_offset;\n"
     "uniform int tex_xbr;\n"
     "noperspective in vec2 uv;\n"
+    "noperspective in float q;\n"
     "noperspective in vec3 rgb;\n"
     "flat in int flags;\n"
     "flat in ivec4 page;\n"
@@ -393,12 +411,14 @@ static const char *fragment_source =
     "    }\n"
     "    vec3 c = floor(rgb + 1.0 / 256.0);\n"
     "    bool semi = (flags & 2) != 0;\n"
-    /* Taken before any discard: where in its texel the pixel's centre lies,
+    /* PGXP's perspective triangles (flag 32) carry uv / w; st is the texel.
+     * Taken before any discard: where in its texel the pixel's centre lies,
      * and how many texels a pixel spans (texture xBR). */
-    "    vec2 half_step = 0.5 * (dFdx(uv) + dFdy(uv));\n"
-    "    float spread = max(fwidth(uv.x), fwidth(uv.y));\n"
+    "    vec2 st = (flags & 32) != 0 ? uv / q : uv;\n"
+    "    vec2 half_step = 0.5 * (dFdx(st) + dFdy(st));\n"
+    "    float spread = max(fwidth(st.x), fwidth(st.y));\n"
     "    if ((flags & 4) != 0) {\n"
-    "        float ub = uv.x + 1.0 / 256.0, vb = uv.y + 1.0 / 256.0;\n"
+    "        float ub = st.x + 1.0 / 256.0, vb = st.y + 1.0 / 256.0;\n"
     "        int u = int(floor(ub)) & 255, v = int(floor(vb)) & 255;\n"
     "        uint word;\n"
     "        int y;\n"
@@ -493,6 +513,7 @@ static int make_program(void)
     gl_BindAttribLocation(program, 2, "colour");
     gl_BindAttribLocation(program, 3, "texture_page");
     gl_BindAttribLocation(program, 4, "texture_mode");
+    gl_BindAttribLocation(program, 5, "persp");
     gl_BindAttribLocation(program, 6, "texture_bounds");
     gl_LinkProgram(program);
     gl_DeleteShader(vs);
@@ -675,6 +696,7 @@ typedef struct GlVertex {
     uint8_t r, g, b, flags;
     uint16_t page_x, page_y, clut_x, clut_y;
     uint16_t depth, blend, bank, unused;
+    float q; /* PGXP: 1 / depth, with flag 32; else 1 */
     uint16_t bounds[4]; /* the primitive's texels: first u, v, last u, v */
 } GlVertex;
 
@@ -707,8 +729,37 @@ static struct {
 
 typedef struct Vertex {
     int x, y, r, g, b, u, v;
+    int precise;     /* PGXP: fx, fy and q hold where the vertex really is */
+    float fx, fy, q;
 } Vertex;
 
+/* PGXP (pc/compat/pgxp.h): the batch being read, and the precise vertices
+ * recorded for it, by word index, in order. */
+static const uint32_t *batch_words;
+static const PgxpVertex *batch_precise;
+static size_t batch_precise_count;
+
+/* The precise position of the vertex whose position word is `word`, if the
+ * batch has one for it. */
+static void find_precise(Vertex *vertex, const uint32_t *word)
+{
+    size_t low = 0, high = batch_precise_count;
+    uint32_t index;
+    vertex->precise = 0;
+    if (!batch_precise_count || !batch_words || word < batch_words) return;
+    index = (uint32_t)(word - batch_words);
+    while (low < high) {
+        size_t middle = (low + high) / 2;
+        if (batch_precise[middle].index < index) low = middle + 1;
+        else high = middle;
+    }
+    if (low < batch_precise_count && batch_precise[low].index == index && batch_precise[low].w > 0) {
+        vertex->precise = 1;
+        vertex->fx = batch_precise[low].x + (float)state.offset_x;
+        vertex->fy = batch_precise[low].y + (float)state.offset_y;
+        vertex->q = 1.0f / batch_precise[low].w;
+    }
+}
 /* The texels of the primitive being read (GlVertex's bounds). */
 static int bounds_now[4];
 
@@ -784,6 +835,7 @@ static void set_vertex(GlVertex *out, float x, float y, float u, float v, const 
     out->depth = (uint16_t)state.depth;
     out->blend = (uint16_t)state.blend;
     out->bank = (uint16_t)state.bank;
+    out->q = (flags & 32) ? from->q : 1.0f;
     out->bounds[0] = (uint16_t)bounds_now[0];
     out->bounds[1] = (uint16_t)bounds_now[1];
     out->bounds[2] = (uint16_t)bounds_now[2];
@@ -807,9 +859,13 @@ static void triangle(const Vertex *a, const Vertex *b, const Vertex *c, int flag
     if (max_x - min_x > 1023 || max_y - min_y > 511) return;
     out = push_vertices(3, (flags & 2) && state.blend == 2);
     if (!out) return;
+    /* PGXP: a textured polygon with all its depths is drawn in perspective
+     * (flag 32, set by polygon()); a precise vertex stands where it really is. */
+    if (!(a->precise && b->precise && c->precise)) flags &= ~32;
     for (i = 0; i < 3; i++) {
-        set_vertex(&out[i], (float)(v[i]->x * scale) + 0.5f, (float)(v[i]->y * scale) + 0.5f, (float)v[i]->u,
-                   (float)v[i]->v, v[i], flags);
+        float x = v[i]->precise ? v[i]->fx * (float)scale + 0.5f : (float)(v[i]->x * scale) + 0.5f;
+        float y = v[i]->precise ? v[i]->fy * (float)scale + 0.5f : (float)(v[i]->y * scale) + 0.5f;
+        set_vertex(&out[i], x, y, (float)v[i]->u, (float)v[i]->v, v[i], flags);
     }
 }
 
@@ -884,7 +940,9 @@ static size_t polygon(const uint32_t *words, size_t count)
             v[i].g = v[0].g;
             v[i].b = v[0].b;
         }
-        set_position(&v[i], words[at++]);
+        set_position(&v[i], words[at]);
+        find_precise(&v[i], words + at);
+        at++;
         if (textured) {
             uint32_t word = words[at++];
             v[i].u = word & 0xff;
@@ -955,6 +1013,8 @@ static size_t polygon(const uint32_t *words, size_t count)
      * past it, an atlas holds the next picture. */
     if (bounds_now[2] > bounds_now[0]) bounds_now[2]--;
     if (bounds_now[3] > bounds_now[1]) bounds_now[3]--;
+    /* Both halves of a quad or neither, or its diagonal would show. */
+    if (textured && v[0].precise && v[1].precise && v[2].precise && (!quad || v[3].precise)) flags |= 32;
     triangle(&v[0], &v[1], &v[2], flags);
     if (quad) triangle(&v[1], &v[2], &v[3], flags);
     return need;
@@ -1357,12 +1417,14 @@ static void bind_attributes(void)
     gl_EnableVertexAttribArray(2);
     gl_EnableVertexAttribArray(3);
     gl_EnableVertexAttribArray(4);
+    gl_EnableVertexAttribArray(5);
     gl_EnableVertexAttribArray(6);
     gl_VertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GlVertex), &base->x);
     gl_VertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GlVertex), &base->u);
     gl_VertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(GlVertex), &base->r);
     gl_VertexAttribIPointer(3, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->page_x);
     gl_VertexAttribIPointer(4, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->depth);
+    gl_VertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(GlVertex), &base->q);
     gl_VertexAttribIPointer(6, 4, GL_UNSIGNED_SHORT, sizeof(GlVertex), &base->bounds[0]);
 }
 
@@ -1890,14 +1952,24 @@ int GlPicture_Replay(void)
         resync(SoftGpu_Scale(), words);
         count = 0;
     }
+    batch_precise_count = 0; /* a list left from a record cut short */
     for (at = 0; at + 1 < count;) {
         const uint32_t *op = taken + at;
         size_t used = 1;
         switch (op[0]) {
+        case OP_PRECISE:
+            used = 2 + (size_t)op[1] * 4;
+            if (at + used > count) { at = count; break; }
+            batch_precise = (const PgxpVertex *)(op + 2);
+            batch_precise_count = op[1];
+            break;
         case OP_GP0:
             used = 2 + op[1];
             if (at + used > count) { at = count; break; }
+            batch_words = op + 2;
             gp0(op + 2, op[1]);
+            batch_words = NULL;
+            batch_precise_count = 0;
             if (scale < 2) vertex_count = run_count = 0; /* the state words still count */
             break;
         case OP_LOAD:
@@ -1922,6 +1994,7 @@ int GlPicture_Replay(void)
             at = count; /* not a record: stop */
             continue;
         }
+        if (op[0] != OP_PRECISE) batch_precise_count = 0; /* only for the batch right after it */
         at += used;
     }
     if (scale >= 2) {
