@@ -419,7 +419,9 @@ static const char *fragment_source =
     "    float spread = max(fwidth(st.x), fwidth(st.y));\n"
     "    if ((flags & 4) != 0) {\n"
     "        float ub = st.x + 1.0 / 256.0, vb = st.y + 1.0 / 256.0;\n"
-    "        int u = int(floor(ub)) & 255, v = int(floor(vb)) & 255;\n"
+    /* Only the primitive's own texels: a pixel drawn for a sample it
+     * covers (anti-aliasing) can have its centre past the edge. */
+    "        int u = clamp(int(floor(ub)), bounds.x, bounds.z) & 255, v = clamp(int(floor(vb)), bounds.y, bounds.w) & 255;\n"
     "        uint word;\n"
     "        int y;\n"
     "        vec3 t;\n"
@@ -869,6 +871,19 @@ static void triangle(const Vertex *a, const Vertex *b, const Vertex *c, int flag
     }
 }
 
+/* Whether the first triangle's texels (u, or v with `axis` 1) grow across
+ * the screen: rightwards, or downwards where they do not change across.
+ * A flat or degenerate triangle counts as growing. */
+static int texels_grow(const Vertex *v, int axis)
+{
+    long long dx1 = v[1].x - v[0].x, dy1 = v[1].y - v[0].y, dx2 = v[2].x - v[0].x, dy2 = v[2].y - v[0].y;
+    long long dt1 = axis ? v[1].v - v[0].v : v[1].u - v[0].u, dt2 = axis ? v[2].v - v[0].v : v[2].u - v[0].u;
+    long long area = dx1 * dy2 - dx2 * dy1;
+    long long across = dt1 * dy2 - dt2 * dy1, down = dx1 * dt2 - dx2 * dt1; /* times the area */
+    long long slope = across ? across : down;
+    return !area || !slope || (slope > 0) == (area > 0);
+}
+
 /* A block of pixels x,y,w,h in picture units with the given corners' texels. */
 /* A block of pixels x,y,w,h in picture units, texels u0,v0 to u1,v1 across
  * it. The software pass takes a rectangle's texel at each pixel's corner
@@ -1009,10 +1024,12 @@ static size_t polygon(const uint32_t *words, size_t count)
         if (v[i].u > bounds_now[2]) bounds_now[2] = v[i].u;
         if (v[i].v > bounds_now[3]) bounds_now[3] = v[i].v;
     }
-    /* The rasterizer stops short of the far edge's texel (as block() does):
-     * past it, an atlas holds the next picture. */
-    if (bounds_now[2] > bounds_now[0]) bounds_now[2]--;
-    if (bounds_now[3] > bounds_now[1]) bounds_now[3]--;
+    /* The rasterizer stops short of the right and bottom edges (as block()
+     * does), so where the texels grow towards them the last one is never
+     * drawn: past it, an atlas holds the next picture. A mirrored sprite
+     * starts from that texel and draws it. */
+    if (bounds_now[2] > bounds_now[0] && texels_grow(v, 0)) bounds_now[2]--;
+    if (bounds_now[3] > bounds_now[1] && texels_grow(v, 1)) bounds_now[3]--;
     /* Both halves of a quad or neither, or its diagonal would show. */
     if (textured && v[0].precise && v[1].precise && v[2].precise && (!quad || v[3].precise)) flags |= 32;
     triangle(&v[0], &v[1], &v[2], flags);
