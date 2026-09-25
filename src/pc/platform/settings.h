@@ -40,6 +40,7 @@ typedef enum {
     SET_XBR,
     SET_HD_TEXT,
     SET_FUSION_HELPER,
+    SET_MSAA,
     SET_COUNT
 } SettingId;
 
