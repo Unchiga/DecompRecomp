@@ -22,6 +22,7 @@ void (*TextureDump_Forget)(int x, int y, int w, int h);
 void (*TextureDump_Follow)(int sx, int sy, int dx, int dy, int w, int h);
 static char directory[1024];
 static FILE *index_file, *assets_file;
+static int archives_written; /* the assets list's archive lines */
 static int (*disc_file_info)(const char *path, int *lba, unsigned *size);
 
 /* Provenance: every copy of disc data into game memory, newest last. */
@@ -95,6 +96,28 @@ void TextureDump_Init(void)
     }
     TextureDump_Enabled = 1;
     fprintf(stderr, "memories-pc: dumping textures to %s\n", directory);
+}
+
+/* MEMORIES_DUMP_TEXTURES_FROM=<frame>: the lists start over at that frame,
+ * so a dump holds everything one screen draws, also what earlier screens
+ * drew first (libgpu.c calls this). */
+void TextureDump_Restart(void)
+{
+    char name[1100];
+    if (!TextureDump_Enabled) return;
+    if (seen) memset(seen, 0, seen_capacity * sizeof(*seen));
+    seen_count = 0;
+    archives_written = 0;
+    snprintf(name, sizeof(name), "%s/textures.txt", directory);
+    if (index_file) index_file = freopen(name, "w", index_file);
+    snprintf(name, sizeof(name), "%s/assets.txt", directory);
+    if (assets_file) assets_file = freopen(name, "w", assets_file);
+    if (!index_file) { /* the directory went away, say */
+        fprintf(stderr, "memories-pc: texture dump could not restart; stopped\n");
+        TextureDump_Enabled = 0;
+        return;
+    }
+    fprintf(stderr, "memories-pc: texture dump restarted\n");
 }
 
 /* --- provenance ---------------------------------------------------------- */
@@ -325,11 +348,10 @@ void TextureDump_Cleared(int x, int y, int w, int h)
 
 static void write_archives_once(void)
 {
-    static int done;
     static const char *const paths[] = {"\\DATA\\WA_MRG.MRG;1", "\\DATA\\SU.MRG;1", "\\DATA\\MODEL.MRG;1"};
     unsigned i;
-    if (done) return;
-    done = 1;
+    if (archives_written) return;
+    archives_written = 1;
     for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
         int lba;
         unsigned size;

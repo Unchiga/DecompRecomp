@@ -95,7 +95,7 @@ typedef struct {
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
 enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_VIEW, MENU_DEBUG, MENU_COUNT };
-enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_JUMP, SUB_FILTER, SUB_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_JUMP, SUB_ANTIALIAS, SUB_FILTER, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -114,10 +114,11 @@ static Menu menus[MENU_COUNT] = {
               {"Aspect Ratio", 0, ITEM_SUBMENU, 0, -1, SUB_ASPECT},
               {"Resolution", 0, ITEM_SUBMENU, 0, -1, SUB_RESOLUTION},
               {"HD text", 0, ITEM_CHECK, 0, SET_HD_TEXT},
+              {"Anti-aliasing", 0, ITEM_SUBMENU, 0, -1, SUB_ANTIALIAS},
               {"Filtering", 0, ITEM_SUBMENU, MENU_ITEM_FILTER, -1, SUB_FILTER, ITEM_GROUP_BREAK},
               {"VSync", 0, ITEM_CHECK, MENU_ITEM_VSYNC, SET_VSYNC},
               {"Color", 0, ITEM_SUBMENU, 0, -1, SUB_COLOR, ITEM_GROUP_BREAK},
-              {"Effects", 0, ITEM_SUBMENU, 0, -1, SUB_EFFECTS}}, 12},
+              {"Effects", 0, ITEM_SUBMENU, 0, -1, SUB_EFFECTS}}, 13},
     {"Audio", {{"Master", 0, ITEM_SLIDER, SLIDER_MASTER, SET_MASTER_VOLUME},
                {"Music", 0, ITEM_SLIDER, SLIDER_MUSIC, SET_MUSIC_VOLUME},
                {"Sound FX", 0, ITEM_SLIDER, SLIDER_SFX, SET_SFX_VOLUME},
@@ -198,9 +199,13 @@ static Menu submenus[SUB_COUNT] = {
                  {"Reduce flashes", 0, ITEM_CHECK, 0, SET_FLASH},
                  {"xBR pixel smoothing", 0, ITEM_CHECK, 0, SET_XBR}}, 3},
     {"Jump to", {{"Title Screen", 0, ITEM_ACTION, MENU_ITEM_TITLE, -1, 0, ITEM_DISABLED}}, 1},
-    {"Filtering", {{"Nearest", 0, ITEM_RADIO, 0, SET_FILTER, 0},
-                   {"Smooth (bilinear)", 0, ITEM_RADIO, 0, SET_FILTER, 1},
-                   {"Sharp bilinear", 0, ITEM_RADIO, 0, SET_FILTER, 2}}, 3},
+    {"Anti-aliasing", {{"Off", 0, ITEM_RADIO, 0, SET_MSAA, 0},
+                       {"2x", 0, ITEM_RADIO, 0, SET_MSAA, 2},
+                       {"4x", 0, ITEM_RADIO, 0, SET_MSAA, 4},
+                       {"8x", 0, ITEM_RADIO, 0, SET_MSAA, 8}}, 4},
+    {"Filtering", {{"Nearest", 0, ITEM_RADIO, MENU_ITEM_FILTER_NEAREST, SET_FILTER, 0},
+                   {"Smooth (bilinear)", 0, ITEM_RADIO, MENU_ITEM_FILTER_LINEAR, SET_FILTER, 1},
+                   {"Sharp bilinear", 0, ITEM_RADIO, MENU_ITEM_FILTER_SHARP, SET_FILTER, 2}}, 3},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;

@@ -72,6 +72,11 @@
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, CheckFramebufferStatus) \
     X(PFNGLDELETEFRAMEBUFFERSPROC, DeleteFramebuffers) \
     X(PFNGLBLITFRAMEBUFFERPROC, BlitFramebuffer) \
+    X(PFNGLGENRENDERBUFFERSPROC, GenRenderbuffers) \
+    X(PFNGLBINDRENDERBUFFERPROC, BindRenderbuffer) \
+    X(PFNGLRENDERBUFFERSTORAGEMULTISAMPLEPROC, RenderbufferStorageMultisample) \
+    X(PFNGLFRAMEBUFFERRENDERBUFFERPROC, FramebufferRenderbuffer) \
+    X(PFNGLDELETERENDERBUFFERSPROC, DeleteRenderbuffers) \
     X(PFNGLBLENDEQUATIONPROC, BlendEquation) \
     X(PFNGLACTIVETEXTUREPROC, ActiveTexture) \
     X(PFNGLCLEARBUFFERUIVPROC, ClearBufferuiv) \
@@ -184,6 +189,15 @@ static const SoftGpuRecorder recorder = {record_gp0, record_load, record_move, r
 static int scale;                 /* of the picture in the framebuffer, 0 before the first resync */
 static GLuint vram_texture, vram_scratch, vram_fbo, vram_scratch_fbo;
 static GLuint picture_texture, picture_scratch, picture_fbo, picture_scratch_fbo;
+/* Anti-aliasing (Video > Anti-aliasing, `msaa`): with `samples` above 0 the
+ * picture and widescreen's targets are drawn into multisampled renderbuffers
+ * (these framebuffers), and resolved into their textures where something
+ * reads them: a move's source, a target's centre, and the end of a replay
+ * (presenting, frame dumps). Nothing can be copied into a multisampled
+ * buffer, so what is copied in is drawn, as a quad. 0: the textures are
+ * drawn into straight, as before. */
+static int samples, samples_scale;
+static GLuint picture_ms_fbo, picture_ms_buffer;
 static GLuint program, buffer, vertex_array;
 static GLint u_picture_size, u_window, u_op, u_pass, u_scale, u_copy_offset, u_vram, u_scratch, u_banks;
 static GLint u_tex_xbr;
@@ -538,6 +552,64 @@ static GLuint make_framebuffer(GLuint texture)
 
 static void wide_free(void); /* widescreen's targets (below) */
 
+/* A multisampled framebuffer w x h pixels of `samples` samples; 0 if none. */
+static GLuint make_multisampled(int w, int h, GLuint *buffer_out)
+{
+    GLuint fbo, buffer;
+    gl_GenRenderbuffers(1, &buffer);
+    gl_BindRenderbuffer(GL_RENDERBUFFER, buffer);
+    while (glGetError() != GL_NO_ERROR) continue;
+    gl_RenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_RGBA8, w, h);
+    gl_BindRenderbuffer(GL_RENDERBUFFER, 0);
+    if (glGetError() != GL_NO_ERROR) { /* out of video memory, say: none */
+        fprintf(stderr, "memories-pc: OpenGL picture: no room for %dx anti-aliasing at this resolution\n", samples);
+        gl_DeleteRenderbuffers(1, &buffer);
+        return 0;
+    }
+    gl_GenFramebuffers(1, &fbo);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, fbo);
+    gl_FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, buffer);
+    if (gl_CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "memories-pc: OpenGL picture: %dx anti-aliasing framebuffer incomplete\n", samples);
+        gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+        gl_DeleteFramebuffers(1, &fbo);
+        gl_DeleteRenderbuffers(1, &buffer);
+        return 0;
+    }
+    gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+    *buffer_out = buffer;
+    return fbo;
+}
+
+static void free_multisampled(GLuint *fbo, GLuint *buffer)
+{
+    if (*fbo) gl_DeleteFramebuffers(1, fbo);
+    if (*buffer) gl_DeleteRenderbuffers(1, buffer);
+    *fbo = *buffer = 0;
+}
+
+/* Pixels x,y,w,h of a multisampled framebuffer into its texture's. */
+static void resolve(GLuint from, GLuint to, int x, int y, int w, int h)
+{
+    glDisable(GL_SCISSOR_TEST);
+    gl_BindFramebuffer(GL_READ_FRAMEBUFFER, from);
+    gl_BindFramebuffer(GL_DRAW_FRAMEBUFFER, to);
+    gl_BlitFramebuffer(x, y, x + w, y + h, x, y, x + w, y + h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+/* Words x,y,w,h of the picture into its texture, before they are read. */
+static void picture_resolve(int x, int y, int w, int h)
+{
+    if (picture_ms_fbo) resolve(picture_ms_fbo, picture_fbo, x * scale, y * scale, w * scale, h * scale);
+}
+
+/* Where the picture is drawn. */
+static GLuint picture_draw(void)
+{
+    return picture_ms_fbo ? picture_ms_fbo : picture_fbo;
+}
+
 /* The picture and its scratch copy at the scale, made or remade. */
 static int make_picture(int wanted)
 {
@@ -550,6 +622,7 @@ static int make_picture(int wanted)
         return 0;
     }
     wide_free(); /* their textures are at the old scale */
+    free_multisampled(&picture_ms_fbo, &picture_ms_buffer);
     if (picture_fbo) gl_DeleteFramebuffers(1, &picture_fbo);
     if (picture_scratch_fbo) gl_DeleteFramebuffers(1, &picture_scratch_fbo);
     if (picture_texture) glDeleteTextures(1, &picture_texture);
@@ -562,7 +635,10 @@ static int make_picture(int wanted)
         scale = 0;
         return 0;
     }
+    if (samples && !(picture_ms_fbo = make_multisampled(w, h, &picture_ms_buffer)))
+        samples = 0; /* no room: drawn without, until the setting or the scale changes */
     scale = wanted;
+    samples_scale = wanted; /* made at this scale: set_samples has nothing to redo */
     return 1;
 }
 
@@ -1005,6 +1081,7 @@ typedef struct GlWide {
     unsigned stamp;    /* last use */
     int width, height; /* the texture's pixels */
     GLuint texture, fbo; /* fbo 0: a free slot */
+    GLuint ms_fbo, ms_buffer; /* drawn into, with anti-aliasing */
 } GlWide;
 static GlWide wide[WIDE_TARGETS];
 static unsigned wide_clock;
@@ -1015,14 +1092,34 @@ static void wide_free(void)
     for (t = 0; t < WIDE_TARGETS; t++) {
         if (wide[t].fbo) gl_DeleteFramebuffers(1, &wide[t].fbo);
         if (wide[t].texture) glDeleteTextures(1, &wide[t].texture);
+        free_multisampled(&wide[t].ms_fbo, &wide[t].ms_buffer);
         memset(&wide[t], 0, sizeof(wide[t]));
     }
 }
+
+static void copy_quad_into(GLuint fbo, int origin_x, int origin_y, int op, int x, int y, int w, int h);
 
 /* Picture words x,y,w,h (inside the target's area) into its centre. */
 static void wide_copy(const GlWide *wt, int x, int y, int w, int h)
 {
     int to_x = x - wt->x1 + wt->margin, to_y = y - wt->y1;
+    picture_resolve(x, y, w, h);
+    if (wt->ms_fbo) {
+        /* Drawn: the picture's texture as the scratch copy, read where the
+         * target's pixel came from. */
+        gl_ActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, picture_texture);
+        gl_ActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, vram_texture);
+        gl_UseProgram(program);
+        gl_Uniform2i(u_copy_offset, (wt->margin - wt->x1) * scale, -wt->y1 * scale);
+        copy_quad_into(wt->ms_fbo, wt->x1 * scale, wt->y1 * scale, 2, (x + wt->margin) * scale, y * scale, w * scale,
+                       h * scale);
+        gl_ActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, picture_scratch);
+        gl_ActiveTexture(GL_TEXTURE0);
+        return;
+    }
     glDisable(GL_SCISSOR_TEST);
     gl_BindFramebuffer(GL_READ_FRAMEBUFFER, picture_fbo);
     gl_BindFramebuffer(GL_DRAW_FRAMEBUFFER, wt->fbo);
@@ -1034,7 +1131,7 @@ static void wide_copy(const GlWide *wt, int x, int y, int w, int h)
 /* The target's sides in rows y to y + h, in a colour. */
 static void wide_sides(const GlWide *wt, int y, int h, float r, float g, float b)
 {
-    gl_BindFramebuffer(GL_FRAMEBUFFER, wt->fbo);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, wt->ms_fbo ? wt->ms_fbo : wt->fbo);
     glEnable(GL_SCISSOR_TEST);
     glClearColor(r, g, b, 0.0f);
     glScissor(0, (y - wt->y1) * scale, wt->margin * scale, h * scale);
@@ -1083,6 +1180,7 @@ static int wide_target(void)
     width = (state.clip_x2 - state.clip_x1 + 1 + 2 * margin) * scale;
     height = (state.clip_y2 - state.clip_y1 + 1) * scale;
     if (!wt->fbo || wt->width != width || wt->height != height) {
+        free_multisampled(&wt->ms_fbo, &wt->ms_buffer); /* at the old size */
         if (wt->fbo) gl_DeleteFramebuffers(1, &wt->fbo);
         if (wt->texture) glDeleteTextures(1, &wt->texture);
         wt->texture = make_texture(GL_RGBA8, width, height, GL_RGBA, GL_UNSIGNED_BYTE);
@@ -1095,6 +1193,13 @@ static int wide_target(void)
         wt->width = width;
         wt->height = height;
     }
+    if (samples && !wt->ms_fbo) wt->ms_fbo = make_multisampled(width, height, &wt->ms_buffer);
+    if (samples && !wt->ms_fbo) samples = 0; /* no room: the picture's is dropped too, below */
+    if (!samples && picture_ms_fbo) {
+        flush_runs();
+        picture_resolve(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+        free_multisampled(&picture_ms_fbo, &picture_ms_buffer);
+    }
     wt->x1 = state.clip_x1;
     wt->y1 = state.clip_y1;
     wt->x2 = state.clip_x2;
@@ -1102,7 +1207,7 @@ static int wide_target(void)
     wt->margin = margin;
     wt->drawn = 0;
     wt->stamp = ++wide_clock;
-    gl_BindFramebuffer(GL_FRAMEBUFFER, wt->fbo);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, wt->ms_fbo ? wt->ms_fbo : wt->fbo);
     glDisable(GL_SCISSOR_TEST);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1446,11 +1551,11 @@ static void flush_runs(void)
             /* The picture, or a widescreen target: the whole picture's
              * coordinates, moved so the target's area lands on its texture. */
             if (run->wide < 0) {
-                gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
+                gl_BindFramebuffer(GL_FRAMEBUFFER, picture_draw());
                 glViewport(0, 0, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
                 origin_x = origin_y = 0;
             } else {
-                gl_BindFramebuffer(GL_FRAMEBUFFER, wide[run->wide].fbo);
+                gl_BindFramebuffer(GL_FRAMEBUFFER, wide[run->wide].ms_fbo ? wide[run->wide].ms_fbo : wide[run->wide].fbo);
                 origin_x = wide[run->wide].x1;
                 origin_y = wide[run->wide].y1;
                 glViewport(-origin_x * scale, -origin_y * scale, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
@@ -1482,8 +1587,9 @@ static void flush_runs(void)
     run_count = 0;
 }
 
-/* A quad over picture pixels x,y,w,h drawn with the program's op 1 or 2. */
-static void copy_quad(int op, int x, int y, int w, int h)
+/* A quad over picture pixels x,y,w,h drawn with the program's op 1 or 2
+ * into a framebuffer whose pixel 0,0 is picture pixel origin_x, origin_y. */
+static void copy_quad_into(GLuint fbo, int origin_x, int origin_y, int op, int x, int y, int w, int h)
 {
     GlVertex quad[6];
     float x0 = (float)x, y0 = (float)y, x1 = (float)(x + w), y1 = (float)(y + h);
@@ -1494,8 +1600,8 @@ static void copy_quad(int op, int x, int y, int w, int h)
     quad[3].x = x0; quad[3].y = y0;
     quad[4].x = x1; quad[4].y = y1;
     quad[5].x = x0; quad[5].y = y1;
-    gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
-    glViewport(0, 0, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(-origin_x, -origin_y, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
     gl_UseProgram(program);
     gl_Uniform1i(u_op, op);
     glDisable(GL_BLEND);
@@ -1504,6 +1610,12 @@ static void copy_quad(int op, int x, int y, int w, int h)
     gl_BufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     unbind_attributes();
+}
+
+/* The same into the picture. */
+static void copy_quad(int op, int x, int y, int w, int h)
+{
+    copy_quad_into(picture_draw(), 0, 0, op, x, y, w, h);
 }
 
 /* Words x,y,w,h of VRAM into the picture (VRAM's texture already holds them). */
@@ -1559,7 +1671,7 @@ static void apply_fill(int x, int y, int w, int h, uint32_t rgb24)
         GLuint value[4] = {word, 0, 0, 0};
         gl_ClearBufferuiv(GL_COLOR, 0, value);
     }
-    gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, picture_draw());
     glScissor(x * scale, y * scale, w * scale, h * scale);
     glClearColor((float)((r << 3) | (r >> 2)) / 255.0f, (float)((g << 3) | (g >> 2)) / 255.0f,
                  (float)((b << 3) | (b >> 2)) / 255.0f, 0.0f);
@@ -1590,6 +1702,7 @@ static void apply_move(int sx, int sy, int dx, int dy, int w, int h)
     gl_BindFramebuffer(GL_READ_FRAMEBUFFER, vram_scratch_fbo);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, dx, dy, 0, 0, w, h);
+    picture_resolve(sx, sy, w, h);
     gl_BindFramebuffer(GL_READ_FRAMEBUFFER, picture_fbo);
     glBindTexture(GL_TEXTURE_2D, picture_scratch);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sx * scale, sy * scale, w * scale, h * scale);
@@ -1634,6 +1747,47 @@ static void resync(int wanted, const uint32_t words[6])
     picture_from_words(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
 }
 
+/* The anti-aliasing wanted (0, 2, 4 or 8 samples, as the driver allows):
+ * made or dropped between replays. The picture carries on from its texture;
+ * the widescreen targets are made again from the next primitive. */
+static void set_samples(int wanted)
+{
+    static int asked = -1, clamped_to = -1;
+    GLint most = 0;
+    int given;
+    wanted = wanted >= 8 ? 8 : wanted >= 4 ? 4 : wanted >= 2 ? 2 : 0;
+    if (wanted == asked && scale == samples_scale) return; /* as last time: made, or not to be had */
+    asked = wanted;
+    samples_scale = scale;
+    glGetIntegerv(GL_MAX_SAMPLES, &most);
+    given = wanted;
+    while (given > most) given /= 2;
+    if (given < 2) given = 0;
+    if (given != wanted && given != clamped_to) {
+        fprintf(stderr, "memories-pc: OpenGL picture: %dx anti-aliasing asked, the driver gives %dx\n", wanted, given);
+        clamped_to = given;
+    }
+    wide_free();
+    free_multisampled(&picture_ms_fbo, &picture_ms_buffer);
+    samples = given;
+    if (!samples || scale < 2) return;
+    picture_ms_fbo = make_multisampled(SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale, &picture_ms_buffer);
+    if (!picture_ms_fbo) {
+        samples = 0; /* no room: drawn without, until the setting or the scale changes */
+        return;
+    }
+    /* What the picture shows now, drawn in. */
+    gl_ActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, picture_texture);
+    gl_ActiveTexture(GL_TEXTURE0);
+    gl_UseProgram(program);
+    gl_Uniform2i(u_copy_offset, 0, 0);
+    copy_quad(2, 0, 0, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
+    gl_ActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, picture_scratch);
+    gl_ActiveTexture(GL_TEXTURE0);
+}
+
 int GlPicture_Replay(void)
 {
     static uint32_t *taken;
@@ -1675,6 +1829,7 @@ int GlPicture_Replay(void)
     gl_Uniform1i(u_glyphs, 6);
     gl_Uniform1i(u_tex_xbr, Settings_Get(SET_XBR));
     hd_text = HdText_Enabled();
+    set_samples(Settings_Get(SET_MSAA));
     if (overflow || wanted_resync) {
         /* Too much for the arena: from VRAM as it is now, with the state
          * as it is now; the record is superseded. */
@@ -1718,8 +1873,13 @@ int GlPicture_Replay(void)
         at += used;
     }
     if (scale >= 2) {
+        int t;
         flush_runs();
         upload_vram();
+        picture_resolve(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+        for (t = 0; t < WIDE_TARGETS; t++) {
+            if (wide[t].ms_fbo) resolve(wide[t].ms_fbo, wide[t].fbo, 0, 0, wide[t].width, wide[t].height);
+        }
     }
     if (!SoftGpu_Widescreen() && wide[0].fbo + wide[1].fbo + wide[2].fbo + wide[3].fbo) wide_free();
     {
@@ -1769,7 +1929,10 @@ unsigned GlPicture_WideTexture(int x, int y, int w, int h, int *picture_w, int *
 {
     GlWide *wt = wide_for(x, y, w, h);
     if (!wt) return 0;
-    if (!wt->drawn) wide_sides(wt, y, h, 0, 0, 0); /* nothing drew them since: stale (SoftGpu_WideFrame) */
+    if (!wt->drawn) { /* nothing drew them since: stale (SoftGpu_WideFrame) */
+        wide_sides(wt, y, h, 0, 0, 0);
+        if (wt->ms_fbo) resolve(wt->ms_fbo, wt->fbo, 0, 0, wt->width, wt->height);
+    }
     wt->drawn = 0;
     *picture_w = wt->width;
     *picture_h = wt->height;
