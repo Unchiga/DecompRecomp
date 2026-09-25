@@ -533,8 +533,10 @@ static int make_picture(int wanted)
         scale = 0;
         return 0;
     }
-    if (samples) picture_ms_fbo = make_multisampled(w, h, &picture_ms_buffer);
+    if (samples && !(picture_ms_fbo = make_multisampled(w, h, &picture_ms_buffer)))
+        samples = 0; /* no room: drawn without, until the setting or the scale changes */
     scale = wanted;
+    samples_scale = wanted; /* made at this scale: set_samples has nothing to redo */
     return 1;
 }
 
@@ -1052,6 +1054,7 @@ static int wide_target(void)
     width = (state.clip_x2 - state.clip_x1 + 1 + 2 * margin) * scale;
     height = (state.clip_y2 - state.clip_y1 + 1) * scale;
     if (!wt->fbo || wt->width != width || wt->height != height) {
+        free_multisampled(&wt->ms_fbo, &wt->ms_buffer); /* at the old size */
         if (wt->fbo) gl_DeleteFramebuffers(1, &wt->fbo);
         if (wt->texture) glDeleteTextures(1, &wt->texture);
         wt->texture = make_texture(GL_RGBA8, width, height, GL_RGBA, GL_UNSIGNED_BYTE);
