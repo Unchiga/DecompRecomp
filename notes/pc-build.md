@@ -538,6 +538,14 @@ settings that are off at their defaults:
   average, and the game's own fades are slower than the limit. The rate is
   timed in real time, so it holds at every speed. Without framebuffer
   objects, only this effect is unavailable.
+- xBR pixel smoothing (Video > Effects, `xbr`). The picture is read through
+  xBR level 2 (written from its published rules, in the same program). A
+  texel's corner is cut along a 45, 30 or 60 degree edge found in its
+  neighbours and filled with the nearer neighbour's colour. The cut is
+  antialiased over one window pixel, so it works at any window size. It
+  works on the texels of the texture shown, so it does most at internal
+  resolution 1x; at 4x the texels are already small. It replaces Smooth
+  filtering while it is on.
 
 While every effect is at its default, the pass is not used, and the picture
 is drawn by the fixed-function quad exactly as before. The SDL_Render
