@@ -6,6 +6,8 @@
 #include "pc/mods/mods.h"
 #include "pc/mods/json.h"
 #include "pc/platform/paths.h"
+#include "pc/platform/settings.h"
+#include "pc/cards/tables.h"
 #include "pc/debug/log.h"
 #include "game/card_constants.h"
 #include <stdint.h>
@@ -139,15 +141,57 @@ void Text_Build(void)
     }
 }
 
+/* Video > Opponent's name for COM (hd_text.h) names the sides after the
+ * duel too: strings 0x3D and 0x3E (YOU, or 1P in a 2P duel) and 0x3F (COM,
+ * or 2P) become You and the opponent's short name, as the life-point panel
+ * has them. The result screens call them by their place in the dialogue
+ * bank (TEXT_*_AT, Text_Retarget) rather than by id. Only against the
+ * computer (an opponent id), and only when every letter has a glyph of one
+ * byte; else the game's own. */
+#define TEXT_YOU_FIRST 0x3D
+#define TEXT_COM 0x3F
+#define TEXT_YOU_FIRST_AT 0x0504
+#define TEXT_YOU_AT 0x050E
+#define TEXT_COM_AT 0x051C
+
+static const unsigned char *side_name(int id)
+{
+    static unsigned char texts[2][40];
+    const char *name;
+    unsigned char *out;
+    int i, n = 0;
+    if (id < TEXT_YOU_FIRST || id > TEXT_COM || !Settings_Get(SET_OPPONENT_NAME)) return NULL;
+    name = Tables_DuelistShortName(Tables_OpponentId());
+    if (!name) return NULL;
+    if (id != TEXT_COM) name = "You";
+    out = texts[id == TEXT_COM];
+    for (i = 0; name[i] && n < (int)sizeof(texts[0]) - 1; i++) {
+        int code = Glyphs_Code((unsigned char)name[i]);
+        if (code < 0 || code >= 0xF0) return NULL;
+        out[n++] = (unsigned char)code;
+    }
+    out[n] = 0xFF; /* the string's end */
+    return out;
+}
+
 const unsigned char *Text_Resolve(int id, const unsigned char *retail)
 {
     const unsigned char *own = overrides && id >= 0 && id <= 0xFFFF ? overrides[id] : NULL;
+    const unsigned char *side = side_name(id);
+    if (side) return side;
     return own ? own : retail;
 }
 
 unsigned char *Text_Retarget(unsigned char *cursor, unsigned target)
 {
     int i;
+    if (((uintptr_t)cursor & 0xFFFF0000u) == bases[TEXT_BANK_DIALOG]) {
+        /* The retail result screens calling YOU or COM. */
+        const unsigned char *side = side_name(target == TEXT_COM_AT ? TEXT_COM
+                                              : target == TEXT_YOU_AT || target == TEXT_YOU_FIRST_AT ? TEXT_YOU_FIRST
+                                                                                                    : -1);
+        if (side) return (unsigned char *)side;
+    }
     for (i = 0; i < unit_count; i++) {
         TextUnit *unit = units[i];
         if (cursor >= unit->data && cursor <= unit->data + unit->size) {

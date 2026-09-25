@@ -1298,16 +1298,20 @@ static int make_label(const uint16_t *words, const Label *l, unsigned char texel
  * 18 of the panel, made as long as the name needs, leftwards from where it
  * meets the panel (column 25): its left end as the panel has it, then its
  * rows' border and background, the name set over the background as COM
- * is. Its picture is in the HUD rows' last row, cells 0 to 3. */
-#define NAME_TOP 9
+ * is. And YOU's box (rows 21 to 30) the same way with You, in the name's
+ * case. Their pictures are in the HUD rows' last row: the name's in cells
+ * 0 to 3, You's in 24 and 25. */
 #define NAME_ROWS 10
 #define NAME_JOIN 25
-#define NAME_WIDE 64
-static int name_duelist, name_width;
-static unsigned name_made;
+static const struct {
+    int label, top, column, room; /* panel_labels[label]; its box's first row; the picture's cell; texels */
+} name_boxes[2] = {{1, 9, 0, 64}, {2, 21, 24, 32}};
+static int name_duelist, name_width[2];
+static unsigned name_made[2];
 
-static int make_name(const uint16_t *words, const char *name, int *width)
+static int make_name(const uint16_t *words, const char *name, int which, int *width)
 {
+    const int label = name_boxes[which].label, top = name_boxes[which].top, room = name_boxes[which].room;
     static unsigned char texels[PANEL_H][PANEL_W], box[16][64];
     int f = factor, x, y, i, n, counts[16] = {0}, background = 0, wide;
     unsigned char ramp[8];
@@ -1315,7 +1319,7 @@ static int make_name(const uint16_t *words, const char *name, int *width)
     int far = 0;
     FT_Face face = (FT_Face)Glyphs_Face((unsigned char)name[0]);
     const Font *font = face ? measure_font(face) : NULL;
-    uint8_t *origin = atlas + (size_t)(HUD_TOP + 3) * CELL * f * side;
+    uint8_t *origin = atlas + (size_t)(HUD_TOP + 3) * CELL * f * side + (size_t)name_boxes[which].column * CELL * f;
     int used[16], n_used = 0;
     if (!font) return 0;
     for (y = 0; y < PANEL_H; y++) {
@@ -1323,8 +1327,9 @@ static int make_name(const uint16_t *words, const char *name, int *width)
             texels[y][x] = (unsigned char)texel(words, 0, PANEL_PAGE_X, PANEL_PAGE_Y, PANEL_U + x, PANEL_V + y);
         }
     }
-    /* COM's colours and its box's background, as set_label finds them. */
-    for (y = panel_labels[1].y0; y < panel_labels[1].y1; y++) {
+    /* The label's colours and its box's background, as set_label finds
+     * them. */
+    for (y = panel_labels[label].y0; y < panel_labels[label].y1; y++) {
         for (x = 0; x < PANEL_W; x++) counts[texels[y][x]]++;
     }
     for (i = 1; i < 16; i++) {
@@ -1332,8 +1337,8 @@ static int make_name(const uint16_t *words, const char *name, int *width)
     }
     /* The letters' colour farthest from it. */
     colour(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, bg);
-    for (y = panel_labels[1].y0; y < panel_labels[1].y1; y++) {
-        for (x = panel_labels[1].x0; x < panel_labels[1].x1; x++) {
+    for (y = panel_labels[label].y0; y < panel_labels[label].y1; y++) {
+        for (x = panel_labels[label].x0; x < panel_labels[label].x1; x++) {
             double rgb[3], by;
             int c = texels[y][x];
             if (!c || c == background) continue;
@@ -1349,35 +1354,35 @@ static int make_name(const uint16_t *words, const char *name, int *width)
     if (!far) return 0;
     n = make_ramp(words, PANEL_CLUT_X, PANEL_CLUT_Y, background, far, used, n_used, ramp, 8);
     if (n < 2) return 0;
-    /* As long as the name set as high as COM, and a texel each side. */
+    /* As long as the name set as high as the label, and a texel each side. */
     for (i = 0; name[i]; i++) {
         double step = advance(face, (unsigned char)name[i]);
         if (step < 0) return 0;
         pen += step;
     }
-    sv = (panel_labels[1].y1 - panel_labels[1].y0) / font->cap;
+    sv = (panel_labels[label].y1 - panel_labels[label].y0) / font->cap;
     wide = (int)(pen * sv + 0.999) + 4;
     if (wide < NAME_JOIN) wide = NAME_JOIN;
-    if (wide > NAME_WIDE) wide = NAME_WIDE;
+    if (wide > room) wide = room;
     /* The box: its left end (two columns) as the panel has it, then each
-     * row's border or background; COM's letters kept at its right, for
-     * set_text to measure. */
+     * row's border or background; the label's letters kept at its right,
+     * for set_text to measure. */
     memset(box, 0, sizeof(box));
     for (y = 0; y < NAME_ROWS; y++) {
-        int row = NAME_TOP + y, label = row >= panel_labels[1].y0 && row < panel_labels[1].y1;
+        int row = top + y, lettered = row >= panel_labels[label].y0 && row < panel_labels[label].y1;
         for (x = 0; x < wide; x++) {
             int from = x < 2 ? x : x >= wide - (NAME_JOIN - 2) ? x - (wide - NAME_JOIN) : 2;
             int c = texels[row][from];
-            if (label && x >= 2) c = x >= wide - (NAME_JOIN - 2) ? texels[row][from] : background;
+            if (lettered && x >= 2) c = x >= wide - (NAME_JOIN - 2) ? texels[row][from] : background;
             box[y][x] = (unsigned char)c;
         }
     }
-    for (y = 0; y < 16 * f; y++) memset(origin + (size_t)y * side, 0, (size_t)NAME_WIDE * f);
+    for (y = 0; y < 16 * f; y++) memset(origin + (size_t)y * side, 0, (size_t)room * f);
     for (y = 0; y < NAME_ROWS * f; y++) {
         for (x = 0; x < wide * f; x++) origin[(size_t)y * side + x] = box[y / f][x / f];
     }
-    if (!set_text(face, &box[0][0], 64, panel_labels[1].x0, panel_labels[1].y0 - NAME_TOP, wide,
-                  panel_labels[1].y1 - NAME_TOP, name, ramp, n, 0, 0, 1, origin)) {
+    if (!set_text(face, &box[0][0], 64, panel_labels[label].x0, panel_labels[label].y0 - top, wide,
+                  panel_labels[label].y1 - top, name, ramp, n, 0, 0, 1, origin)) {
         return 0;
     }
     changed((HUD_TOP + 3) * CELL * f, (HUD_TOP + 4) * CELL * f - 1);
@@ -1385,24 +1390,30 @@ static int make_name(const uint16_t *words, const char *name, int *width)
     return 1;
 }
 
-int HdText_NameBox(int wanted, int *atlas_u, int *atlas_v, int *x, int *y, int *width, int *height)
+int HdText_NameBox(int wanted, int which, int *atlas_u, int *atlas_v, int *x, int *y, int *width, int *height)
 {
     const uint16_t *words = SoftGpu_Vram();
     int duelist = Tables_OpponentId();
     const char *name = Tables_DuelistShortName(duelist);
-    if (!name || wanted < 2 || wanted > MAX_FACTOR || !words || panel_sum(words) != PANEL_SUM) return 0;
-    if (wanted != factor && !make_atlas(wanted)) return 0;
-    if (name_made != generation || name_duelist != duelist) {
-        name_made = generation;
-        name_duelist = duelist;
-        if (!make_name(words, name, &name_width)) name_width = 0;
+    if (!name || which < 0 || which > 1 || wanted < 2 || wanted > MAX_FACTOR || !words ||
+        panel_sum(words) != PANEL_SUM) {
+        return 0;
     }
-    if (!name_width) return 0;
-    *atlas_u = 0;
+    if (wanted != factor && !make_atlas(wanted)) return 0;
+    if (name_duelist != duelist) {
+        name_duelist = duelist;
+        name_made[0] = name_made[1] = 0;
+    }
+    if (name_made[which] != generation) {
+        name_made[which] = generation;
+        if (!make_name(words, which ? "You" : name, which, &name_width[which])) name_width[which] = 0;
+    }
+    if (!name_width[which]) return 0;
+    *atlas_u = name_boxes[which].column * CELL;
     *atlas_v = (HUD_TOP + 3) * CELL;
-    *x = NAME_JOIN - name_width;
-    *y = NAME_TOP;
-    *width = name_width;
+    *x = NAME_JOIN - name_width[which];
+    *y = name_boxes[which].top;
+    *width = name_width[which];
     *height = NAME_ROWS;
     return 1;
 }

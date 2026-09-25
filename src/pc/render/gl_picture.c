@@ -757,19 +757,22 @@ static size_t polygon(const uint32_t *words, size_t count)
     return need;
 }
 
-/* The opponent's name over the life-point panel just drawn (hd_text.h):
- * in the panel's colour, drawn from the atlas whatever drew the panel. */
+/* The opponent's name over the life-point panel just drawn, and You for
+ * YOU (hd_text.h): in the panel's colour, drawn from the atlas whatever
+ * drew the panel. */
 static void name_over_panel(const Vertex *base, int w, int h, int flags)
 {
-    int atlas_u, atlas_v, x, y, width, height;
+    int atlas_u, atlas_v, x, y, width, height, which;
     if (!opponent_name || state.bank || state.depth != 0 || state.page_x != 704 || state.page_y != 0 ||
         (state.clut_x != 736 && state.clut_x != 752) || state.clut_y != 252 || base->u != 128 || base->v != 128 || w != 64 || h != 40) {
         return;
     }
-    if (!HdText_NameBox(scale, &atlas_u, &atlas_v, &x, &y, &width, &height)) return;
-    state.pack = 0;
-    block((base->x + x) * scale, (base->y + y) * scale, width * scale, height * scale, atlas_u, atlas_v,
-          atlas_u + width, atlas_v + height, base, flags | 16);
+    for (which = 0; which < 2; which++) {
+        if (!HdText_NameBox(scale, which, &atlas_u, &atlas_v, &x, &y, &width, &height)) return;
+        state.pack = 0;
+        block((base->x + x) * scale, (base->y + y) * scale, width * scale, height * scale, atlas_u, atlas_v,
+              atlas_u + width, atlas_v + height, base, flags | 16);
+    }
 }
 
 static size_t rectangle(const uint32_t *words, size_t count)
