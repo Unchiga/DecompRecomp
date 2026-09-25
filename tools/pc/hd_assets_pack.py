@@ -73,7 +73,6 @@ ATTRIBUTES = ("light", "dark", "earth", "water", "fire", "wind", "magic", "trap"
 # shade); an HD ball of another colour cannot be made by subtracting, so it
 # sits inside the rim (the largest circle clear of it) and the rim is left out.
 BALL_DIAMETER = 12.8
-NAME_PALETTE = 8 * 0x200 + 224 * 2
 STAR_PALETTE, LABEL_PALETTE = 0x1180, 0x11E0
 DIGITS = [(16 + 6 * i, 144, 6, 13) for i in range(10)]
 LABELS = [(0, 158, 56, 16), (0, 174, 56, 16), (0, 190, 56, 16), (0, 206, 24, 12), (0, 218, 24, 12)]
@@ -94,12 +93,18 @@ class Pack:
         w, h, px = X.decode(self.wa, offset, words, rows, bpp, palette)
         return Image.frombytes("RGBA", (w, h), px)
 
-    def add(self, name, image, offset, words, rows, bpp, clut, entries, alias):
-        """One entry; the same pixels already written are the same file."""
+    def add(self, name, image, offset, words, rows, bpp, clut, entries, alias, paletted=False):
+        """One entry; the same pixels already written are the same file.
+        `paletted`: an opaque picture kept as 256 colours of its own
+        (libimagequant, dithered), as the game keeps its card art; about a
+        third of the size, and decoded to the same pixels' worth in game."""
         key = image.tobytes()
         if key not in self.images:
             self.images[key] = name
-            image.save(os.path.join(self.out, "textures", name))
+            if paletted:
+                image = image.convert("RGB").quantize(256, method=Image.Quantize.LIBIMAGEQUANT,
+                                                      dither=Image.Dither.FLOYDSTEINBERG)
+            image.save(os.path.join(self.out, "textures", name), optimize=True)
         self.entries.append({"file": self.images[key], "alias": alias, "archive": WA, "offset": offset,
                              "words": words, "rows": rows, "bpp": bpp, "width": words * {4: 4, 8: 2}[bpp],
                              "height": rows, "crop_left": 0, "clut_offset": clut, "clut_entries": entries,
@@ -377,14 +382,14 @@ def build(args):
         if n in files["cards"]:
             art = load(files["cards"][n])
             pack.add(f"card-{n:03d}.png", art.resize((102 * S, 96 * S), Image.LANCZOS), base, 0x33, 0x60, 8,
-                     base + 0x2640, 256, f"card {n} art")
+                     base + 0x2640, 256, f"card {n} art", paletted=True)
             if n in crops:
                 _, x, y, w, h = crops[n]
                 sx, sy = art.width / 102, art.height / 96
                 thumb = art.crop((round(x * sx), round(y * sy), round((x + w) * sx), round((y + h) * sy)))
                 small = (n - 1) * SECTOR
                 pack.add(f"thumb-{n:03d}.png", thumb.resize((40 * S, 32 * S), Image.LANCZOS), small, 20, 32, 8,
-                         small + 0x500, 64, f"card {n} thumbnail")
+                         small + 0x500, 64, f"card {n} thumbnail", paletted=True)
 
     # Other packs as they are.
     for other in args.merge or []:
@@ -417,7 +422,7 @@ def main():
         shutil.rmtree(os.path.join(args.out, "textures"))
     pack = build(args)
     manifest = {"id": args.id, "name": args.name, "version": "1.0", "author": args.author,
-                "description": "HD card art, thumbnails, names, frames, card back, attribute balls and the "
+                "description": "HD card art, thumbnails, frames, card back, attribute balls and the "
                                "Build Deck screen; the Free Duel portraits. Shows best at View > Internal 4x "
                                "with HD text on.",
                 "enabled": True, "textures": "textures"}
