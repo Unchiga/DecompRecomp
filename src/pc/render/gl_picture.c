@@ -216,8 +216,9 @@ static int entry_texture_count;
 static unsigned pack_generation = ~0u, map_generation = ~0u;
 static GLint u_entry_map, u_place_map, u_pack, u_pack_entry, u_pack_size;
 /* HD text (hd_text.h): whether it is on for this replay, and its atlas of
- * glyph pictures, 8-bit indices, as an integer texture on unit 6. */
-static int hd_text;
+ * glyph pictures, 8-bit indices, as an integer texture on unit 6; and HD
+ * numbers and labels, whose pictures are in the same atlas. */
+static int hd_text, hd_hud;
 static GLuint glyphs_texture;
 static int glyphs_side;
 static unsigned glyphs_generation = ~0u;
@@ -900,7 +901,26 @@ static size_t polygon(const uint32_t *words, size_t count)
                      ? TexturePack_EntryFor(state.page_x, state.page_y, state.depth, state.clut_x, state.clut_y,
                                             v[0].u, v[0].v)
                      : 0;
-    if (quad && textured && state.glyph && hd_text && state.depth == 0) {
+    if (quad && textured && hd_hud && !state.pack && !state.bank) {
+        /* A digit or the panel drawn as a quad (a clip-tested field card):
+         * a texture pack's image, where one paints it, comes first. */
+        int u0 = v[0].u, v0 = v[0].v, u1 = v[0].u, v1 = v[0].v, atlas_u, atlas_v;
+        for (i = 1; i < 4; i++) {
+            if (v[i].u < u0) u0 = v[i].u;
+            if (v[i].v < v0) v0 = v[i].v;
+            if (v[i].u > u1) u1 = v[i].u;
+            if (v[i].v > v1) v1 = v[i].v;
+        }
+        if (HdText_Hud(state.depth, state.page_x, state.page_y, state.clut_x, state.clut_y, u0, v0, u1 - u0, v1 - v0,
+                       scale, &atlas_u, &atlas_v)) {
+            for (i = 0; i < 4; i++) {
+                v[i].u = atlas_u + v[i].u - u0;
+                v[i].v = atlas_v + v[i].v - v0;
+            }
+            flags |= 16;
+        }
+    }
+    if (!(flags & 16) && quad && textured && state.glyph && hd_text && state.depth == 0) {
         /* A turned or leaning glyph: 16 texels across for the large font. */
         int atlas_u, atlas_v, u0 = v[0].u, v0 = v[0].v;
         if (HdText_Cell(state.bank, state.page_x, state.page_y, v[1].u - u0 > 8, u0, v0, scale, &atlas_u, &atlas_v)) {
@@ -911,7 +931,7 @@ static size_t polygon(const uint32_t *words, size_t count)
             state.pack = 0;
             flags |= 16;
         }
-    } else if (textured && hd_text && state.depth == 0 && !state.bank) {
+    } else if (!(flags & 16) && textured && hd_text && state.depth == 0 && !state.bank) {
         /* A card's title plate, whole or a piece of the turning card. */
         int atlas_u, atlas_v, title_u, title_v;
         if (HdText_Title(state.page_x, state.page_y, v[0].u, v[0].v, scale, &atlas_u, &atlas_v, &title_u, &title_v)) {
@@ -968,6 +988,16 @@ static size_t rectangle(const uint32_t *words, size_t count)
                      ? TexturePack_EntryFor(state.page_x, state.page_y, state.depth, state.clut_x, state.clut_y,
                                             base.u, base.v)
                      : 0;
+    if (w && h && textured && hd_hud && !state.pack && !state.bank) {
+        /* HD numbers and labels (a texture pack's image comes first). */
+        int atlas_u, atlas_v;
+        if (HdText_Hud(state.depth, state.page_x, state.page_y, state.clut_x, state.clut_y, base.u, base.v, w, h, scale,
+                       &atlas_u, &atlas_v)) {
+            block(base.x * scale, base.y * scale, w * scale, h * scale, atlas_u, atlas_v, atlas_u + w, atlas_v + h,
+                  &base, flags | 16);
+            return need;
+        }
+    }
     if (w && h && textured && state.glyph && hd_text && state.depth == 0 && (w == 16 ? h == 16 : w == 8 && h == 12)) {
         int atlas_u, atlas_v;
         if (HdText_Cell(state.bank, state.page_x, state.page_y, w == 16, base.u, base.v, scale, &atlas_u, &atlas_v)) {
@@ -1535,7 +1565,7 @@ static void flush_runs(void)
     }
     sync_banks();
     sync_pack();
-    if (hd_text) sync_glyphs();
+    if (hd_text || hd_hud) sync_glyphs();
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
     gl_UseProgram(program);
@@ -1830,6 +1860,7 @@ int GlPicture_Replay(void)
     gl_Uniform1i(u_tex_xbr, Settings_Get(SET_XBR));
     hd_text = HdText_Enabled();
     set_samples(Settings_Get(SET_MSAA));
+    hd_hud = HdText_HudEnabled();
     if (overflow || wanted_resync) {
         /* Too much for the arena: from VRAM as it is now, with the state
          * as it is now; the record is superseded. */

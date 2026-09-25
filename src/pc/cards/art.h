@@ -34,5 +34,9 @@ int CardArt_TitleFromName(const char *name, unsigned char *plate);
  * CARD_TITLE_HEIGHT * factor into `indices`, `pitch` bytes a row: what HD
  * text draws a card's title from (hd_text.h). 0 when no serif font. */
 int CardArt_TitlePicture(const char *name, int factor, unsigned char *indices, int pitch);
+/* The serif face the plates are set in (an FT_Face), opened the first time;
+ * NULL when there is none. The duel's Magic, Equip, Trap and Ritual are set
+ * in it too (hd_text.h). */
+void *CardArt_SerifFace(void);
 
 #endif

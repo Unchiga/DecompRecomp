@@ -41,6 +41,7 @@ typedef enum {
     SET_HD_TEXT,
     SET_FUSION_HELPER,
     SET_MSAA,
+    SET_HD_HUD,
     SET_COUNT
 } SettingId;
 
