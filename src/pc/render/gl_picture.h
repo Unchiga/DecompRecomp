@@ -20,6 +20,12 @@ int GlPicture_Replay(void);
 /* The picture's texture (RGBA, picture_w x picture_h texels; texel row 0
  * is the top of VRAM), after Replay. */
 unsigned GlPicture_Texture(int *picture_w, int *picture_h);
+/* Pixels x,y,w,h of that texture copied into one of their own (w x h, row
+ * 0 their top), after Replay, for a presenter that smooths: in the whole
+ * picture the rows and columns past them are the rest of VRAM (the other
+ * buffer, textures), which bilinear would blend into the window's edges.
+ * 0 when the pass is off. */
+unsigned GlPicture_ShownTexture(int x, int y, int w, int h);
 int GlPicture_Scale(void);
 /* The record is half the arena: frames went unshown (a raised game speed)
  * and it should be replayed before it overflows, which would draw the next
