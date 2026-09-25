@@ -70,6 +70,9 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_XBR] = {"xbr", NULL, "MEMORIES_XBR", NULL, 0, 0, 1},
     /* 1: text set in a font at the internal resolution (src/pc/text/hd_text.h). */
     [SET_HD_TEXT] = {"hd_text", NULL, "MEMORIES_HD_TEXT", NULL, 0, 0, 1},
+    /* Samples a pixel of the OpenGL picture is drawn with: 0 (off), 2, 4, 8
+     * (gl_picture.c). */
+    [SET_MSAA] = {"msaa", NULL, "MEMORIES_MSAA", NULL, 0, 0, 8},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.
