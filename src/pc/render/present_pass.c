@@ -16,9 +16,12 @@
  *   texels of the texture shown, so it is for internal resolution 1x. At 2x
  *   and up the OpenGL picture smooths each primitive's textures instead
  *   (gl_picture.c, TEXTURE_XBR_SOURCE) and it is not done here.
- *   Reduce flashes (Video > Effects): when the picture's average brightness
- *   would rise faster than FLASH_RISE per second, the whole picture is
- *   darkened to that rise, as a camera's exposure would follow it. A flash
+ *   Reduce flashes (Video > Effects): the level the eye has adapted to
+ *   follows the picture's average brightness up at FLASH_RISE per second
+ *   (and down at once), as a camera's exposure would; the picture may jump
+ *   FLASH_STEP above it, and beyond that the whole picture is darkened to
+ *   it. So the game's own cuts to a brighter screen (a card opened, the
+ *   battle screen) pass untouched and a flash to white is cut down. A flash
  *   is a large area changing, so a card or the cursor moving over a dark
  *   board barely moves the average and is never dimmed, and darkening is
  *   never held back. (Darkening only the blocks that brighten leaves blotches
@@ -73,6 +76,11 @@ FLASH_FUNCTIONS(DECLARE)
  * fades, and one white frame over a dark scene at 60 frames a second rises
  * by 0.03. */
 #define FLASH_RISE 2.0f
+/* How far above that the picture may still jump at once: the game's own
+ * cuts rise by up to 0.3 (the hand to the field; into the battle screen
+ * about 0.2), the white a battle opens with by 0.7. Written into
+ * measure_source. */
+#define FLASH_STEP "0.35"
 
 static const char *vertex_source =
     "#version 120\n"
@@ -171,9 +179,10 @@ static const char *fragment_source =
     "    gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);\n"
     "}\n";
 
-/* One fragment: the picture's average brightness now (32 x 24 samples), the
- * brightness it was shown at last time (history's red), and from those the
- * brightness it may show (red) and the gain that gives it (green). */
+/* One fragment: the picture's average brightness now (32 x 24 samples) and
+ * the level the eye has adapted to (history's red, which follows the
+ * picture up at `rise` and down at once); from those the level now (red)
+ * and the gain (green) that keeps the picture within FLASH_STEP of it. */
 static const char *measure_source =
     "#version 120\n"
     "uniform sampler2D picture, history;\n"
@@ -187,8 +196,9 @@ static const char *measure_source =
     "            now += dot(texture2D(picture, mix(area.xy, area.zw, at)).rgb, vec3(0.299, 0.587, 0.114));\n"
     "        }\n"
     "    now /= 768.0;\n"
-    "    float shown = min(now, texture2D(history, vec2(0.5)).r + rise);\n"
-    "    gl_FragColor = vec4(shown, now > shown ? shown / now : 1.0, 0.0, 1.0);\n"
+    "    float adapted = min(now, texture2D(history, vec2(0.5)).r + rise);\n"
+    "    float shown = min(now, adapted + " FLASH_STEP ");\n"
+    "    gl_FragColor = vec4(adapted, now > shown ? shown / now : 1.0, 0.0, 1.0);\n"
     "}\n";
 
 static int state; /* 0 not tried, 1 ready, -1 unavailable */
