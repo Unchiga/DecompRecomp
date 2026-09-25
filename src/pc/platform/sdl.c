@@ -1108,21 +1108,27 @@ static void show(void)
         glDisable(GL_BLEND);
         glColor4f(1, 1, 1, 1);
         if (gl_pass_shown) {
-            int pw = gl_pass_size[0], ph = gl_pass_size[1];
-            GLuint texture = gl_pass_texture ? gl_pass_texture : (GLuint)GlPicture_Texture(&pw, &ph);
+            int pw = gl_pass_size[0], ph = gl_pass_size[1], x = gl_pass_rect[0], y = gl_pass_rect[1];
+            GLuint texture = gl_pass_texture ? gl_pass_texture : (GLuint)GlPicture_Texture(&pw, &ph), shown;
+            /* Bilinear reads the shown area alone: past its edges lies the
+             * rest of VRAM (gl_picture.h). */
+            if (!gl_pass_texture && Settings_Get(SET_FILTER) == 1 &&
+                (shown = (GLuint)GlPicture_ShownTexture(x, y, gl_pass_rect[2], gl_pass_rect[3]))) {
+                texture = shown;
+                pw = gl_pass_rect[2];
+                ph = gl_pass_rect[3];
+                x = y = 0;
+            }
             glBindTexture(GL_TEXTURE_2D, texture);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, Settings_Get(SET_FILTER) ? GL_LINEAR : GL_NEAREST);
             effects = PresentPass_Wanted() &&
-                      PresentPass_Begin(texture, gl_pass_rect[3], (float)gl_pass_rect[0] / (float)pw,
-                                        (float)gl_pass_rect[1] / (float)ph,
-                                        (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
-                                        (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph,
-                                        GlPicture_Scale() >= 2);
-            gl_quad_part(texture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h,
-                         (float)gl_pass_rect[0] / (float)pw, (float)gl_pass_rect[1] / (float)ph,
-                         (float)(gl_pass_rect[0] + gl_pass_rect[2]) / (float)pw,
-                         (float)(gl_pass_rect[1] + gl_pass_rect[3]) / (float)ph);
+                      PresentPass_Begin(texture, gl_pass_rect[3], (float)x / (float)pw, (float)y / (float)ph,
+                                        (float)(x + gl_pass_rect[2]) / (float)pw,
+                                        (float)(y + gl_pass_rect[3]) / (float)ph, GlPicture_Scale() >= 2);
+            gl_quad_part(texture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h, (float)x / (float)pw,
+                         (float)y / (float)ph, (float)(x + gl_pass_rect[2]) / (float)pw,
+                         (float)(y + gl_pass_rect[3]) / (float)ph);
         } else {
             effects = PresentPass_Wanted() && PresentPass_Begin(gl_picture, picture_h, 0.0f, 0.0f, 1.0f, 1.0f, 0);
             gl_quad(gl_picture, layout.dst.x, layout.dst.y, layout.dst.w, layout.dst.h);

@@ -2054,6 +2054,30 @@ unsigned GlPicture_Texture(int *picture_w, int *picture_h)
     return scale >= 2 ? picture_texture : 0;
 }
 
+/* The shown area in a texture of its own (see gl_picture.h). */
+static GLuint shown_texture, shown_fbo;
+static int shown_w, shown_h;
+
+unsigned GlPicture_ShownTexture(int x, int y, int w, int h)
+{
+    if (scale < 2 || w <= 0 || h <= 0) return 0;
+    if (w != shown_w || h != shown_h) {
+        if (shown_fbo) gl_DeleteFramebuffers(1, &shown_fbo);
+        if (shown_texture) glDeleteTextures(1, &shown_texture);
+        shown_texture = make_texture(GL_RGBA8, w, h, GL_RGBA, GL_UNSIGNED_BYTE);
+        shown_fbo = make_framebuffer(shown_texture);
+        shown_w = shown_fbo ? w : 0;
+        shown_h = shown_fbo ? h : 0;
+        if (!shown_fbo) return 0;
+    }
+    glDisable(GL_SCISSOR_TEST);
+    gl_BindFramebuffer(GL_READ_FRAMEBUFFER, picture_fbo);
+    gl_BindFramebuffer(GL_DRAW_FRAMEBUFFER, shown_fbo);
+    gl_BlitFramebuffer(x, y, x + w, y + h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+    return shown_texture;
+}
+
 int GlPicture_Scale(void) { return on ? scale : 0; }
 
 static GlWide *wide_for(int x, int y, int w, int h)
