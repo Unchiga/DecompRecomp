@@ -70,6 +70,7 @@
     X(PFNGLFRAMEBUFFERTEXTURE2DPROC, FramebufferTexture2D) \
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, CheckFramebufferStatus) \
     X(PFNGLDELETEFRAMEBUFFERSPROC, DeleteFramebuffers) \
+    X(PFNGLBLITFRAMEBUFFERPROC, BlitFramebuffer) \
     X(PFNGLBLENDEQUATIONPROC, BlendEquation) \
     X(PFNGLACTIVETEXTUREPROC, ActiveTexture) \
     X(PFNGLCLEARBUFFERUIVPROC, ClearBufferuiv) \
@@ -432,6 +433,8 @@ static GLuint make_framebuffer(GLuint texture)
     return fbo;
 }
 
+static void wide_free(void); /* widescreen's targets (below) */
+
 /* The picture and its scratch copy at the scale, made or remade. */
 static int make_picture(int wanted)
 {
@@ -443,6 +446,7 @@ static int make_picture(int wanted)
         fprintf(stderr, "memories-pc: OpenGL picture: %dx is beyond the largest texture (%d)\n", wanted, largest);
         return 0;
     }
+    wide_free(); /* their textures are at the old scale */
     if (picture_fbo) gl_DeleteFramebuffers(1, &picture_fbo);
     if (picture_scratch_fbo) gl_DeleteFramebuffers(1, &picture_scratch_fbo);
     if (picture_texture) glDeleteTextures(1, &picture_texture);
@@ -498,7 +502,11 @@ typedef struct GlVertex {
 typedef struct Run {
     size_t first, count;
     int clip[4], window[4], subtractive, pack; /* pack: the entry (index + 1) sampled, 0 none */
+    int wide; /* the widescreen target it is drawn into, -1 the picture */
 } Run;
+/* The widescreen target the primitive being read is drawn into, -1 the
+ * picture (see "widescreen" below). */
+static int wide_now = -1;
 
 static GlVertex *vertices;
 static size_t vertex_count, vertex_room;
@@ -528,7 +536,8 @@ static int run_matches(const Run *run, int subtractive)
     return !subtractive && run->clip[0] == state.clip_x1 && run->clip[1] == state.clip_y1 && run->clip[2] == state.clip_x2 &&
            run->clip[3] == state.clip_y2 && run->window[0] == state.window_mask_x &&
            run->window[1] == state.window_mask_y && run->window[2] == state.window_x &&
-           run->window[3] == state.window_y && run->subtractive == subtractive && run->pack == state.pack;
+           run->window[3] == state.window_y && run->subtractive == subtractive && run->pack == state.pack &&
+           run->wide == wide_now;
 }
 
 static GlVertex *push_vertices(size_t n, int subtractive)
@@ -565,6 +574,7 @@ static GlVertex *push_vertices(size_t n, int subtractive)
         run->window[3] = state.window_y;
         run->subtractive = subtractive;
         run->pack = state.pack;
+        run->wide = wide_now;
     }
     runs[run_count - 1].count += n;
     out = vertices + vertex_count;
@@ -810,6 +820,129 @@ static void apply_load(int x, int y, int w, int h, const uint16_t *pixels);
 static void apply_move(int sx, int sy, int dx, int dy, int w, int h);
 static void apply_fill(int x, int y, int w, int h, uint32_t rgb24);
 
+/* --- replay: widescreen -------------------------------------------------- */
+
+/* Widescreen's targets (soft_gpu.c), drawn here instead of by the software
+ * GPU. A full-screen drawing area gets, by the software GPU's rule
+ * (SoftGpu_WideMargin), a picture of its own `margin` words wider on each
+ * side; every primitive drawn to the area is drawn again into it, shifted
+ * right by the margin, with the clip the software GPU gives it there, and
+ * transfers into the area are copied into its centre. Up to WIDE_TARGETS,
+ * the least recently used one made anew first, as there. A target's texture
+ * holds the widened area only: (w + 2 margin) x h words at the scale, row 0
+ * the area's top. */
+#define WIDE_TARGETS 4
+typedef struct GlWide {
+    int x1, y1, x2, y2, margin;
+    int drawn;         /* primitives since it was last shown */
+    unsigned stamp;    /* last use */
+    int width, height; /* the texture's pixels */
+    GLuint texture, fbo; /* fbo 0: a free slot */
+} GlWide;
+static GlWide wide[WIDE_TARGETS];
+static unsigned wide_clock;
+
+static void wide_free(void)
+{
+    int t;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        if (wide[t].fbo) gl_DeleteFramebuffers(1, &wide[t].fbo);
+        if (wide[t].texture) glDeleteTextures(1, &wide[t].texture);
+        memset(&wide[t], 0, sizeof(wide[t]));
+    }
+}
+
+/* Picture words x,y,w,h (inside the target's area) into its centre. */
+static void wide_copy(const GlWide *wt, int x, int y, int w, int h)
+{
+    int to_x = x - wt->x1 + wt->margin, to_y = y - wt->y1;
+    glDisable(GL_SCISSOR_TEST);
+    gl_BindFramebuffer(GL_READ_FRAMEBUFFER, picture_fbo);
+    gl_BindFramebuffer(GL_DRAW_FRAMEBUFFER, wt->fbo);
+    gl_BlitFramebuffer(x * scale, y * scale, (x + w) * scale, (y + h) * scale, to_x * scale, to_y * scale,
+                       (to_x + w) * scale, (to_y + h) * scale, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+/* The target's sides in rows y to y + h, in a colour. */
+static void wide_sides(const GlWide *wt, int y, int h, float r, float g, float b)
+{
+    gl_BindFramebuffer(GL_FRAMEBUFFER, wt->fbo);
+    glEnable(GL_SCISSOR_TEST);
+    glClearColor(r, g, b, 0.0f);
+    glScissor(0, (y - wt->y1) * scale, wt->margin * scale, h * scale);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glScissor((wt->x2 - wt->x1 + 1 + wt->margin) * scale, (y - wt->y1) * scale, wt->margin * scale, h * scale);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+/* A transfer into words x,y,w,h, now in the picture, into the centre of
+ * every target it overlaps; a fill across a target's whole width fills its
+ * sides too (soft_gpu.c, wide_mirror). */
+static void wide_mirror(int x, int y, int w, int h, int fill, float r, float g, float b)
+{
+    int t;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        const GlWide *wt = &wide[t];
+        int x1 = x > wt->x1 ? x : wt->x1, x2 = x + w - 1 < wt->x2 ? x + w - 1 : wt->x2;
+        int y1 = y > wt->y1 ? y : wt->y1, y2 = y + h - 1 < wt->y2 ? y + h - 1 : wt->y2;
+        if (!wt->fbo || x1 > x2 || y1 > y2) continue;
+        wide_copy(wt, x1, y1, x2 - x1 + 1, y2 - y1 + 1);
+        if (fill && x <= wt->x1 && x + w - 1 >= wt->x2) wide_sides(wt, y1, y2 - y1 + 1, r, g, b);
+    }
+}
+
+/* The target for the current drawing area, made on first use from what the
+ * picture holds, its sides black; -1 when it gets none. */
+static int wide_target(void)
+{
+    int margin = SoftGpu_WideMargin(state.clip_x1, state.clip_y1, state.clip_x2, state.clip_y2);
+    int t, oldest = 0, width, height;
+    GlWide *wt;
+    if (!margin) return -1;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        wt = &wide[t];
+        if (wt->fbo && wt->x1 == state.clip_x1 && wt->y1 == state.clip_y1 && wt->x2 == state.clip_x2 &&
+            wt->y2 == state.clip_y2) {
+            wt->stamp = ++wide_clock;
+            return t;
+        }
+        if (wide[t].stamp < wide[oldest].stamp) oldest = t;
+    }
+    flush_runs(); /* what is drawn so far, into the picture it starts from */
+    wt = &wide[oldest];
+    width = (state.clip_x2 - state.clip_x1 + 1 + 2 * margin) * scale;
+    height = (state.clip_y2 - state.clip_y1 + 1) * scale;
+    if (!wt->fbo || wt->width != width || wt->height != height) {
+        if (wt->fbo) gl_DeleteFramebuffers(1, &wt->fbo);
+        if (wt->texture) glDeleteTextures(1, &wt->texture);
+        wt->texture = make_texture(GL_RGBA8, width, height, GL_RGBA, GL_UNSIGNED_BYTE);
+        wt->fbo = make_framebuffer(wt->texture);
+        if (!wt->fbo) {
+            glDeleteTextures(1, &wt->texture);
+            memset(wt, 0, sizeof(*wt));
+            return -1;
+        }
+        wt->width = width;
+        wt->height = height;
+    }
+    wt->x1 = state.clip_x1;
+    wt->y1 = state.clip_y1;
+    wt->x2 = state.clip_x2;
+    wt->y2 = state.clip_y2;
+    wt->margin = margin;
+    wt->drawn = 0;
+    wt->stamp = ++wide_clock;
+    gl_BindFramebuffer(GL_FRAMEBUFFER, wt->fbo);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    wide_copy(wt, wt->x1, wt->y1, wt->x2 - wt->x1 + 1, wt->y2 - wt->y1 + 1);
+    return oldest;
+}
+
 /* The batch, as SoftGpu_Gp0 reads it: the same commands, the same cuts. */
 static void gp0(const uint32_t *words, size_t count)
 {
@@ -818,7 +951,30 @@ static void gp0(const uint32_t *words, size_t count)
         uint32_t word = words[at], command = word >> 24;
         size_t used = 1;
         if (command >= 0x20 && command < 0x80) {
-            used = (command < 0x40 ? polygon : command < 0x60 ? lines : rectangle)(words + at, count - at);
+            size_t (*draw)(const uint32_t *, size_t) = command < 0x40 ? polygon : command < 0x60 ? lines : rectangle;
+            int t;
+            used = draw(words + at, count - at);
+            if (used && scale >= 2 && (t = wide_target()) >= 0) {
+                /* Again into the widescreen target, shifted, clipped as
+                 * SoftGpu_Gp0 clips it there: polygons and lines past the
+                 * 4:3 edges, sprites to them. */
+                int clip_x1 = state.clip_x1, clip_x2 = state.clip_x2, offset_x = state.offset_x;
+                int margin = wide[t].margin;
+                if (command < 0x60) {
+                    state.clip_x2 += 2 * margin;
+                } else {
+                    state.clip_x1 += margin;
+                    state.clip_x2 += margin;
+                }
+                state.offset_x += margin;
+                wide_now = t;
+                draw(words + at, count - at);
+                wide_now = -1;
+                state.clip_x1 = clip_x1;
+                state.clip_x2 = clip_x2;
+                state.offset_x = offset_x;
+                wide[t].drawn++;
+            }
         } else if (command == 0x02) {
             used = count - at >= 3 ? 3 : 0;
             if (used) {
@@ -928,9 +1084,19 @@ static void unbind_attributes(void)
     gl_BindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-static void scissor_words(int x1, int y1, int x2, int y2)
+/* Words x1..x2, y1..y2 of the picture, or of a widescreen target, whose
+ * texture starts at word origin_x, origin_y. */
+static void scissor_words(int x1, int y1, int x2, int y2, int origin_x, int origin_y)
 {
-    int w = x2 - x1 + 1, h = y2 - y1 + 1;
+    int w, h;
+    x1 -= origin_x;
+    x2 -= origin_x;
+    y1 -= origin_y;
+    y2 -= origin_y;
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    w = x2 - x1 + 1;
+    h = y2 - y1 + 1;
     if (w < 0) w = 0;
     if (h < 0) h = 0;
     glScissor(x1 * scale, y1 * scale, w * scale, h * scale);
@@ -1086,6 +1252,7 @@ static int bind_pack_entry(int entry)
 static void flush_runs(void)
 {
     size_t i;
+    int origin_x = 0, origin_y = 0;
     if (!vertex_count || scale < 2) {
         vertex_count = 0;
         run_count = 0;
@@ -1096,8 +1263,6 @@ static void flush_runs(void)
     if (hd_text) sync_glyphs();
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
-    gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
-    glViewport(0, 0, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
     gl_UseProgram(program);
     gl_Uniform1i(u_op, 0);
     glEnable(GL_SCISSOR_TEST);
@@ -1107,7 +1272,21 @@ static void flush_runs(void)
     gl_BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof(GlVertex)), vertices, GL_STREAM_DRAW);
     for (i = 0; i < run_count; i++) {
         const Run *run = &runs[i];
-        scissor_words(run->clip[0], run->clip[1], run->clip[2], run->clip[3]);
+        if (i == 0 || run->wide != runs[i - 1].wide) {
+            /* The picture, or a widescreen target: the whole picture's
+             * coordinates, moved so the target's area lands on its texture. */
+            if (run->wide < 0) {
+                gl_BindFramebuffer(GL_FRAMEBUFFER, picture_fbo);
+                glViewport(0, 0, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
+                origin_x = origin_y = 0;
+            } else {
+                gl_BindFramebuffer(GL_FRAMEBUFFER, wide[run->wide].fbo);
+                origin_x = wide[run->wide].x1;
+                origin_y = wide[run->wide].y1;
+                glViewport(-origin_x * scale, -origin_y * scale, SOFT_GPU_WIDTH * scale, SOFT_GPU_HEIGHT * scale);
+            }
+        }
+        scissor_words(run->clip[0], run->clip[1], run->clip[2], run->clip[3], origin_x, origin_y);
         gl_Uniform4i(u_window, run->window[0] * 8, run->window[1] * 8, (run->window[2] & run->window[0]) * 8,
                     (run->window[3] & run->window[1]) * 8);
         if (!run->pack || !bind_pack_entry(run->pack)) gl_Uniform4i(u_pack_entry, 0, 0, 0, 0);
@@ -1189,6 +1368,7 @@ static void apply_load(int x, int y, int w, int h, const uint16_t *pixels)
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     picture_from_words(x, y, cw, ch);
+    wide_mirror(x, y, cw, ch, 0, 0, 0, 0);
 }
 
 static void apply_fill(int x, int y, int w, int h, uint32_t rgb24)
@@ -1215,6 +1395,8 @@ static void apply_fill(int x, int y, int w, int h, uint32_t rgb24)
                  (float)((b << 3) | (b >> 2)) / 255.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glDisable(GL_SCISSOR_TEST);
+    wide_mirror(x, y, w, h, 1, (float)((r << 3) | (r >> 2)) / 255.0f, (float)((g << 3) | (g >> 2)) / 255.0f,
+                (float)((b << 3) | (b >> 2)) / 255.0f);
 }
 
 /* Through the scratch copies, as a texture cannot be copied onto itself. */
@@ -1246,6 +1428,7 @@ static void apply_move(int sx, int sy, int dx, int dy, int w, int h)
     gl_UseProgram(program);
     gl_Uniform2i(u_copy_offset, dx * scale, dy * scale);
     copy_quad(2, dx * scale, dy * scale, w * scale, h * scale);
+    wide_mirror(dx, dy, w, h, 0, 0, 0, 0);
 }
 
 /* VRAM as the software GPU has it, whole, into its texture. */
@@ -1269,6 +1452,9 @@ static void resync(int wanted, const uint32_t words[6])
         gp0(words, 6);
         return;
     }
+    /* The targets are drawn again from the next primitive on (the picture
+     * alone is rebuilt from VRAM): their sides are black until then. */
+    wide_free();
     if (!make_picture(wanted)) return;
     gl_Uniform1i(u_scale, scale);
     gl_Uniform2f(u_picture_size, (float)(SOFT_GPU_WIDTH * scale), (float)(SOFT_GPU_HEIGHT * scale));
@@ -1363,6 +1549,7 @@ int GlPicture_Replay(void)
         flush_runs();
         upload_vram();
     }
+    if (!SoftGpu_Widescreen() && wide[0].fbo + wide[1].fbo + wide[2].fbo + wide[3].fbo) wide_free();
     {
         static unsigned replays, total_us;
         struct timespec t1;
@@ -1394,6 +1581,52 @@ unsigned GlPicture_Texture(int *picture_w, int *picture_h)
 }
 
 int GlPicture_Scale(void) { return on ? scale : 0; }
+
+static GlWide *wide_for(int x, int y, int w, int h)
+{
+    int t;
+    if (!on || scale < 2) return NULL;
+    for (t = 0; t < WIDE_TARGETS; t++) {
+        GlWide *wt = &wide[t];
+        if (wt->fbo && wt->x1 == x && wt->y1 == y && wt->x2 - wt->x1 + 1 == w && wt->y2 - wt->y1 + 1 >= h) return wt;
+    }
+    return NULL;
+}
+
+unsigned GlPicture_WideTexture(int x, int y, int w, int h, int *picture_w, int *picture_h)
+{
+    GlWide *wt = wide_for(x, y, w, h);
+    if (!wt) return 0;
+    if (!wt->drawn) wide_sides(wt, y, h, 0, 0, 0); /* nothing drew them since: stale (SoftGpu_WideFrame) */
+    wt->drawn = 0;
+    *picture_w = wt->width;
+    *picture_h = wt->height;
+    return wt->texture;
+}
+
+int GlPicture_ReadWide(int x, int y, int w, int h, uint32_t *out)
+{
+    const GlWide *wt = wide_for(x, y, w, h);
+    int i, j, width, height;
+    uint8_t *rgba;
+    if (!wt) return 0;
+    width = wt->width;
+    height = h * scale;
+    rgba = malloc((size_t)width * (size_t)height * 4);
+    if (!rgba) return 0;
+    gl_BindFramebuffer(GL_READ_FRAMEBUFFER, wt->fbo);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, (y - wt->y1) * scale, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    gl_BindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    for (j = 0; j < height; j++) {
+        for (i = 0; i < width; i++) {
+            const uint8_t *p = rgba + ((size_t)j * width + i) * 4;
+            out[(size_t)j * width + i] = ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+        }
+    }
+    free(rgba);
+    return 1;
+}
 
 int GlPicture_Behind(void) { return on && arena_used > ARENA_WORDS / 2; }
 

@@ -765,6 +765,18 @@ int Platform_ReadPicture(uint32_t *out, int x, int y, int w, int h)
     return 0;
 }
 
+int Platform_PresentWidePicture(int x, int y, int w, int h, int wide_w, int scale)
+{
+    (void)x; (void)y; (void)w; (void)h; (void)wide_w; (void)scale;
+    return 0;
+}
+
+int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h)
+{
+    (void)out; (void)x; (void)y; (void)w; (void)h;
+    return 0;
+}
+
 void Platform_Present(const uint16_t *vram, int stride, int x, int y, int w, int h, int rgb24)
 {
     int width, height;

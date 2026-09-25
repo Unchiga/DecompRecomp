@@ -28,4 +28,13 @@ int GlPicture_Behind(void);
 /* Pixels x,y,w,h of the picture as 0x00RRGGBB, after a Replay. Returns 0
  * when the pass is off. */
 int GlPicture_Read(int x, int y, int w, int h, uint32_t *out);
+/* Widescreen: the widened picture of the display area x,y,w,h (words), when
+ * the pass drew a target for it (soft_gpu.h, SoftGpu_WideFrame), after a
+ * Replay: its texture, picture_w x picture_h texels, row 0 the area's top,
+ * the widened area filling it across. Sides nothing drew since the last
+ * call are made black, as the software GPU makes them. 0 when there is none. */
+unsigned GlPicture_WideTexture(int x, int y, int w, int h, int *picture_w, int *picture_h);
+/* The same picture's first h rows as 0x00RRGGBB into `out` (picture_w x
+ * h * scale), nothing changed. Returns 0 when there is none. */
+int GlPicture_ReadWide(int x, int y, int w, int h, uint32_t *out);
 #endif

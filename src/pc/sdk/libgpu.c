@@ -135,6 +135,16 @@ void Memories_DumpFrame(const char *path, int full_vram)
                 free(read);
                 read = NULL;
             }
+        } else if (!picture) { /* widened, by the backend's own renderer */
+            read = malloc((size_t)w * at_scale * (size_t)h * at_scale * sizeof(*read));
+            if (read && Platform_ReadWidePicture(read, disp_env.disp.x, disp_env.disp.y, disp_env.disp.w, h)) {
+                picture = read;
+                stride = w * at_scale;
+                x0 = y0 = 0;
+            } else {
+                free(read);
+                read = NULL;
+            }
         }
         if (picture) {
             fprintf(file, "P6\n%d %d\n255\n", w * at_scale, h * at_scale);
@@ -191,6 +201,8 @@ static void present_wide(int w, int h)
         const uint32_t *picture = SoftGpu_WidePicture(x, y, w, h);
         if (picture && Platform_PresentPicture(picture, SOFT_GPU_WIDTH * at_scale,
                 wide_x * at_scale, y * at_scale, wide_w * at_scale, h * at_scale, at_scale)) return;
+        /* The backend's own renderer drew it (gl_picture.h). */
+        if (!picture && at_scale > 1 && Platform_PresentWidePicture(x, y, w, h, wide_w, at_scale)) return;
         Platform_Present(pixels, SOFT_GPU_WIDTH, wide_x, y, wide_w, h, 0);
         return;
     }

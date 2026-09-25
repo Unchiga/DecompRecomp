@@ -202,6 +202,10 @@ void SoftGpu_SetRecorder(const SoftGpuRecorder *wanted)
     if (recorder) {
         free(picture);
         picture = NULL;
+        for (int t = 0; t < WIDE_TARGETS; t++) { /* the recorder draws these too */
+            free(wide[t].picture);
+            wide[t].picture = NULL;
+        }
         resync_recorder();
     } else if (scale > 1) {
         int at_scale = scale;
@@ -234,7 +238,7 @@ static void wide_picture_words(WideTarget *wt, int x, int y, int w, int h)
 
 static void wide_picture_prepare(WideTarget *wt)
 {
-    if (scale <= 1 || wt->picture) return;
+    if (scale <= 1 || wt->picture || recorder) return;
     wt->picture = calloc((size_t)PICTURE_WIDTH * PICTURE_HEIGHT, sizeof(*wt->picture));
     wide_picture_words(wt, wt->x1, wt->y1, wt->x2 - wt->x1 + 1 + 2 * wt->margin,
                        wt->y2 - wt->y1 + 1);
@@ -271,13 +275,24 @@ static void wide_mirror(int x, int y, int w, int h, int fill, uint16_t colour)
     }
 }
 
+int SoftGpu_WideMargin(int x1, int y1, int x2, int y2)
+{
+    int w = x2 - x1 + 1, h = y2 - y1 + 1, margin;
+    if (!wide_on || w < 256 || h < 192) return 0;
+    margin = (w / 6 + 1) & ~1; /* w * 4/3 in all, rounded to even */
+    return x2 + 2 * margin < SOFT_GPU_WIDTH ? margin : 0;
+}
+
+int SoftGpu_Widescreen(void) { return wide_on; }
+
 /* The target for the current drawing area, made on first use; NULL when
  * widescreen is off or the area is not a full screen. */
 static WideTarget *wide_target(void)
 {
     int w = gpu.clip_x2 - gpu.clip_x1 + 1, h = gpu.clip_y2 - gpu.clip_y1 + 1, margin, t, oldest = 0;
     WideTarget *wt;
-    if (!wide_on || w < 256 || h < 192) {
+    margin = SoftGpu_WideMargin(gpu.clip_x1, gpu.clip_y1, gpu.clip_x2, gpu.clip_y2);
+    if (!margin) {
         return NULL;
     }
     for (t = 0; t < WIDE_TARGETS; t++) {
@@ -291,10 +306,6 @@ static WideTarget *wide_target(void)
         if (wide[t].stamp < wide[oldest].stamp) {
             oldest = t;
         }
-    }
-    margin = (w / 6 + 1) & ~1; /* w * 4/3 in all, rounded to even */
-    if (gpu.clip_x2 + 2 * margin >= SOFT_GPU_WIDTH) {
-        return NULL;
     }
     wt = &wide[oldest];
     if (!wt->pixels && !(wt->pixels = malloc(sizeof(vram)))) {
