@@ -1,0 +1,9 @@
+{
+    "id": "free-duel-portraits-hd",
+    "name": "Free Duel Portraits HD",
+    "version": "1.0",
+    "author": "Unchiga",
+    "description": "Redrawn 192x192 portraits for the 40 Free Duel opponents. Shows best at View > Internal 4x.",
+    "enabled": true,
+    "textures": "portraits"
+}
