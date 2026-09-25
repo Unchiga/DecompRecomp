@@ -95,7 +95,7 @@ typedef struct {
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
 enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_COUNT };
-enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_COUNT };
+enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_JUMP, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
               {"Load state", "F7", ITEM_ACTION, ACT_LOAD_STATE, -1},
@@ -109,7 +109,7 @@ static Menu menus[MENU_COUNT] = {
     {"Video", {{"Window scale", 0, ITEM_SUBMENU, 0, -1, SUB_SCALE},
               {"Menu size", 0, ITEM_SUBMENU, 0, -1, SUB_MENU_SIZE},
               {"Fullscreen", "F11", ITEM_CHECK, MENU_ITEM_FULLSCREEN, SET_FULLSCREEN, 0, ITEM_GROUP_BREAK},
-              {"Borderless window", 0, ITEM_CHECK, MENU_ITEM_BORDERLESS, SET_BORDERLESS},
+              {"Borderless fullscreen", 0, ITEM_CHECK, MENU_ITEM_BORDERLESS, SET_BORDERLESS},
               {"Scaling", 0, ITEM_SUBMENU, 0, -1, SUB_SCALING, ITEM_GROUP_BREAK},
               {"Aspect Ratio", 0, ITEM_SUBMENU, 0, -1, SUB_ASPECT},
               {"Resolution", 0, ITEM_SUBMENU, 0, -1, SUB_RESOLUTION},
@@ -132,18 +132,18 @@ static Menu menus[MENU_COUNT] = {
               {"Mods", 0, ITEM_ACTION, ACT_MODS, -1},
               {"Game speed", 0, ITEM_SUBMENU, 0, -1, SUB_SPEED},
               {"Frame rate", 0, ITEM_SUBMENU, 0, -1, SUB_FPS},
-              {"Back to title screen", 0, ITEM_ACTION, MENU_ITEM_TITLE, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED},
-              {"Title screen after the credits", 0, ITEM_CHECK, 0, SET_RETURN_AFTER_CREDITS},
+              {"Title screen after the credits", 0, ITEM_CHECK, 0, SET_RETURN_AFTER_CREDITS, 0, ITEM_GROUP_BREAK},
               {"Deck slots...", "F6", ITEM_ACTION, MENU_ITEM_DECKS, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED},
               {"Use deck slots", 0, ITEM_CHECK, 0, SET_DECK_SLOTS},
-              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 9},
-    {"Debug", {{"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1},
+              {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 8},
+    {"Debug", {{"Jump to", 0, ITEM_SUBMENU, 0, -1, SUB_JUMP},
+               {"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1, 0, ITEM_GROUP_BREAK},
                {"Full stats", 0, ITEM_CHECK, CHECK_HUD_FULL, -1},
                {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},
                {"Frame step", ".", ITEM_ACTION, ACT_FRAME_STEP, -1},
                {"Dump frame (PPM)", 0, ITEM_ACTION, ACT_DUMP_FRAME, -1, 0, ITEM_GROUP_BREAK},
                {"Dump VRAM (PPM)", 0, ITEM_ACTION, ACT_DUMP_VRAM, -1},
-               {"Trace", 0, ITEM_SUBMENU, 0, -1, SUB_TRACE, ITEM_GROUP_BREAK}}, 7},
+               {"Trace", 0, ITEM_SUBMENU, 0, -1, SUB_TRACE, ITEM_GROUP_BREAK}}, 8},
 };
 static Menu submenus[SUB_COUNT] = {
     {"Window scale", {{"1x", 0, ITEM_RADIO, MENU_ITEM_SCALE_1, SET_SCALE, 1},
@@ -196,6 +196,7 @@ static Menu submenus[SUB_COUNT] = {
     {"Effects", {{"CRT scanlines", 0, ITEM_CHECK, 0, SET_CRT},
                  {"Reduce flashes", 0, ITEM_CHECK, 0, SET_FLASH},
                  {"xBR pixel smoothing", 0, ITEM_CHECK, 0, SET_XBR}}, 3},
+    {"Jump to", {{"Title Screen", 0, ITEM_ACTION, MENU_ITEM_TITLE, -1, 0, ITEM_DISABLED}}, 1},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;

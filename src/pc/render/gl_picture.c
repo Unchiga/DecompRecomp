@@ -760,23 +760,42 @@ static size_t rectangle(const uint32_t *words, size_t count)
     return need;
 }
 
-/* A line as the software pass draws it: a scale x scale block per step. */
+/* A line in the picture: the console's one-pixel line made scale times
+ * thicker, as a quad in words ([0] and [1] one end, [2] and [3] the other,
+ * in a polygon's order) that covers each picture pixel once, so a
+ * semi-transparent line blends as often as on the console at any scale.
+ * Along the major axis it runs from the first word's leading edge to the
+ * last word's trailing edge. */
+static void line_quad(const Vertex *a, const Vertex *b, Vertex quad[4])
+{
+    int dx = b->x - a->x, dy = b->y - a->y;
+    int x_major = (dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy);
+    const Vertex *first = (x_major ? dx : dy) < 0 ? b : a, *last = first == a ? b : a;
+    quad[0] = quad[1] = *first;
+    quad[2] = quad[3] = *last;
+    if (x_major) {
+        quad[1].y++;
+        quad[2].x++;
+        quad[3].x++;
+        quad[3].y++;
+    } else {
+        quad[1].x++;
+        quad[2].y++;
+        quad[3].x++;
+        quad[3].y++;
+    }
+}
+
+/* A line as the software pass draws it (soft_gpu.c, line_quad). */
 static void line(const Vertex *a, const Vertex *b, int flags)
 {
-    int dx = b->x - a->x, dy = b->y - a->y, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-    int steps = adx > ady ? adx : ady, hsteps, n, i;
-    if (adx > 1023 || ady > 511) return;
+    int dx = b->x - a->x, dy = b->y - a->y;
+    Vertex quad[4];
+    if ((dx < 0 ? -dx : dx) > 1023 || (dy < 0 ? -dy : dy) > 511) return;
     state.pack = 0;
-    hsteps = steps * scale;
-    n = hsteps ? hsteps : 1;
-    for (i = 0; i <= hsteps; i++) {
-        Vertex colour;
-        colour.r = a->r + (b->r - a->r) * i / n;
-        colour.g = a->g + (b->g - a->g) * i / n;
-        colour.b = a->b + (b->b - a->b) * i / n;
-        block(a->x * scale + dx * scale * i / n, a->y * scale + dy * scale * i / n, scale, scale, 0, 0, 0, 0,
-              &colour, flags);
-    }
+    line_quad(a, b, quad);
+    triangle(&quad[0], &quad[1], &quad[2], flags);
+    triangle(&quad[1], &quad[2], &quad[3], flags);
 }
 
 static size_t lines(const uint32_t *words, size_t count)

@@ -415,7 +415,7 @@ window, which is how the menus are checked.
 
 ### Back to the title screen
 
-Game > Back to title screen leaves whatever is running for the title, the
+Debug > Jump to > Title Screen leaves whatever is running for the title, the
 way the retail game leaves a campaign loss. `Main_RunGameOver` fades the
 music and the screen out, asks for the title menu (`D_8009B268 = 1`,
 `D_8009B26D = 0`, mode 8), and longjmps to the point `Main_Init` set up after
@@ -859,7 +859,12 @@ VRAM. VRAM itself stays exactly what the console's would be: the game reads
 it back and states hold it, and the 1x frame the smoke fixtures hash is
 byte-identical at any scale. No dithering in the picture; the mask bits
 are VRAM's; a texture pack's image is sampled at its own resolution there,
-VRAM's own texels otherwise.
+VRAM's own texels otherwise. A line is the console's one-pixel line made N
+times thicker, one quad covering each picture pixel once (`line_quad` in
+both renderers), so a semi-transparent line blends once per pixel as on the
+console. Drawing it as an N x N block per picture step blended the Library's
+grid up to N times, too bright, and at 4x cost the OpenGL replay about
+880,000 vertices a frame (1200 frames of the Library took 30 s, now 2.3 s).
 
 Two renderers draw it. With the SDL backend on OpenGL 3.0 or later
 (`gl_picture.c`) the software GPU only records what it does to VRAM (every

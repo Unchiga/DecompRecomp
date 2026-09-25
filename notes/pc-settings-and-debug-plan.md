@@ -128,7 +128,7 @@ typedef enum {
     SET_STREAM_VOLUME,   /* 0-100: CD/XA movie audio */
     SET_SCALE,           /* 1-8 windowed integer scale, env MEMORIES_SCALE */
     SET_FULLSCREEN,      /* 0 windowed, 1 borderless fullscreen (desktop), 2 exclusive */
-    SET_BORDERLESS,      /* 0/1: windowed mode without decorations */
+    SET_BORDERLESS,      /* 0/1: fullscreen at the desktop mode (SDL) */
     SET_SCALING,         /* 0 integer, 1 fit (aspect kept), 2 stretch */
     SET_ASPECT,          /* 0 4:3, 1 square pixels */
     SET_FILTER,          /* 0 nearest, 1 linear */
