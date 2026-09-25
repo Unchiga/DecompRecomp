@@ -1705,11 +1705,11 @@ int Platform_PresentWidePicture(int x, int y, int w, int h, int wide_w, int at_s
     return 1;
 }
 
-int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h)
+int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h, int wide_w, int scale)
 {
     if (!use_gl) return 0;
     GlPicture_Replay();
-    return GlPicture_ReadWide(x, y, w, h, out);
+    return GlPicture_ReadWide(x, y, w, h, wide_w, scale, out);
 }
 
 int Platform_ShouldQuit(void) { return quit; }

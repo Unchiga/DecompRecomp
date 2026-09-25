@@ -137,7 +137,7 @@ void Memories_DumpFrame(const char *path, int full_vram)
             }
         } else if (!picture) { /* widened, by the backend's own renderer */
             read = malloc((size_t)w * at_scale * (size_t)h * at_scale * sizeof(*read));
-            if (read && Platform_ReadWidePicture(read, disp_env.disp.x, disp_env.disp.y, disp_env.disp.w, h)) {
+            if (read && Platform_ReadWidePicture(read, disp_env.disp.x, disp_env.disp.y, disp_env.disp.w, h, w, at_scale)) {
                 picture = read;
                 stride = w * at_scale;
                 x0 = y0 = 0;

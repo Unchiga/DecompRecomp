@@ -771,9 +771,9 @@ int Platform_PresentWidePicture(int x, int y, int w, int h, int wide_w, int scal
     return 0;
 }
 
-int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h)
+int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h, int wide_w, int scale)
 {
-    (void)out; (void)x; (void)y; (void)w; (void)h;
+    (void)out; (void)x; (void)y; (void)w; (void)h; (void)wide_w; (void)scale;
     return 0;
 }
 

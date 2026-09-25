@@ -1448,6 +1448,7 @@ static void resync(int wanted, const uint32_t words[6])
     vertex_count = 0;
     run_count = 0;
     if (wanted < 2) {
+        wide_free();
         scale = 0;
         gp0(words, 6);
         return;
@@ -1604,12 +1605,12 @@ unsigned GlPicture_WideTexture(int x, int y, int w, int h, int *picture_w, int *
     return wt->texture;
 }
 
-int GlPicture_ReadWide(int x, int y, int w, int h, uint32_t *out)
+int GlPicture_ReadWide(int x, int y, int w, int h, int wide_w, int want_scale, uint32_t *out)
 {
     const GlWide *wt = wide_for(x, y, w, h);
     int i, j, width, height;
     uint8_t *rgba;
-    if (!wt) return 0;
+    if (!wt || scale != want_scale || wt->width != wide_w * scale) return 0;
     width = wt->width;
     height = h * scale;
     rgba = malloc((size_t)width * (size_t)height * 4);

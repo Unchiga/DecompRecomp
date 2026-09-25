@@ -34,9 +34,10 @@ int Platform_ReadPicture(uint32_t *out, int x, int y, int w, int h);
  * words across, that the backend's own renderer drew (gl_picture.h,
  * GlPicture_WideTexture); 0 where there is none, and the caller shows
  * another. Platform_ReadWidePicture reads it whole (wide_w x h words at the
- * scale) as 0x00RRGGBB, for frame dumps. */
+ * scale) as 0x00RRGGBB, for frame dumps; 0 when the backend's picture is
+ * not that size. */
 int Platform_PresentWidePicture(int x, int y, int w, int h, int wide_w, int scale);
-int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h);
+int Platform_ReadWidePicture(uint32_t *out, int x, int y, int w, int h, int wide_w, int scale);
 int Platform_ShouldQuit(void);
 int Platform_StateSlot(void);
 void Platform_SetStateSlot(int slot);

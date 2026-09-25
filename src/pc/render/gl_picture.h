@@ -35,6 +35,7 @@ int GlPicture_Read(int x, int y, int w, int h, uint32_t *out);
  * call are made black, as the software GPU makes them. 0 when there is none. */
 unsigned GlPicture_WideTexture(int x, int y, int w, int h, int *picture_w, int *picture_h);
 /* The same picture's first h rows as 0x00RRGGBB into `out` (picture_w x
- * h * scale), nothing changed. Returns 0 when there is none. */
-int GlPicture_ReadWide(int x, int y, int w, int h, uint32_t *out);
+ * h * scale), nothing changed. Returns 0 when there is none, or when it is
+ * not wide_w words across at `want_scale` (the size `out` holds). */
+int GlPicture_ReadWide(int x, int y, int w, int h, int wide_w, int want_scale, uint32_t *out);
 #endif
