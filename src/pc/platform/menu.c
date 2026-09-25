@@ -305,7 +305,9 @@ static void load_font(void)
     for (c = 32; c < 127; c++) {
         Glyph *g = &glyphs[c - 32];
         FT_Bitmap *b;
-        if (FT_Load_Char(face, (FT_ULong)c, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT)) {
+        /* Outlines only: a font's embedded bitmaps (Wine's Tahoma has them
+         * at 8-16 px) come back 1 bit per pixel, not the bytes read below. */
+        if (FT_Load_Char(face, (FT_ULong)c, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT | FT_LOAD_NO_BITMAP)) {
             continue;
         }
         b = &face->glyph->bitmap;

@@ -347,7 +347,7 @@ static int set_name(const char *name, int factor, unsigned char *cover)
             if (!FT_Get_Kerning(face, previous, index, FT_KERNING_DEFAULT, &kern)) pen += (int)((kern.x + 32) >> 6);
         }
         previous = index;
-        if (FT_Load_Glyph(face, index, FT_LOAD_RENDER | FT_LOAD_NO_HINTING)) continue;
+        if (FT_Load_Glyph(face, index, FT_LOAD_RENDER | FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP)) continue;
         bitmap = &face->glyph->bitmap;
         for (y = 0; y < (int)bitmap->rows; y++) {
             int ty = baseline - face->glyph->bitmap_top + y;
