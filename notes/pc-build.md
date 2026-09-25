@@ -531,6 +531,13 @@ settings that are off at their defaults:
   of 240, so the lines match at every internal resolution. Each line is
   darkened towards its edges, and an aperture grille is drawn over window
   pixels, with the lost brightness given back.
+- Reduce flashes (Video > Effects, `reduce_flashes`). The picture's average
+  brightness may rise by at most 2.0 a second (black to white is 1.0). A
+  frame that brightens faster is darkened as a whole to that rise, and
+  darkening is never held back. Small moving things barely change the
+  average, and the game's own fades are slower than the limit. The rate is
+  timed in real time, so it holds at every speed. Without framebuffer
+  objects, only this effect is unavailable.
 
 While every effect is at its default, the pass is not used, and the picture
 is drawn by the fixed-function quad exactly as before. The SDL_Render

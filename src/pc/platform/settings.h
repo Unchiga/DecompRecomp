@@ -36,6 +36,7 @@ typedef enum {
     SET_SATURATION,
     SET_GAMMA,
     SET_CRT,
+    SET_FLASH,
     SET_COUNT
 } SettingId;
 
