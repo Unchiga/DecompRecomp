@@ -763,7 +763,7 @@ static void name_over_panel(const Vertex *base, int w, int h, int flags)
 {
     int atlas_u, atlas_v, x, y, width, height;
     if (!opponent_name || state.bank || state.depth != 0 || state.page_x != 704 || state.page_y != 0 ||
-        state.clut_x != 736 || state.clut_y != 252 || base->u != 128 || base->v != 128 || w != 64 || h != 40) {
+        (state.clut_x != 736 && state.clut_x != 752) || state.clut_y != 252 || base->u != 128 || base->v != 128 || w != 64 || h != 40) {
         return;
     }
     if (!HdText_NameBox(scale, &atlas_u, &atlas_v, &x, &y, &width, &height)) return;
