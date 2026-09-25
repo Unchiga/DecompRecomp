@@ -337,7 +337,7 @@ class Extractor:
         # Main_LoadBootPackageStage: WA 0xB48000, 48 sectors at (640, 0); palette 256x8 at (512, 248)
         # from 0xB60000 and the eight colour ramps 16x8 at (640, 232) from 0xB61000.
         sheet(WA, 0xB48000, 48, 0x280, 0, "sheets/boot/a", "boot UI image",
-              cluts4(0xB60000, 0, 0x40, 0x80, 0x260, 0x2A0, 0x2E0, 0x300, 0x340, 0x460, 0x500, 0x520, 0x600, 0x620,
+              cluts4(0xB60000, 0, 0x40, 0x80, 0x200, 0x220, 0x240, 0x260, 0x280, 0x2A0, 0x2C0, 0x2E0, 0x300, 0x320, 0x340, 0x360, 0x3E0, 0x420, 0x440, 0x460, 0x500, 0x520, 0x600, 0x620,
                      0x640, 0x660, 0x680, 0x6A0, 0x6C0, 0x6E0, 0x820, 0x840, 0x880, 0x9A0, 0x9C0, 0xE40)
               + cluts4(0xB61000, 0, 0x20, 0x40, 0x80, 0xA0))
         # Main_LoadBootImageStage (WA sector 0x1F85, 34): 32 sectors at (0, 256); palette 256x4 at (256, 240).
@@ -369,12 +369,15 @@ class Extractor:
         # func_80020BE4 (duel results): 32 sectors at (0, 256); palette 256x4 at (0, 248) from 0xEE5800.
         sheet(WA, 0xED5800, 32, 0, 0x100, "sheets/results/a", "duel results image",
               rows8(0xEE5800, 0) + cluts4(0xEE5800, 0))
-        # func_80032184 (duel rewards, WA sector 0x2189): 64 sectors at (768, 256), 8 at (832, 0);
-        # palette 256x16 at (256, 240) from 0x1136800.
-        sheet(WA, 0x1112800, 64, 0x300, 0x100, "sheets/reward/a", "duel reward image A",
-              rows8(0x1136800, 0) + cluts4(0x1136800, 0))
-        sheet(WA, 0x1132800, 8, 0x340, 0, "sheets/reward/b", "duel reward image B",
-              rows8(0x1136800, 0) + cluts4(0x1136800, 0))
+        # func_80032328 (Build Deck, func_800323F8; Trade; duel rewards): WA sector 0x2189 through
+        # func_80032184, 64 sectors at (768, 256), 8 at (832, 0); palette 256x16 at (256, 240)
+        # from 0x10E8800. Readings from a Build Deck dump (chest and deck panes, sort orders,
+        # the card view).
+        sheet(WA, 0x10C4800, 64, 0x300, 0x100, "sheets/deck/a", "Build Deck image A",
+              [(8, 0x10E8800 + 8 * 0x200, column) for column in (0, 1, 2)]
+              + [(4, 0x10E8800 + clut, 3) for clut in (0x1180, 0x11E0, 0x1E20, 0x1E40)])
+        sheet(WA, 0x10E4800, 8, 0x340, 0, "sheets/deck/b", "Build Deck image B",
+              cluts4(0x10E8800, 0xE00, 0xE20))
         # func_8002BD0C (Library): 64 sectors at (768, 256), palette 256x16 at (256, 240) from 0xF06800;
         # 48 sectors at (576, 256), palette 256x2 at (256, 246) from 0xF20800.
         sheet(WA, 0xEE6800, 64, 0x300, 0x100, "sheets/library/a", "library image A",
