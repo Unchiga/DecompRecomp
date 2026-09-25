@@ -198,9 +198,9 @@ static Menu submenus[SUB_COUNT] = {
                  {"Reduce flashes", 0, ITEM_CHECK, 0, SET_FLASH},
                  {"xBR pixel smoothing", 0, ITEM_CHECK, 0, SET_XBR}}, 3},
     {"Jump to", {{"Title Screen", 0, ITEM_ACTION, MENU_ITEM_TITLE, -1, 0, ITEM_DISABLED}}, 1},
-    {"Filtering", {{"Nearest", 0, ITEM_RADIO, 0, SET_FILTER, 0},
-                   {"Smooth (bilinear)", 0, ITEM_RADIO, 0, SET_FILTER, 1},
-                   {"Sharp bilinear", 0, ITEM_RADIO, 0, SET_FILTER, 2}}, 3},
+    {"Filtering", {{"Nearest", 0, ITEM_RADIO, MENU_ITEM_FILTER_NEAREST, SET_FILTER, 0},
+                   {"Smooth (bilinear)", 0, ITEM_RADIO, MENU_ITEM_FILTER_LINEAR, SET_FILTER, 1},
+                   {"Sharp bilinear", 0, ITEM_RADIO, MENU_ITEM_FILTER_SHARP, SET_FILTER, 2}}, 3},
 };
 
 static int open_menu = -1, hot_item = -1, hover_bar = -1, grabbed, ready, visible = 1;
