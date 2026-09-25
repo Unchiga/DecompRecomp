@@ -112,6 +112,11 @@ void TextureDump_Restart(void)
     if (index_file) index_file = freopen(name, "w", index_file);
     snprintf(name, sizeof(name), "%s/assets.txt", directory);
     if (assets_file) assets_file = freopen(name, "w", assets_file);
+    if (!index_file) { /* the directory went away, say */
+        fprintf(stderr, "memories-pc: texture dump could not restart; stopped\n");
+        TextureDump_Enabled = 0;
+        return;
+    }
     fprintf(stderr, "memories-pc: texture dump restarted\n");
 }
 

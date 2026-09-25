@@ -284,7 +284,8 @@ def build(readings):
     packages) are made once."""
     made, copies = {}, []
     for reading in readings:
-        key = (reading.rgb.tobytes(), reading.mask.tobytes(), reading.method, reading.alone, tuple(reading.rects))
+        key = (reading.rgb.tobytes(), reading.mask.tobytes(), reading.method, reading.alone, tuple(reading.rects),
+               tuple(map(tuple, reading.pixel)))
         if key in made:
             copies.append((reading, made[key]))
         else:
