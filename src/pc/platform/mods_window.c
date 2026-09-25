@@ -26,15 +26,18 @@ typedef struct {
     int x, y, w, h;
 } Rect;
 typedef struct {
-    Rect search, filter, list, detail, toggle, tabs[3], apply, close, profile, save, load, order[2], defaults, folder;
+    Rect search, filter, list, list_bar, detail, toggle, tabs[3], view, bar, apply, close, profile, save, load,
+        order[2], defaults, folder;
 } Layout;
 static int width, height, unit, selected, scroll, detail_scroll, tab, filter, focus, pending;
 static int wanted[MODS_MAX], ranks[MODS_MAX], *values[MODS_MAX], counts[MODS_MAX];
-static int slider_drag = -1;
+static int slider_drag = -1, bar_drag, bar_grab; /* bar_drag: 1 the list's scrollbar, 2 the details' */
 static char query[96], profile[65] = "Default", status[512];
 static const char *filters[] = {"All mods", "Enabled", "Disabled", "Issues"};
 static const char *pad_names[] = {"Select", "L3", "R3", "Start", "Up",       "Right",  "Down",  "Left",
                                   "L2",     "R2", "L1", "R1",    "Triangle", "Circle", "Cross", "Square"};
+#define BAR (10 * unit)
+#define LINE (22 * unit)
 static int width_text(const char *s) { return Menu_TextWidthScaled(s, unit); }
 static Rect rect(int x, int y, int w, int h)
 {
@@ -43,25 +46,37 @@ static Rect rect(int x, int y, int w, int h)
 }
 static int inside(Rect r, int x, int y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; }
 static int max(int a, int b) { return a > b ? a : b; }
+static int min(int a, int b) { return a < b ? a : b; }
 static void layout(Layout *l)
 {
-    int p = 20 * unit, gap = 16 * unit, left = width * 36 / 100, footer = height - 72 * unit, top = 142 * unit;
+    int p = 20 * unit, gap = 16 * unit, left = width * 36 / 100, footer = height - 72 * unit, top = 142 * unit, right,
+        view_top;
     l->search = rect(p, 64 * unit, left - p, 32 * unit);
     l->filter = rect(p, 104 * unit, left - p, 28 * unit);
     l->list = rect(p, top, left - p, footer - top - 12 * unit);
+    l->list_bar = rect(l->list.x + l->list.w - BAR - 3 * unit, l->list.y + 4 * unit, BAR, l->list.h - 8 * unit);
     l->detail = rect(left + gap, top, width - left - gap - p, footer - top - 12 * unit);
     l->profile = rect(left + gap, 64 * unit, max(80 * unit, width - left - gap - p - 160 * unit), 32 * unit);
     l->save = rect(width - p - 152 * unit, 64 * unit, 72 * unit, 32 * unit);
     l->load = rect(width - p - 72 * unit, 64 * unit, 72 * unit, 32 * unit);
-    l->toggle = rect(l->detail.x + 16 * unit, top + 74 * unit, 130 * unit, 30 * unit);
+    /* Name and metadata on the left of the details, switch and order on the right. */
+    right = l->detail.x + l->detail.w - 16 * unit;
+    l->toggle = rect(right - 120 * unit, l->detail.y + 10 * unit, 120 * unit, 28 * unit);
+    l->order[0] = rect(right - 120 * unit, l->detail.y + 44 * unit, 28 * unit, 26 * unit);
+    l->order[1] = rect(right - 28 * unit, l->detail.y + 44 * unit, 28 * unit, 26 * unit);
     for (int i = 0; i < 3; i++)
-        l->tabs[i] = rect(l->detail.x + i * l->detail.w / 3, top + 120 * unit, l->detail.w / 3, 32 * unit);
+        l->tabs[i] = rect(l->detail.x + i * l->detail.w / 3, l->detail.y + 80 * unit,
+                          (i + 1) * l->detail.w / 3 - i * l->detail.w / 3, 32 * unit);
+    view_top = l->detail.y + 124 * unit;
+    l->defaults = rect(right - 150 * unit, view_top, 150 * unit, 28 * unit);
+    if (tab == 1 && selected >= 0 && counts[selected])
+        view_top += 40 * unit; /* the settings' toolbar stays put above the scrolling list */
+    l->view = rect(l->detail.x + 16 * unit, view_top, l->detail.w - 22 * unit,
+                   max(0, l->detail.y + l->detail.h - 8 * unit - view_top));
+    l->bar = rect(l->view.x + l->view.w - BAR, l->view.y, BAR, l->view.h);
     l->apply = rect(width - p - 150 * unit, height - 48 * unit, 150 * unit, 30 * unit);
     l->close = rect(width - p - 252 * unit, height - 48 * unit, 94 * unit, 30 * unit);
     l->folder = rect(width - p - 418 * unit, height - 48 * unit, 158 * unit, 30 * unit);
-    l->order[0] = rect(l->detail.x + l->detail.w - 88 * unit, top + 74 * unit, 30 * unit, 30 * unit);
-    l->order[1] = rect(l->detail.x + l->detail.w - 48 * unit, top + 74 * unit, 30 * unit, 30 * unit);
-    l->defaults = rect(l->detail.x + 16 * unit, top + 164 * unit, l->detail.w - 32 * unit, 28 * unit);
 }
 static const char *str(const JsonValue *v, const char *key, const char *fallback)
 {
@@ -134,6 +149,7 @@ void ModsWindow_Init(void)
     width = 920 * unit;
     height = 640 * unit;
     slider_drag = -1;
+    bar_drag = 0;
     selected = Mods_Count() ? 0 : -1;
     scroll = detail_scroll = tab = filter = focus = pending = 0;
     query[0] = status[0] = 0;
@@ -174,6 +190,8 @@ void ModsWindow_Size(int *w, int *h)
 static void fill(MenuCanvas *c, Rect r, unsigned colour)
 {
     int x0 = max(0, r.x), y0 = max(0, r.y), x1 = r.x + r.w, y1 = r.y + r.h;
+    if (!c)
+        return;
     if (x1 > c->width)
         x1 = c->width;
     if (y1 > c->height)
@@ -186,7 +204,7 @@ static void text(MenuCanvas *c, int x, int y, int w, const char *s, unsigned col
 {
     char line[512];
     size_t n = strlen(s);
-    if (w <= 0)
+    if (!c || w <= 0)
         return;
     if (n >= sizeof(line))
         n = sizeof(line) - 1;
@@ -205,15 +223,21 @@ static void button(MenuCanvas *c, Rect r, const char *label, int accent)
     fill(c, r, accent ? ACCENT : EDGE);
     text(c, r.x + 10 * unit, r.y + r.h / 2, r.w - 20 * unit, label, TEXT);
 }
-static int wrap(MenuCanvas *c, Rect bounds, int y, const char *s, unsigned colour)
+static void centred(MenuCanvas *c, Rect r, const char *s, unsigned colour)
+{
+    text(c, r.x + max(6 * unit, (r.w - width_text(s)) / 2), r.y + r.h / 2, r.w - 12 * unit, s, colour);
+}
+/* Word-wraps `s` into `w` pixels, its first line's top at `y`, and returns the
+ * top of the line after it. Without a canvas it only measures. */
+static int wrap(MenuCanvas *c, int x, int y, int w, const char *s, unsigned colour)
 {
     char line[512];
     int n = 0;
     while (*s) {
         line[n++] = *s++;
         line[n] = 0;
-        if (n >= 500 || *s == '\n' || !*s || width_text(line) > bounds.w - 16 * unit) {
-            if (width_text(line) > bounds.w - 16 * unit && n > 1) {
+        if (n >= 500 || *s == '\n' || !*s || width_text(line) > w) {
+            if (width_text(line) > w && n > 1) {
                 int split = n - 1;
                 while (split > 0 && line[split] != ' ')
                     split--;
@@ -223,19 +247,14 @@ static int wrap(MenuCanvas *c, Rect bounds, int y, const char *s, unsigned colou
                 n = split;
                 line[n] = 0;
             }
-            if (y >= bounds.y + 8 * unit && y < bounds.y + bounds.h - 8 * unit)
-                text(c, bounds.x + 8 * unit, y, bounds.w - 16 * unit, line, colour);
-            y += 22 * unit;
+            text(c, x, y + LINE / 2, w, line, colour);
+            y += LINE;
             n = 0;
             while (*s == ' ' || *s == '\n')
                 s++;
         }
     }
     return y;
-}
-static Rect content(const Layout *l)
-{
-    return rect(l->detail.x + 8 * unit, l->detail.y + 158 * unit, l->detail.w - 16 * unit, l->detail.h - 166 * unit);
 }
 static void option_label(int mod, int index, char *out, size_t size)
 {
@@ -254,11 +273,149 @@ static void option_label(int mod, int index, char *out, size_t size)
     } else
         snprintf(out, size, "%d%s", value, str(spec, "suffix", ""));
 }
+/* Wide enough for every value the setting can take, so none is cut off. */
+static int value_width(int option, int w)
+{
+    const JsonValue *spec = Mods_Option(selected, option);
+    const char *type = str(spec, "type", "int");
+    char s[96];
+    int widest = width_text("Off");
+    if (!strcmp(type, "choice")) {
+        const JsonValue *choices = Json_Member(spec, "choices");
+        for (int i = 0; i < Json_Count(choices); i++)
+            widest = max(widest, width_text(Json_String(Json_At(choices, i), "")));
+    } else if (!strcmp(type, "key")) {
+        for (int i = 0; i < 16; i++)
+            widest = max(widest, width_text(pad_names[i]));
+    } else if (strcmp(type, "bool")) {
+        snprintf(s, sizeof(s), "%d%s", num(spec, "min", 0), str(spec, "suffix", ""));
+        widest = max(widest, width_text(s));
+        snprintf(s, sizeof(s), "%d%s", num(spec, "max", 100), str(spec, "suffix", ""));
+        widest = max(widest, width_text(s));
+    }
+    return min(max(widest + 24 * unit, 64 * unit), w * 2 / 5);
+}
+static int is_int(int option) { return !strcmp(str(Mods_Option(selected, option), "type", "int"), "int"); }
+typedef struct {
+    Rect minus, value, plus, slider;
+    int height;
+} OptionBox;
+/* One setting of the selected mod, `w` wide with its top at `y`: the label
+ * wraps beside - value +, the description wraps under both, then an int's
+ * slider. Fills `o` in the same coordinates; draws only with a canvas. */
+static void option(MenuCanvas *c, int index, int w, int y, OptionBox *o)
+{
+    const JsonValue *spec = Mods_Option(selected, index);
+    const char *about = str(spec, "description", "");
+    char value[160];
+    int box = value_width(index, w), bottom;
+    o->plus = rect(w - 28 * unit, y, 28 * unit, 28 * unit);
+    o->value = rect(o->plus.x - 4 * unit - box, y, box, 28 * unit);
+    o->minus = rect(o->value.x - 32 * unit, y, 28 * unit, 28 * unit);
+    bottom = wrap(c, 0, y + 3 * unit, o->minus.x - 16 * unit, str(spec, "label", str(spec, "key", "Setting")), TEXT);
+    bottom = max(y + 28 * unit, bottom);
+    if (*about)
+        bottom = wrap(c, 0, bottom + 4 * unit, w, about, DIM);
+    if (Json_Bool(Json_Member(spec, "restart"), 0))
+        bottom = wrap(c, 0, bottom + (*about ? 0 : 4 * unit), w, "Requires a restart", WARN);
+    o->slider = rect(0, bottom + 2 * unit, w, is_int(index) ? 22 * unit : 0);
+    o->height = o->slider.y + o->slider.h + 14 * unit - y;
+    if (!c)
+        return;
+    option_label(selected, index, value, sizeof(value));
+    button(c, o->minus, "-", 0);
+    fill(c, o->value, BG);
+    centred(c, o->value, value,
+            !strcmp(str(spec, "type", "int"), "bool") ? (values[selected][index] ? GREEN : DIM) : BLUE);
+    button(c, o->plus, "+", 0);
+    if (o->slider.h) {
+        int low = num(spec, "min", 0), high = num(spec, "max", 100), span = w - 10 * unit;
+        int mid = o->slider.y + o->slider.h / 2;
+        int at = high > low ? (int)(((int64_t)values[selected][index] - low) * span / ((int64_t)high - low)) : 0;
+        at = min(max(at, 0), span);
+        fill(c, rect(0, mid - 2 * unit, w, 4 * unit), EDGE);
+        fill(c, rect(0, mid - 2 * unit, at, 4 * unit), ACCENT);
+        fill(c, rect(at, mid - 7 * unit, 10 * unit, 14 * unit), BLUE);
+    }
+    fill(c, rect(0, y + o->height - 1, w, 1), EDGE);
+}
+/* The selected tab's contents, `w` wide from `y`; returns where they end. */
+static int body(MenuCanvas *c, int w, int y)
+{
+    char line[512];
+    if (tab == 0) {
+        y = wrap(c, 0, y, w, Mods_Metadata(selected, "description"), TEXT) + 16 * unit;
+        snprintf(line, sizeof(line), "ID: %s", Mods_Id(selected));
+        y = wrap(c, 0, y, w, line, DIM);
+        y = wrap(c, 0, y, w, Mods_Directory(selected), DIM) + 16 * unit;
+        y = wrap(c, 0, y, w,
+                 *Mods_Metadata(selected, "library") ? "Native code mod: runs game code from this author."
+                                                     : "Content mod: assets, cards or data patches.",
+                 DIM);
+        if (Mods_Status(selected)[0])
+            y = wrap(c, 0, y + 16 * unit, w, Mods_Status(selected), Mods_Failed(selected) ? RED : WARN);
+    } else if (tab == 1) {
+        if (!counts[selected])
+            return wrap(c, 0, y, w, "This mod does not declare configurable settings.", DIM);
+        for (int j = 0; j < counts[selected]; j++) {
+            OptionBox o;
+            option(c, j, w, y + 10 * unit, &o);
+            y += 10 * unit + o.height;
+        }
+    } else {
+        const char *keys[] = {"requires", "after", "conflicts"};
+        const char *labels[] = {"Requires: ", "Load after: ", "Conflicts: "};
+        y = wrap(c, 0, y, w,
+                 Mods_RequiresRestart(selected) ? "Changes require a restart." : "This mod supports live changes.",
+                 DIM) +
+            12 * unit;
+        for (int k = 0; k < 3; k++) {
+            const JsonValue *list = Json_Member(Mods_Manifest(selected), keys[k]);
+            for (int j = 0; j < Json_Count(list); j++) {
+                const JsonValue *v = Json_At(list, j);
+                snprintf(line, sizeof(line), "%s%s", labels[k], Json_String(v, str(v, "id", "")));
+                y = wrap(c, 0, y, w, line, TEXT);
+            }
+        }
+        if (!Mods_Validate(wanted, line, sizeof(line)))
+            y = wrap(c, 0, y + 12 * unit, w, line, WARN);
+        else
+            y = wrap(c, 0, y + 12 * unit, w, "Dependencies and declared conflicts are satisfied.", GREEN);
+        if (Mods_ConflictText(selected, line, sizeof(line)))
+            y = wrap(c, 0, y + 12 * unit, w, line, WARN);
+    }
+    return y;
+}
+/* The details scroll by pixels inside `view`, left of their scrollbar. */
+static int body_width(const Layout *l) { return l->view.w - BAR - 12 * unit; }
+static int body_height(const Layout *l) { return selected < 0 ? 0 : body(NULL, body_width(l), 0) + 12 * unit; }
+static int detail_limit(const Layout *l) { return max(0, body_height(l) - l->view.h); }
+static Rect thumb(Rect track, int total, int shown, int at)
+{
+    int h = min(track.h, max(28 * unit, (int)((int64_t)track.h * shown / max(1, total))));
+    return rect(track.x, track.y + (int)((int64_t)(track.h - h) * at / max(1, total - shown)), track.w, h);
+}
+/* The scroll position that puts the thumb's top at `y`. */
+static int thumb_to(Rect track, int total, int shown, int y)
+{
+    int travel = track.h - thumb(track, total, shown, 0).h;
+    if (travel <= 0)
+        return 0;
+    y = min(max(y - track.y, 0), travel);
+    return (int)(((int64_t)y * (total - shown) + travel / 2) / travel);
+}
+static void scrollbar(MenuCanvas *c, Rect track, int total, int shown, int at, int held)
+{
+    if (total <= shown)
+        return;
+    fill(c, track, BG);
+    fill(c, thumb(track, total, shown, at), held ? BLUE : 0x5d6b80u);
+}
 void ModsWindow_Draw(MenuCanvas *c)
 {
     Layout l;
     char line[512];
-    int enabled = 0;
+    int enabled = 0, list_bar;
     layout(&l);
     fill(c, rect(0, 0, c->width, c->height), BG);
     for (int i = 0; i < Mods_Count(); i++)
@@ -279,8 +436,9 @@ void ModsWindow_Draw(MenuCanvas *c)
          DIM);
     fill(c, l.list, PANEL);
     fill(c, l.detail, PANEL);
+    list_bar = shown_count() > rows();
     for (int r = 0; r < rows(); r++) {
-        int mod = shown(scroll + r);
+        int mod = shown(scroll + r), w = l.list.w - 54 * unit - (list_bar ? BAR + 6 * unit : 0);
         Rect row = rect(l.list.x, l.list.y + r * 58 * unit, l.list.w, 56 * unit);
         if (mod < 0)
             break;
@@ -288,112 +446,52 @@ void ModsWindow_Draw(MenuCanvas *c)
             fill(c, row, 0x293e60u);
         text(c, row.x + 12 * unit, row.y + 18 * unit, 24 * unit, wanted[mod] ? "[x]" : "[ ]",
              wanted[mod] ? GREEN : DIM);
-        text(c, row.x + 44 * unit, row.y + 18 * unit, row.w - 54 * unit, Mods_Name(mod), TEXT);
+        text(c, row.x + 44 * unit, row.y + 18 * unit, w, Mods_Name(mod), TEXT);
         snprintf(line, sizeof(line), "%s%s%s",
                  Mods_Failed(mod)      ? "Error"
                  : Mods_Status(mod)[0] ? "Warning"
                  : Mods_Active(mod)    ? "Active"
                                        : "Inactive",
                  wanted[mod] != Mods_Active(mod) ? " / pending" : "", Mods_RequiresRestart(mod) ? " / restart" : "");
-        text(c, row.x + 44 * unit, row.y + 39 * unit, row.w - 54 * unit, line, Mods_Failed(mod) ? RED : DIM);
+        text(c, row.x + 44 * unit, row.y + 39 * unit, w, line, Mods_Failed(mod) ? RED : DIM);
     }
     if (!shown_count())
         text(c, l.list.x + 16 * unit, l.list.y + 32 * unit, l.list.w - 32 * unit, "No matching mods", DIM);
-    if (shown_count() > rows()) {
-        int track = l.list.h, thumb = max(16 * unit, track * rows() / shown_count());
-        fill(c,
-             rect(l.list.x + l.list.w - 4 * unit, l.list.y + scroll * (track - thumb) / max(1, shown_count() - rows()),
-                  3 * unit, thumb),
-             ACCENT);
-    }
+    scrollbar(c, l.list_bar, shown_count(), rows(), scroll, bar_drag == 1);
     if (selected >= 0) {
-        Rect body = content(&l);
-        int y = body.y + 18 * unit - detail_scroll * 22 * unit;
-        text(c, l.detail.x + 16 * unit, l.detail.y + 24 * unit, l.detail.w - 32 * unit, Mods_Name(selected), TEXT);
+        int name_x = l.detail.x + 16 * unit, total = body_height(&l), order_x;
+        text(c, name_x, l.detail.y + 24 * unit, l.toggle.x - 12 * unit - name_x, Mods_Name(selected), TEXT);
+        button(c, l.toggle, wanted[selected] ? "Enabled" : "Disabled", wanted[selected]);
+        order_x = l.order[0].x - 10 * unit - width_text("Load order");
         snprintf(line, sizeof(line), "%s  /  %s  /  %s", Mods_Metadata(selected, "version"),
                  Mods_Metadata(selected, "author"), Mods_Origin(selected));
-        text(c, l.detail.x + 16 * unit, l.detail.y + 49 * unit, l.detail.w - 32 * unit, line, DIM);
-        button(c, l.toggle, wanted[selected] ? "Enabled" : "Disabled", wanted[selected]);
-        snprintf(line, sizeof(line), "Order %d", ranks[selected]);
-        text(c, l.toggle.x + l.toggle.w + 12 * unit, l.toggle.y + 15 * unit,
-             l.order[0].x - l.toggle.x - l.toggle.w - 20 * unit, line, DIM);
+        text(c, name_x, l.detail.y + 57 * unit, order_x - 12 * unit - name_x, line, DIM);
+        text(c, order_x, l.detail.y + 57 * unit, width_text("Load order") + unit, "Load order", DIM);
         button(c, l.order[0], "-", 0);
+        snprintf(line, sizeof(line), "%d", ranks[selected]);
+        centred(c, rect(l.order[0].x + l.order[0].w, l.order[0].y, l.order[1].x - l.order[0].x - l.order[0].w,
+                        l.order[0].h),
+                line, TEXT);
         button(c, l.order[1], "+", 0);
         button(c, l.tabs[0], "About", tab == 0);
         button(c, l.tabs[1], "Settings", tab == 1);
         button(c, l.tabs[2], "Compatibility", tab == 2);
-        if (tab == 0) {
-            y = wrap(c, body, y, Mods_Metadata(selected, "description"), TEXT) + 16 * unit;
-            snprintf(line, sizeof(line), "ID: %s", Mods_Id(selected));
-            y = wrap(c, body, y, line, DIM);
-            y = wrap(c, body, y, Mods_Directory(selected), DIM) + 16 * unit;
-            y = wrap(c, body, y,
-                     *Mods_Metadata(selected, "library") ? "Native code mod: runs game code from this author."
-                                                         : "Content mod: assets, cards or data patches.",
-                     DIM);
-            if (Mods_Status(selected)[0])
-                wrap(c, body, y + 16 * unit, Mods_Status(selected), Mods_Failed(selected) ? RED : WARN);
-        } else if (tab == 1) {
-            int first = detail_scroll, visible_rows = max(1, (body.h - 44 * unit) / (66 * unit));
+        if (tab == 1 && counts[selected]) {
+            snprintf(line, sizeof(line), "%d setting%s", counts[selected], counts[selected] == 1 ? "" : "s");
+            text(c, l.view.x, l.defaults.y + l.defaults.h / 2, l.defaults.x - l.view.x - 12 * unit, line, DIM);
             button(c, l.defaults, "Restore defaults", 0);
-            for (int r = 0; r < visible_rows; r++) {
-                int option = first + r;
-                const JsonValue *spec;
-                Rect row;
-                if (option >= counts[selected])
-                    break;
-                spec = Mods_Option(selected, option);
-                row = rect(body.x + 8 * unit, body.y + 44 * unit + r * 66 * unit, body.w - 16 * unit, 60 * unit);
-                text(c, row.x, row.y + 10 * unit, row.w - 150 * unit, str(spec, "label", str(spec, "key", "Setting")),
-                     TEXT);
-                option_label(selected, option, line, sizeof(line));
-                button(c, rect(row.x + row.w - 146 * unit, row.y, 28 * unit, 26 * unit), "-", 0);
-                text(c, row.x + row.w - 110 * unit, row.y + 13 * unit, 76 * unit, line, BLUE);
-                button(c, rect(row.x + row.w - 28 * unit, row.y, 28 * unit, 26 * unit), "+", 0);
-                text(c, row.x, row.y + 36 * unit, row.w,
-                     str(spec, "description",
-                         Json_Bool(Json_Member(spec, "restart"), 0) ? "Requires restart"
-                                                                    : "Applies when changes are saved"),
-                     DIM);
-                if (!strcmp(str(spec, "type", "int"), "int")) {
-                    int low = num(spec, "min", 0), high = num(spec, "max", 100);
-                    int position = high > low ? (int)(((int64_t)values[selected][option] - low) * (row.w - 8 * unit) /
-                                                      ((int64_t)high - low))
-                                              : 0;
-                    if (position < 0)
-                        position = 0;
-                    if (position > row.w - 8 * unit)
-                        position = row.w - 8 * unit;
-                    fill(c, rect(row.x, row.y + 51 * unit, row.w, 3 * unit), EDGE);
-                    fill(c, rect(row.x, row.y + 51 * unit, position, 3 * unit), ACCENT);
-                    fill(c, rect(row.x + position, row.y + 48 * unit, 8 * unit, 9 * unit), BLUE);
-                } else
-                    fill(c, rect(row.x, row.y + 56 * unit, row.w, 1), EDGE);
-            }
-            if (!counts[selected])
-                wrap(c, body, body.y + 70 * unit, "This mod does not declare configurable settings.", DIM);
-        } else {
-            const char *keys[] = {"requires", "after", "conflicts"};
-            const char *labels[] = {"Requires: ", "Load after: ", "Conflicts: "};
-            y = wrap(c, body, y,
-                     Mods_RequiresRestart(selected) ? "Changes require a restart." : "This mod supports live changes.",
-                     DIM) +
-                12 * unit;
-            for (int k = 0; k < 3; k++) {
-                const JsonValue *list = Json_Member(Mods_Manifest(selected), keys[k]);
-                for (int j = 0; j < Json_Count(list); j++) {
-                    const JsonValue *v = Json_At(list, j);
-                    snprintf(line, sizeof(line), "%s%s", labels[k], Json_String(v, str(v, "id", "")));
-                    y = wrap(c, body, y, line, TEXT);
-                }
-            }
-            if (!Mods_Validate(wanted, line, sizeof(line)))
-                y = wrap(c, body, y + 12 * unit, line, WARN);
-            else
-                y = wrap(c, body, y + 12 * unit, "Dependencies and declared conflicts are satisfied.", GREEN);
-            if (Mods_ConflictText(selected, line, sizeof(line)))
-                wrap(c, body, y + 12 * unit, line, WARN);
+            fill(c, rect(l.view.x, l.view.y - 7 * unit, l.view.w, 1), EDGE);
         }
+        detail_scroll = min(detail_scroll, max(0, total - l.view.h));
+        if (l.view.h > 0 && l.view.x + l.view.w <= c->width && l.view.y + l.view.h <= c->height) {
+            /* A canvas over just the viewport clips the scrolled contents. */
+            MenuCanvas view = *c;
+            view.pixels = c->pixels + (size_t)l.view.y * c->stride + l.view.x;
+            view.width = body_width(&l);
+            view.height = l.view.h;
+            body(&view, view.width, -detail_scroll);
+        }
+        scrollbar(c, l.bar, total, l.view.h, detail_scroll, bar_drag == 2);
     } else
         text(c, l.detail.x + 20 * unit, l.detail.y + 30 * unit, l.detail.w - 40 * unit,
              "Select a mod to view its details", DIM);
@@ -548,27 +646,73 @@ static void slider_value(int option, int x)
 {
     Layout l;
     layout(&l);
-    Rect body = content(&l);
     const JsonValue *spec = Mods_Option(selected, option);
     int low = num(spec, "min", 0), high = num(spec, "max", 100), step = max(1, num(spec, "step", 1));
-    int span = body.w - 24 * unit, at = x - body.x - 8 * unit;
+    int span = body_width(&l) - 10 * unit, at = x - l.view.x - 5 * unit;
     if (span <= 0 || high <= low)
         return;
-    if (at < 0)
-        at = 0;
-    if (at > span)
-        at = span;
+    at = min(max(at, 0), span);
     int64_t value = low + ((int64_t)high - low) * at / span;
     value = low + ((value - low + step / 2) / step) * step;
     if (value > high)
         value = high;
     values[selected][option] = (int)value;
 }
-int ModsWindow_Redraws(const MenuEvent *e) { return e->type != MENU_EVENT_MOTION || slider_drag >= 0; }
+/* Pointer at `y` on a held scrollbar: the thumb follows it. */
+static void bar_move(const Layout *l, int y)
+{
+    if (bar_drag == 1)
+        scroll = thumb_to(l->list_bar, shown_count(), rows(), y - bar_grab);
+    else if (bar_drag == 2)
+        detail_scroll = thumb_to(l->bar, body_height(l), l->view.h, y - bar_grab);
+}
+/* Pressing a scrollbar grabs its thumb, or centres the thumb on the pointer. */
+static int bar_press(const Layout *l, int which, int x, int y)
+{
+    Rect track = which == 1 ? l->list_bar : l->bar, t;
+    int total = which == 1 ? shown_count() : body_height(l), shown = which == 1 ? rows() : l->view.h,
+        at = which == 1 ? scroll : detail_scroll;
+    if (total <= shown || !inside(rect(track.x - 3 * unit, track.y, track.w + 6 * unit, track.h), x, y))
+        return 0;
+    t = thumb(track, total, shown, at);
+    bar_drag = which;
+    bar_grab = inside(rect(track.x - 3 * unit, t.y, track.w + 6 * unit, t.h), x, y) ? y - t.y : t.h / 2;
+    bar_move(l, y);
+    return 1;
+}
+/* A press on the settings list: the - value + buttons or an int's slider. */
+static void option_press(const Layout *l, int x, int y)
+{
+    int w = body_width(l), top = -detail_scroll;
+    x -= l->view.x;
+    y -= l->view.y;
+    for (int j = 0; j < counts[selected]; j++) {
+        OptionBox o;
+        option(NULL, j, w, top + 10 * unit, &o);
+        top += 10 * unit + o.height;
+        if (y >= top)
+            continue;
+        if (inside(o.minus, x, y))
+            adjust(j, -1);
+        else if (inside(o.plus, x, y) || inside(o.value, x, y))
+            adjust(j, 1);
+        else if (o.slider.h &&
+                 inside(rect(o.slider.x, o.slider.y - 4 * unit, o.slider.w, o.slider.h + 8 * unit), x, y)) {
+            slider_drag = j;
+            slider_value(j, x + l->view.x);
+        }
+        return;
+    }
+}
+int ModsWindow_Redraws(const MenuEvent *e)
+{
+    return e->type != MENU_EVENT_MOTION || slider_drag >= 0 || bar_drag;
+}
 int ModsWindow_RequestClose(void)
 {
     focus = 0;
     slider_drag = -1;
+    bar_drag = 0;
     if (pending == 2 || !changed())
         return 1;
     pending = 2;
@@ -580,7 +724,11 @@ int ModsWindow_Event(const MenuEvent *e)
     Layout l;
     layout(&l);
     if (e->type == MENU_EVENT_BUTTON_UP || e->type == MENU_EVENT_LEAVE)
-        slider_drag = -1;
+        slider_drag = -1, bar_drag = 0;
+    if (e->type == MENU_EVENT_MOTION && bar_drag) {
+        bar_move(&l, e->y);
+        return 0;
+    }
     if (e->type == MENU_EVENT_MOTION && slider_drag >= 0 && selected >= 0 && !pending && tab == 1 &&
         slider_drag < counts[selected]) {
         slider_value(slider_drag, e->x);
@@ -642,13 +790,8 @@ int ModsWindow_Event(const MenuEvent *e)
             scroll = max(0, scroll);
             if (scroll > max(0, shown_count() - rows()))
                 scroll = max(0, shown_count() - rows());
-        } else if (inside(l.detail, e->x, e->y)) {
-            detail_scroll = max(0, detail_scroll - e->wheel);
-            if (tab == 1 && selected >= 0 && detail_scroll >= counts[selected])
-                detail_scroll = max(0, counts[selected] - 1);
-            if (detail_scroll > 100)
-                detail_scroll = 100;
-        }
+        } else if (inside(l.detail, e->x, e->y) && selected >= 0)
+            detail_scroll = min(max(0, detail_scroll - e->wheel * 3 * LINE), detail_limit(&l));
     } else if (e->type == MENU_EVENT_BUTTON_DOWN && e->button == 1) {
         if (inside(l.close, e->x, e->y)) {
             if (pending) {
@@ -677,6 +820,8 @@ int ModsWindow_Event(const MenuEvent *e)
                 filter = (filter + 1) % 4;
                 scroll = 0;
             }
+            if (bar_press(&l, 1, e->x, e->y) || (selected >= 0 && bar_press(&l, 2, e->x, e->y)))
+                return 0;
             if (inside(l.list, e->x, e->y) && (e->y - l.list.y) / (58 * unit) < rows()) {
                 int mod = shown(scroll + (e->y - l.list.y) / (58 * unit));
                 if (mod >= 0) {
@@ -707,7 +852,6 @@ int ModsWindow_Event(const MenuEvent *e)
                     snprintf(status, sizeof(status), "Profile missing or references unavailable mods.");
             }
             if (selected >= 0) {
-                Rect body = content(&l);
                 if (inside(l.toggle, e->x, e->y))
                     wanted[selected] = !wanted[selected];
                 for (int i = 0; i < 3; i++)
@@ -719,21 +863,12 @@ int ModsWindow_Event(const MenuEvent *e)
                     ranks[selected]--;
                 if (inside(l.order[1], e->x, e->y) && ranks[selected] < 100000)
                     ranks[selected]++;
-                if (tab == 1) {
+                if (tab == 1 && counts[selected]) {
                     if (inside(l.defaults, e->x, e->y))
                         for (int j = 0; j < counts[selected]; j++)
                             values[selected][j] = num(Mods_Option(selected, j), "default", 0);
-                    else if (inside(body, e->x, e->y) && e->y >= body.y + 44 * unit) {
-                        int row = (e->y - body.y - 44 * unit) / (66 * unit), option = detail_scroll + row;
-                        if (row < max(1, (body.h - 44 * unit) / (66 * unit)) && option < counts[selected]) {
-                            int y = (e->y - body.y - 44 * unit) % (66 * unit);
-                            if (y >= 46 * unit && !strcmp(str(Mods_Option(selected, option), "type", "int"), "int")) {
-                                slider_drag = option;
-                                slider_value(option, e->x);
-                            } else if (y < 28 * unit && e->x >= body.x + body.w - 154 * unit)
-                                adjust(option, e->x < body.x + body.w - 100 * unit ? -1 : 1);
-                        }
-                    }
+                    else if (inside(l.view, e->x, e->y))
+                        option_press(&l, e->x, e->y);
                 }
             }
         }
