@@ -30,7 +30,8 @@
 typedef struct {
     uint32_t key;   /* bank, page, size, u, v; 0 for a free place */
     uint32_t sum;   /* the cell's pixels when its picture was made */
-    int slot;       /* where the picture is in the atlas; -1 for none */
+    int slot;       /* its place in the atlas, kept once given; -1 for none */
+    int drawn;      /* the place holds the cell's picture now */
 } Entry;
 
 static Entry entries[TABLE_SIZE];
@@ -138,7 +139,8 @@ static int render(int slot, const unsigned char cell[CELL][CELL], int large, uin
     int f = factor, cells_high = large ? 16 : 12, width = (large ? 16 : 8) * f, height = cells_high * f;
     int x, y, top = CELL, bottom = -1, left = CELL, right = -1, brightest = 1, body, total = 0, count = 0;
     int box_w, box_h, fit_w, x0, y0, render_size, measured, rows, columns, pitch;
-    uint8_t *origin = atlas + (size_t)(slot / SLOTS_ACROSS) * CELL * f * side + (size_t)(slot % SLOTS_ACROSS) * CELL * f;
+    uint8_t *origin =
+        atlas + (size_t)(slot / SLOTS_ACROSS) * CELL * f * side + (size_t)(slot % SLOTS_ACROSS) * CELL * f;
     FT_Face face = (FT_Face)Glyphs_Face(character);
     double scale;
     if (!face) return 0;
@@ -310,6 +312,7 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
         entry_count++;
         entry->key = key;
         entry->slot = -1;
+        entry->drawn = 0;
         entry->sum = ~sum;
     }
     if (entry->sum != sum) {
@@ -318,14 +321,16 @@ int HdText_Cell(int bank, int page_x, int page_y, int large, int u, int v, int w
         uint32_t character = Glyphs_CellCharacter(bank != 0, page_x / 64, large, u, v);
         int slot = entry->slot >= 0 ? entry->slot : slots_used < SLOT_COUNT ? slots_used : -1;
         entry->sum = sum;
-        if (character && slot >= 0 && render(slot, (const unsigned char (*)[CELL])cell, large, character, font_weight[large != 0])) {
-            if (entry->slot < 0) slots_used++;
+        entry->drawn = character && slot >= 0 &&
+                       render(slot, (const unsigned char (*)[CELL])cell, large, character, font_weight[large != 0]);
+        if (entry->drawn && entry->slot < 0) {
+            /* The place stays the cell's when it later holds no letter, to
+             * be drawn over when it holds one again. */
             entry->slot = slot;
-        } else {
-            entry->slot = -1;
+            slots_used++;
         }
     }
-    if (entry->slot < 0) return 0;
+    if (!entry->drawn) return 0;
     *atlas_u = (entry->slot % SLOTS_ACROSS) * CELL;
     *atlas_v = (entry->slot / SLOTS_ACROSS) * CELL;
     return 1;
