@@ -88,12 +88,6 @@ static int retail_code(uint32_t character)
     return -1;
 }
 
-uint32_t Glyphs_Character(int code)
-{
-    read_retail();
-    return code >= 0 && code < RETAIL_CODES ? retail[code] : 0;
-}
-
 /* --- what an added glyph is made of ----------------------------------- */
 
 enum {
@@ -138,6 +132,14 @@ typedef struct {
 
 static Added added[ADDED_MAX];
 static int added_count;
+
+uint32_t Glyphs_Character(int code)
+{
+    read_retail();
+    if (code >= GLYPHS_EXTENDED_FIRST && code < GLYPHS_EXTENDED_FIRST + added_count)
+        return added[code - GLYPHS_EXTENDED_FIRST].character;
+    return code >= 0 && code < RETAIL_CODES ? retail[code] : 0;
+}
 
 /* --- fonts ---------------------------------------------------------------- */
 

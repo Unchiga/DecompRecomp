@@ -4,6 +4,7 @@
  * sector arithmetic. */
 #define _POSIX_C_SOURCE 200809L
 #include "pc/mods/mods.h"
+#include "pc/mods/events.h"
 #include "pc/mods/exports.h"
 #include "pc/mods/json.h"
 #include "pc/debug/symbols.h"
@@ -123,6 +124,8 @@ static int find(const char *id)
     }
     return -1;
 }
+
+static void preview_probe(MemoriesModEvent *event) { (void)event; }
 
 int main(void)
 {
@@ -267,10 +270,20 @@ int main(void)
     assert(!Mods_DiscSector(CARD_LBA - 1, sector));
     assert(!Mods_DiscSector(CARD_LBA + 3, sector)); /* past both mods' reach */
 
+    /* A speculative helper can detect code rules without dispatching them. */
+    assert(!Mods_HasSubscribers(MEMORIES_EVENT_FUSION));
+    int preview_token = Mods_Subscribe(patcher, MEMORIES_EVENT_FUSION, 0, preview_probe);
+    assert(preview_token && Mods_HasSubscribers(MEMORIES_EVENT_FUSION));
+    Mods_Unsubscribe(patcher, preview_token);
+    assert(!Mods_HasSubscribers(MEMORIES_EVENT_FUSION));
+    preview_token = Mods_Subscribe(patcher, MEMORIES_EVENT_FUSION, 0, preview_probe);
+    assert(preview_token);
+
     /* Removing a mod takes its overrides out with it, the moment it can:
      * the patch mod goes now, and the replacement, which asked for a
      * restart, stays in place until the game is launched again. */
     Mods_SetEnabled(patcher, 0);
+    assert(!Mods_HasSubscribers(MEMORIES_EVENT_FUSION));
     memset(sector, 0xEE, sizeof(sector));
     assert(Mods_DiscSector(CARD_LBA, sector) && sector[2047] == replacement[2047]);
     Mods_SetEnabled(replacer, 0);

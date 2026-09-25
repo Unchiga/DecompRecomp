@@ -94,7 +94,7 @@ typedef struct {
 } Item;
 typedef struct { const char *label; Item items[16]; int count; int x, w; } Menu;
 
-enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_DEBUG, MENU_COUNT };
+enum { MENU_FILE, MENU_VIDEO, MENU_AUDIO, MENU_GAME, MENU_VIEW, MENU_DEBUG, MENU_COUNT };
 enum { SUB_SCALE, SUB_MENU_SIZE, SUB_SPEED, SUB_FPS, SUB_CHEATS, SUB_TRACE, SUB_SCALING, SUB_ASPECT, SUB_RESOLUTION, SUB_COLOR, SUB_EFFECTS, SUB_COUNT };
 static Menu menus[MENU_COUNT] = {
     {"File", {{"Save state", "F5", ITEM_ACTION, ACT_SAVE_STATE, -1},
@@ -137,6 +137,7 @@ static Menu menus[MENU_COUNT] = {
               {"Deck slots...", "F6", ITEM_ACTION, MENU_ITEM_DECKS, -1, 0, ITEM_GROUP_BREAK | ITEM_DISABLED},
               {"Use deck slots", 0, ITEM_CHECK, 0, SET_DECK_SLOTS},
               {"Cheats", 0, ITEM_SUBMENU, 0, -1, SUB_CHEATS, ITEM_GROUP_BREAK}}, 9},
+    {"View", {{"Fusion helper", 0, ITEM_CHECK, 0, SET_FUSION_HELPER}}, 1},
     {"Debug", {{"Show HUD", "F3", ITEM_CHECK, CHECK_HUD, -1},
                {"Full stats", 0, ITEM_CHECK, CHECK_HUD_FULL, -1},
                {"Pause", "P", ITEM_CHECK, ACT_PAUSE, -1, 0, ITEM_GROUP_BREAK},

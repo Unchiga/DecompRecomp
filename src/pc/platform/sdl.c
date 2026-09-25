@@ -20,6 +20,7 @@
 #include "pc/audio/spu.h"
 #include "pc/debug/cheats.h"
 #include "pc/cards/cards.h"
+#include "pc/cards/fusion_helper.h"
 #include "pc/debug/log.h"
 #include "pc/debug/monitor.h"
 #include "pc/debug/hud.h"
@@ -1062,7 +1063,8 @@ static void gl_quad(GLuint texture, float x, float y, float w, float h)
 static void draw_overlay(int *x, int *y, int *w, int *h)
 {
     int hx, hy, hw, hh;
-    if (Settings_Get(SET_SHOW_HUD) == 2) {
+    FusionHelper_Viewport((int)layout.dst.x, (int)layout.dst.y, (int)layout.dst.w, (int)layout.dst.h);
+    if (Settings_Get(SET_SHOW_HUD) == 2 || Menu_IsOpen()) {
         Hud_Draw(&canvas);
         Menu_Draw(&canvas); /* dropdowns stay above the full statistics panel */
     } else {

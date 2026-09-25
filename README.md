@@ -57,4 +57,5 @@ _Generated from `config/slus_01411/functions.csv` and `config/slus_01411/overlay
 
 ## More
 
+- [Fusion helper](notes/fusion-helper.md)
 - [Setup](notes/setup.md) · [Build](notes/build.md) · [PC build](notes/pc-build.md) · [Modding](notes/modding.md)

@@ -23,6 +23,7 @@ typedef struct {
 } SettingInfo;
 
 static const SettingInfo info[SET_COUNT] = {
+    [SET_FUSION_HELPER] = {"fusion_helper", NULL, "MEMORIES_FUSION_HELPER", NULL, 0, 0, 1},
     [SET_MASTER_VOLUME] = {"master_volume", "volume", "MEMORIES_MASTER_VOLUME", "MEMORIES_VOLUME", 100, 0, 100},
     [SET_MUSIC_VOLUME] = {"music_volume", NULL, "MEMORIES_MUSIC_VOLUME", NULL, 100, 0, 100},
     [SET_SFX_VOLUME] = {"sfx_volume", NULL, "MEMORIES_SFX_VOLUME", NULL, 100, 0, 100},
