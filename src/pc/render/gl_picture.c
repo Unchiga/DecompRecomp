@@ -418,9 +418,12 @@ static const char *fragment_source =
     /* The console takes a pixel's texel at its top-left corner. Where the
      * texels run backwards across the screen, the rest of the pixel lies
      * below that texel: moved back up (by at most one), a mirrored sprite
-     * shows the console's texels, not the next picture's column. */
+     * shows the console's texels, not the next picture's column. The
+     * vertices' attributes are at the picture pixels' corners (triangle()),
+     * so the last of a pixel's `scale` columns is (scale - 1) / scale on,
+     * as soft_gpu.c moves it; at 1x nothing moves. */
     "    vec2 back = min(max(-dFdx(st), 0.0) * float(scale), 1.0) + min(max(-dFdy(st), 0.0) * float(scale), 1.0);\n"
-    "    st += back * (1.0 - 0.5 / float(scale));\n"
+    "    st += back * (1.0 - 1.0 / float(scale));\n"
     "    vec2 half_step = 0.5 * (dFdx(st) + dFdy(st));\n"
     "    float spread = max(fwidth(st.x), fwidth(st.y));\n"
     "    if ((flags & 4) != 0) {\n"
