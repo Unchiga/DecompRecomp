@@ -4,6 +4,13 @@
  * profile the presenter already draws with (immediate mode, glOrtho), so the
  * quad's own texture coordinates and the bound picture texture are what it
  * samples. Effects, each a setting that is off at its default:
+ *   Sharp bilinear (Video > Filtering): each texel is drawn as a flat
+ *   block of whole window pixels, and only the window pixel a texel edge
+ *   falls inside blends its two neighbours, so an uneven scale (4:3 at
+ *   4.5x in 1080 lines) shows even texels without the blur of bilinear.
+ *   Needs the picture's texture on GL_LINEAR, which Filtering's value 2
+ *   sets. At a whole scale every window pixel samples its texel's centre:
+ *   the same as Nearest.
  *   xBR pixel smoothing (Video > Effects): the picture is read through xBR
  *   (XBR_SOURCE below) instead of one texel at a time. It works on the
  *   texels of the texture shown, so it does most at internal resolution 1x;
@@ -119,6 +126,12 @@ static const char *vertex_source =
     "        cut = max(cut, cover(q.x + 0.5 * q.y - 1.0, 1.118, w));\n" \
     "    return vec4(dist(E, F) <= dist(E, H) ? F : H, cut);\n" \
     "}\n" \
+    "vec2 sharp(vec2 uv) {\n" \
+    "    vec2 p = uv * size, s = fract(p) - 0.5;\n" \
+    "    vec2 k = 1.0 / max(fwidth(p), vec2(1e-6));\n" \
+    "    vec2 region = max(0.5 - 0.5 / k, 0.0);\n" \
+    "    return (floor(p) + 0.5 + (s - clamp(s, -region, region)) * k) / size;\n" \
+    "}\n" \
     "vec3 xbr(vec2 uv) {\n" \
     "    vec2 p = uv * size, e = floor(p), f = p - e;\n" \
     "    float w = max(fwidth(p.x), fwidth(p.y));\n" \
@@ -140,7 +153,8 @@ static const char *fragment_source =
     "uniform float lines, t0, t1;\n"
     XBR_SOURCE
     "void main() {\n"
-    "    vec3 c = scaler != 0 ? xbr(gl_TexCoord[0].xy) : texture2D(picture, gl_TexCoord[0].xy).rgb;\n"
+    "    vec3 c = scaler == 1 ? xbr(gl_TexCoord[0].xy)\n"
+    "           : texture2D(picture, scaler == 2 ? sharp(gl_TexCoord[0].xy) : gl_TexCoord[0].xy).rgb;\n"
     "    if (flash != 0) c *= texture2D(level, vec2(0.5)).g;\n"
     "    c = pow(c, vec3(1.0 / gamma));\n"
     "    c = (c - 0.5) * contrast + 0.5;\n"
@@ -342,7 +356,7 @@ static int others_wanted(void)
 {
     return Settings_Get(SET_BRIGHTNESS) != 100 || Settings_Get(SET_CONTRAST) != 100 ||
            Settings_Get(SET_SATURATION) != 100 || Settings_Get(SET_GAMMA) != 100 || Settings_Get(SET_CRT) ||
-           Settings_Get(SET_XBR);
+           Settings_Get(SET_XBR) || Settings_Get(SET_FILTER) == 2;
 }
 
 int PresentPass_Wanted(void)
@@ -387,10 +401,12 @@ int PresentPass_Begin(unsigned texture, int source_h, float s0, float t0, float 
     pp_Uniform1f(u_saturation, (float)Settings_Get(SET_SATURATION) / 100.0f);
     pp_Uniform1f(u_gamma, (float)Settings_Get(SET_GAMMA) / 100.0f);
     pp_Uniform1i(u_crt, Settings_Get(SET_CRT));
-    pp_Uniform1i(u_scaler, Settings_Get(SET_XBR));
-    if (Settings_Get(SET_XBR)) {
+    /* 1 xBR, 2 sharp bilinear (xBR first: both are how the picture is
+     * read). */
+    pp_Uniform1i(u_scaler, Settings_Get(SET_XBR) ? 1 : Settings_Get(SET_FILTER) == 2 ? 2 : 0);
+    if (Settings_Get(SET_XBR) || Settings_Get(SET_FILTER) == 2) {
         /* xBR works on the texture's own texels, inside the picture's
-         * rectangle of them. */
+         * rectangle of them; sharp bilinear on its texels too. */
         GLint w = 1, h = 1;
         glBindTexture(GL_TEXTURE_2D, (GLuint)texture);
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);

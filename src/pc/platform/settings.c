@@ -34,7 +34,8 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_SCALING] = {"scaling", NULL, "MEMORIES_SCALING", NULL, 0, 0, 2},
     /* 0 is corrected 4:3, 1 uses source pixels, and 2 widens the view to 16:9. */
     [SET_ASPECT] = {"aspect", NULL, "MEMORIES_ASPECT", NULL, 0, 0, 2},
-    [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 1},
+    /* 0 nearest, 1 bilinear, 2 sharp bilinear (present_pass.c). */
+    [SET_FILTER] = {"filter", NULL, "MEMORIES_FILTER", NULL, 0, 0, 2},
     [SET_VSYNC] = {"vsync", NULL, "MEMORIES_VSYNC", NULL, 0, 0, 1},
     [SET_SPEED] = {"speed", NULL, "MEMORIES_SPEED", NULL, 100, -1, 400},
     /* Presented frames per second: 0 follows the display's refresh rate, -1 shows every game frame. */
