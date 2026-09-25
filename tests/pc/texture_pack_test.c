@@ -14,6 +14,16 @@
 
 static char root[SCRATCH_MAX];
 
+/* The pack reads the disc only to recognise pictures on it, which these
+ * entries never reach; with no disc nothing is read. */
+int Memories_DiscReadSectors(int lba, int sectors, void *out)
+{
+    (void)lba;
+    (void)sectors;
+    (void)out;
+    return 0;
+}
+
 static void write_text(const char *relative, const char *text)
 {
     char path[1024];
