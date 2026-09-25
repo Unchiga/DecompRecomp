@@ -241,6 +241,7 @@ static void subsystems(MemoriesState *state)
     if (Memories_StateChunk(state, "soft_gpu", gpu, 2)) {
         /* VRAM restored without the disc: what its words came from is unknown. */
         TextureDump_Cleared(0, 0, SOFT_GPU_WIDTH, SOFT_GPU_HEIGHT);
+        if (TextureDump_Restored) TextureDump_Restored();
         SoftGpu_PictureFromVram();
     }
     Memories_StateChunk(state, "gte", gte, 1);
