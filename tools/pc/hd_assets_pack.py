@@ -68,6 +68,10 @@ PACKAGES = [("deck", 0x10C4800, 0x10E8800), ("library", 0xEE6800, 0xF06800), ("p
 DECK_BLOCK = 0x10E8800
 FRAMES = {8: "frame_monster.png", 9: "frame_magic.png", 10: "frame_trap.png", 11: "frame_ritual.png"}
 ATTRIBUTES = ("light", "dark", "earth", "water", "fire", "wind", "magic", "trap")
+# The game's ball has a one-texel rim it subtracts from the name bar (a
+# shade); an HD ball of another colour cannot be made by subtracting, so it
+# sits inside the rim (the largest circle clear of it) and the rim is left out.
+BALL_DIAMETER = 12.8
 NAME_PALETTE = 8 * 0x200 + 224 * 2
 STAR_PALETTE, LABEL_PALETTE = 0x1180, 0x11E0
 DIGITS = [(16 + 6 * i, 144, 6, 13) for i in range(10)]
@@ -161,6 +165,18 @@ def blend_ready(image, semi, rect, text, original=None):
                 block[..., 3] = 255
             else:
                 block[...] = np.array(original.getpixel((tx, ty)), np.uint8)
+    return Image.fromarray(a)
+
+
+def drop_blended(image, semi, rect):
+    """Leave out the texels the game blends: transparent in the pack, so the
+    primitive draws nothing there (texture_pack.c: alpha below half)."""
+    x0, y0, w, h = rect
+    a = np.array(image)
+    for ty in range(y0, y0 + h):
+        for tx in range(x0, x0 + w):
+            if semi[ty, tx]:
+                a[ty * S:(ty + 1) * S, tx * S:(tx + 1) * S] = 0
     return Image.fromarray(a)
 
 
@@ -275,9 +291,16 @@ def build(args):
             clut = block + 0x1E00 + k * 0x20
             original = pack.original(c3, 64, 256, 4, clut, 16)
             sheet = column_base(pack, bases, c3, 4, clut)
+            # The game's ball has a one-texel rim it subtracts from the name
+            # bar (a shade). The HD ball fills the cell; on the rim each pixel
+            # is what, subtracted from the bar, leaves the ball's edge over it.
             clear(sheet, (16 * k, 128, 16, 16))
-            over(sheet, load(os.path.join(A, "attributes", attribute + ".png"), (16 * S, 16 * S)), 16 * k * S, 128 * S)
-            sheet = blend_ready(sheet, semi_texels(pack.wa, c3, 64, 256, clut), (16 * k, 128, 16, 16), False, original)
+            ball = load(os.path.join(A, "attributes", attribute + ".png"))
+            ball = ball.crop(ball.getbbox())
+            size = round(BALL_DIAMETER * S)
+            at = round((8 - BALL_DIAMETER / 2) * S)
+            over(sheet, ball.resize((size, size), Image.LANCZOS), 16 * k * S + at, 128 * S + at)
+            sheet = drop_blended(sheet, semi_texels(pack.wa, c3, 64, 256, clut), (16 * k, 128, 16, 16))
             pack.add(f"attribute-{pname}-{attribute}.png", sheet, c3, 64, 256, 4, clut, 16,
                      f"attribute ball: {attribute} ({pname})")
             if args.base:
