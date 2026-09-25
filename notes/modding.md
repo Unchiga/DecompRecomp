@@ -8,7 +8,7 @@ directory in, restart, apply it in **Game > Mods**.
 
 | Directory | What is in it |
 |---|---|
-| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`, `Free Duel Portraits HD`) |
+| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`, `free-duel-portraits-hd`) |
 | `mods/` in the user directory | mods the player installed |
 
 The user directory is where everything the player owns lives: settings,
@@ -638,7 +638,7 @@ the reason beside any that failed to load.
 |---|---|
 | `mods/3d-monsters` | face-up monsters on the duel field stand on their cards as animated models (`notes/pc-build.md`) |
 | `mods/hand-camera` | L1/R1 turn and L3/R3 zoom the duel camera while the hand is up |
-| `mods/Free Duel Portraits HD` | redrawn 192x192 portraits for Free Duel's 40 opponents, a texture pack over the `0xF55000` bank (`free duel portrait 0` to `39`); best at Internal 4x |
+| `mods/free-duel-portraits-hd` | redrawn 192x192 portraits for Free Duel's 40 opponents, a texture pack over the `0xF55000` bank (`free duel portrait 0` to `39`); best at Internal 4x |
 
 The first two were part of the executable until they became mods; they are the worked
 examples of a code mod that reaches deep into the game. 3D Monsters' knobs
