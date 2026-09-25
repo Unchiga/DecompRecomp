@@ -1087,10 +1087,23 @@ static size_t lines(const uint32_t *words, size_t count)
     }
 }
 
+static const PgxpVertex *precise;
+static size_t precise_count;
+
+void SoftGpu_SetPrecise(const PgxpVertex *vertices, size_t count)
+{
+    precise = vertices;
+    precise_count = count;
+}
+
 size_t SoftGpu_Gp0(const uint32_t *words, size_t count)
 {
     size_t at = 0;
-    if (recorder && scale > 1) recorder->gp0(words, count);
+    if (recorder && scale > 1) {
+        if (precise_count && recorder->precise) recorder->precise(precise, precise_count);
+        recorder->gp0(words, count);
+    }
+    precise_count = 0;
     while (at < count) {
         uint32_t word = words[at], command = word >> 24;
         size_t used = 1;

@@ -70,6 +70,9 @@ static const SettingInfo info[SET_COUNT] = {
     [SET_XBR] = {"xbr", NULL, "MEMORIES_XBR", NULL, 0, 0, 1},
     /* 1: text set in a font at the internal resolution (src/pc/text/hd_text.h). */
     [SET_HD_TEXT] = {"hd_text", NULL, "MEMORIES_HD_TEXT", NULL, 0, 0, 1},
+    /* 1: polygons at their precise positions, textures in perspective
+     * (pc/compat/pgxp.h). */
+    [SET_PGXP] = {"pgxp", NULL, "MEMORIES_PGXP", NULL, 0, 0, 1},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

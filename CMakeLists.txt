@@ -15,6 +15,7 @@ set(MEMORIES_PSYZ_ROOT "" CACHE PATH "Optional pinned PSY-Z checkout (repository
 
 add_library(memories_pc_core STATIC
     src/pc/compat/gte.c
+    src/pc/compat/pgxp.c
     src/pc/compat/libgs_ot.c
     src/pc/memory.c
     src/pc/render/packets.c

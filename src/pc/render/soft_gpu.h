@@ -1,5 +1,6 @@
 #ifndef MEMORIES_PC_SOFT_GPU_H
 #define MEMORIES_PC_SOFT_GPU_H
+#include "pc/compat/pgxp.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -78,8 +79,14 @@ typedef struct SoftGpuRecorder {
     void (*move)(int sx, int sy, int dx, int dy, int w, int h);
     void (*fill)(int x, int y, int w, int h, uint32_t rgb24);
     void (*resync)(int scale, const uint32_t state[6]);
+    /* PGXP (pc/compat/pgxp.h): the precise vertices of the batch recorded
+     * next, by their word's index in it. May be NULL. */
+    void (*precise)(const PgxpVertex *vertices, size_t count);
 } SoftGpuRecorder;
 void SoftGpu_SetRecorder(const SoftGpuRecorder *recorder);
+/* The precise vertices of the next SoftGpu_Gp0's words (PGXP), handed to
+ * the recorder with them; the software GPU itself draws as ever. */
+void SoftGpu_SetPrecise(const PgxpVertex *vertices, size_t count);
 void SoftGpu_StateWords(uint32_t words[6]);
 
 /* Save states: VRAM (index 0) and the drawing state (index 1). */

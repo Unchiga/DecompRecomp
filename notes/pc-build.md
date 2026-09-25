@@ -993,6 +993,54 @@ strip, or a piece of the turning card) samples the picture instead. Twenty
 titles are kept, the least recently drawn made over. So no pack needs to
 carry names, and a card a mod adds reads like the rest.
 
+### Precise geometry (PGXP)
+
+Video > Precise geometry (PGXP) (`pgxp`, `MEMORIES_PGXP=1`, off by default)
+fixes two things in the OpenGL picture at 2x and up.
+
+- **Rounded vertices.** The GTE's perspective transform rounds each vertex
+  to a whole console pixel, which makes 3D polygons wobble as they move.
+  Polygons are now drawn at the vertices' precise positions.
+- **Affine textures.** The GTE keeps no depth with a vertex, so textures on
+  3D polygons bend. Textured polygons are now drawn in perspective.
+
+**How it works** (`src/pc/compat/pgxp.c`):
+
+1. `rtp()` in `gte.c` records each vertex it projects. It works the
+   position out from the view position before the shift and the division in
+   full, not from the GTE's rounded quotient. The record is keyed by the
+   screen word the game stores for the vertex (x | y << 16). A vertex whose
+   precise position does not round near that word (clamped off the screen,
+   say) is not kept.
+2. The game copies that word into packets by many roads: GTE stores,
+   reading the register into C, `GsSortPoly`, the scratchpad, the
+   interpreter. So the key is the word's value, not an address, as in
+   DuckStation's vertex cache.
+3. `DrawOTag` looks up every word of the frame it collects. Projections up
+   to that point are the frame's, while the actual drawing happens later,
+   after the next frame has begun projecting. A word that two vertices of
+   one frame round to, with different precise values, is left as it is.
+4. The matches go with the batch to the OpenGL pass (`SoftGpu_SetPrecise`,
+   the recorder's `precise`, arena op `OP_PRECISE`). There `polygon()`
+   places each vertex at its precise position.
+5. A textured triangle whose three vertices all have their depths
+   interpolates uv / w and 1 / w and divides back per pixel (flag 32). Every
+   other triangle takes the path it took before, so with PGXP off the
+   picture is identical.
+
+**Effects:**
+
+- The software GPU, VRAM and the game see nothing of it. The smoke cases
+  give their hashes with `pgxp=1`, and nothing changes at 1x.
+- In the 3D Monsters duel about 300 of a frame's 1,400 words are precise
+  vertices, which is most of the 3D. The rest is 2D drawn without the GTE.
+  `MEMORIES_TRACE=frames` logs the count. About 97% of the duel's
+  triangles are drawn in perspective. The main menu and Options come out
+  identical with PGXP on: their 2D is not projected.
+- Two limits: vertices `GsSortPoly` moves by its offsets no longer match
+  their word and stay rounded, and so do vertices that share an integer
+  word within a frame.
+
 ### Deterministic PC checks
 
 `make check-pc` rebuilds the native game and portable C tests, runs every

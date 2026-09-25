@@ -1,3 +1,4 @@
+#include "pgxp.h"
 #include "gte.h"
 #include <string.h>
 
@@ -250,6 +251,9 @@ static void push_rgb_from_mac(void)
 }
 
 /* translation * 0x1000 + matrix * vector, row by row with per-step checks */
+/* The last multiply's rows before the shift: PGXP's view position. */
+static int64_t row_sums[3];
+
 static void multiply(const int16_t *m, const int32_t *translation,
                      const int16_t *input, unsigned shift, int lm, int64_t *row3)
 {
@@ -262,6 +266,7 @@ static void multiply(const int16_t *m, const int32_t *translation,
         sum = mac_check(i + 1, sum + (int64_t)m[i * 3 + 0] * vector[0]);
         sum = mac_check(i + 1, sum + (int64_t)m[i * 3 + 1] * vector[1]);
         sum = mac_check(i + 1, sum + (int64_t)m[i * 3 + 2] * vector[2]);
+        row_sums[i] = sum;
         set_mac(i + 1, sum, shift);
         if (row3 && i == 2) {
             *row3 = sum;
@@ -315,6 +320,18 @@ static void rtp(unsigned index, unsigned shift, int lm, int last)
     set_mac0(x);
     set_mac0(y);
     push_sxy((int32_t)(x >> 16), (int32_t)(y >> 16));
+    if (Pgxp_Active && gte.h < (uint32_t)gte.sz[3] * 2 && z > 0) {
+        /* Where the vertex really falls, from the view position before the
+         * shift and the division in full; kept when it rounds to the word
+         * the GTE made (not clamped off the screen, say). */
+        double depth = (double)z / 4096.0, unit = (double)(1u << shift);
+        double sx = (double)gte.ofx / 65536.0 + (double)gte.h * ((double)row_sums[0] / unit) / depth;
+        double sy = (double)gte.ofy / 65536.0 + (double)gte.h * ((double)row_sums[1] / unit) / depth;
+        int32_t wx = gte.sxy[2][0], wy = gte.sxy[2][1];
+        if (sx > wx - 1 && sx < wx + 2 && sy > wy - 1 && sy < wy + 2) {
+            Pgxp_Project((uint32_t)(uint16_t)wx | (uint32_t)(uint16_t)wy << 16, sx, sy, depth);
+        }
+    }
     if (last) {
         int64_t depth = (int64_t)quotient * gte.dqa + gte.dqb;
         set_mac0(depth);
