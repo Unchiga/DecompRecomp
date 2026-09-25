@@ -263,11 +263,16 @@ static int locate(uint32_t offset, int *row, int *word)
  * the duel's card thumbnails come from a table filled when the duel
  * starts, whose sectors have left the ring after a long duel (3D models
  * read since) or were never in it (a state loaded). Only images whose
- * rows follow each other on the disc: an upload is one block. */
+ * rows follow each other on the disc: an upload is one block. Heads that
+ * places with other bytes share (a thumbnail's border row, a palette two
+ * archives hold) are told apart by a hash of their whole block. */
 #define RECALL_BYTES 32
 typedef struct {
     unsigned char head[RECALL_BYTES]; /* first: compare_recalled */
     uint32_t disc;
+    uint32_t bytes;  /* the block's size */
+    uint32_t hash;   /* of the whole block, where `shared` */
+    int shared;
 } Recalled;
 static Recalled *recalled;
 static int recalled_count;
@@ -286,6 +291,27 @@ static int read_head(uint32_t offset, unsigned char *out)
     return i < RECALL_BYTES;
 }
 
+static uint32_t hash_bytes(const void *data, size_t size)
+{
+    const unsigned char *at = data;
+    uint32_t hash = 2166136261u;
+    while (size--) hash = (hash ^ *at++) * 16777619u;
+    return hash;
+}
+
+/* The hash of a disc block, 0 unreadable. */
+static uint32_t hash_disc(uint32_t offset, uint32_t bytes)
+{
+    size_t first = offset % 2048;
+    int sectors = (int)((first + bytes + 2047) / 2048);
+    uint32_t hash = 0;
+    unsigned char *data = malloc((size_t)sectors * 2048);
+    if (!data) return 0;
+    if (Memories_DiscReadSectors((int)(offset / 2048), sectors, data) == sectors) hash = hash_bytes(data + first, bytes);
+    free(data);
+    return hash;
+}
+
 static void recall_heads(void)
 {
     int i, n = 0;
@@ -297,27 +323,58 @@ static void recall_heads(void)
         const Entry *entry = &entries[i];
         int whole = !entry->row_offsets && (entry->stride == (uint32_t)entry->words || entry->rows == 1);
         if (whole && entry->words * entry->rows * 2 >= RECALL_BYTES && (i == 0 || entry->offset != entries[i - 1].offset) &&
-            read_head(entry->offset, recalled[n].head))
-            recalled[n++].disc = entry->offset;
-        if (entry->clut_entries * 2 >= RECALL_BYTES && read_head(entry->clut_offset, recalled[n].head))
-            recalled[n++].disc = entry->clut_offset;
+            read_head(entry->offset, recalled[n].head)) {
+            recalled[n].disc = entry->offset;
+            recalled[n++].bytes = (uint32_t)(entry->words * entry->rows * 2);
+        }
+        if (entry->clut_entries * 2 >= RECALL_BYTES && read_head(entry->clut_offset, recalled[n].head)) {
+            recalled[n].disc = entry->clut_offset;
+            recalled[n++].bytes = (uint32_t)(entry->clut_entries * 2);
+        }
     }
     qsort(recalled, (size_t)n, sizeof(*recalled), compare_recalled);
+    for (i = 0; i < n;) {
+        int j, k, shared = 0;
+        for (j = i + 1; j < n && !compare_recalled(&recalled[i], &recalled[j]); j++)
+            if (recalled[j].disc != recalled[i].disc) shared = 1;
+        for (k = i; k < j; k++) {
+            recalled[k].shared = shared;
+            recalled[k].hash = shared ? hash_disc(recalled[k].disc, recalled[k].bytes) : 0;
+        }
+        i = j;
+    }
     recalled_count = n;
+}
+
+/* The first recalled head an upload starts with, -1 none. */
+static int recalled_first(const uint16_t *pixels)
+{
+    int low = 0, high = recalled_count;
+    while (low < high) {
+        int middle = (low + high) / 2;
+        if (memcmp(pixels, recalled[middle].head, RECALL_BYTES) > 0) low = middle + 1;
+        else high = middle;
+    }
+    return low < recalled_count && !memcmp(pixels, recalled[low].head, RECALL_BYTES) ? low : -1;
 }
 
 /* The disc offset of an upload's first byte, 0 unknown. Any context. */
 static uint32_t recall(const uint16_t *pixels, size_t words)
 {
-    int low = 0, high = recalled_count;
-    if (words * 2 < RECALL_BYTES) return 0;
-    while (low < high) {
-        int middle = (low + high) / 2, order = memcmp(pixels, recalled[middle].head, RECALL_BYTES);
-        if (!order) return recalled[middle].disc;
-        if (order > 0) low = middle + 1;
-        else high = middle;
+    uint32_t found = 0;
+    int i;
+    if (words * 2 < RECALL_BYTES || (i = recalled_first(pixels)) < 0) return 0;
+    if (!recalled[i].shared) return recalled[i].disc;
+    /* Only the one place whose whole block the upload holds; two with the
+     * same bytes throughout would each be a guess. */
+    for (; i < recalled_count && !memcmp(pixels, recalled[i].head, RECALL_BYTES); i++) {
+        if (recalled[i].bytes > words * 2 || !recalled[i].hash ||
+            hash_bytes(pixels, recalled[i].bytes) != recalled[i].hash || recalled[i].disc == found)
+            continue;
+        if (found) return 0;
+        found = recalled[i].disc;
     }
-    return 0;
+    return found;
 }
 
 /* The disc is open after the mods are applied, so the archives' places are
@@ -593,13 +650,21 @@ static void rediscover(void)
     if (!recalled_count || !vram || !TextureDump_Tags) return;
     for (y = 0; y < SOFT_GPU_HEIGHT; y++) {
         for (x = 0; x + RECALL_BYTES / 2 <= SOFT_GPU_WIDTH; x++) {
-            uint32_t disc;
-            int words, rows;
-            if (TextureDump_Tags[(size_t)y * SOFT_GPU_WIDTH + x]) continue;
-            disc = recall(vram + (size_t)y * SOFT_GPU_WIDTH + x, RECALL_BYTES / 2);
-            if (!disc || !block_at(disc, &words, &rows) || x + words > SOFT_GPU_WIDTH || y + rows > SOFT_GPU_HEIGHT ||
-                !holds_disc(vram, disc, x, y, words, rows))
-                continue;
+            const uint16_t *at = vram + (size_t)y * SOFT_GPU_WIDTH + x;
+            uint32_t disc = 0;
+            int words = 0, rows = 0, w, r, k, places = 0;
+            if (TextureDump_Tags[(size_t)y * SOFT_GPU_WIDTH + x] || (k = recalled_first(at)) < 0) continue;
+            /* The one place sharing the head whose bytes the block holds. */
+            for (; k < recalled_count && !memcmp(at, recalled[k].head, RECALL_BYTES); k++) {
+                if (recalled[k].disc == disc || !block_at(recalled[k].disc, &w, &r) || x + w > SOFT_GPU_WIDTH ||
+                    y + r > SOFT_GPU_HEIGHT || !holds_disc(vram, recalled[k].disc, x, y, w, r))
+                    continue;
+                disc = recalled[k].disc;
+                words = w;
+                rows = r;
+                places++;
+            }
+            if (places != 1) continue;
             for (j = 0; j < rows; j++)
                 for (i = 0; i < words; i++)
                     TextureDump_Tags[(size_t)(y + j) * SOFT_GPU_WIDTH + x + i] = disc + (uint32_t)(j * words + i) * 2 + 1;
