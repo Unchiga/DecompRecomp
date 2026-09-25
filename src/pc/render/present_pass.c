@@ -177,8 +177,8 @@ static const char *measure_source =
 
 static int state; /* 0 not tried, 1 ready, -1 unavailable */
 static GLuint program;
-static GLint u_picture, u_level, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_flash, u_scaler, u_size, u_rect, u_lines, u_t0,
-    u_t1;
+static GLint u_picture, u_level, u_brightness, u_contrast, u_saturation, u_gamma, u_crt, u_flash, u_scaler, u_size,
+    u_rect, u_lines, u_t0, u_t1;
 
 static int flash_state; /* as state, for the flash reduction */
 static GLuint measure, levels[2], level_fbo[2];
