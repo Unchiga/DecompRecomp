@@ -897,6 +897,10 @@ static int measure_sheet(Sheet *s, const uint16_t *words)
 #define PANEL_PAGE_Y 0
 #define PANEL_CLUT_X 736
 #define PANEL_CLUT_Y 252
+/* On the opponent's turn the panel is read through the next palette
+ * (duel_init_scene.c): the same indices, the other side lit, so the same
+ * picture. */
+#define PANEL_CLUT_X_TURN (PANEL_CLUT_X + 16)
 #define PANEL_U 128
 #define PANEL_V 128
 #define PANEL_W 64
@@ -1419,7 +1423,8 @@ int HdText_Hud(int depth, int page_x, int page_y, int clut_x, int clut_y, int u,
     const uint16_t *words = SoftGpu_Vram();
     unsigned i;
     if (wanted < 2 || wanted > MAX_FACTOR || !words || w < 1 || h < 1) return 0;
-    if (!depth && page_x == PANEL_PAGE_X && page_y == PANEL_PAGE_Y && clut_x == PANEL_CLUT_X &&
+    if (!depth && page_x == PANEL_PAGE_X && page_y == PANEL_PAGE_Y &&
+        (clut_x == PANEL_CLUT_X || clut_x == PANEL_CLUT_X_TURN) &&
         clut_y == PANEL_CLUT_Y && u == PANEL_U && v == PANEL_V && w == PANEL_W && h == PANEL_H) {
         if (panel_sum(words) != PANEL_SUM) return 0;
         if (wanted != factor && !make_atlas(wanted)) return 0;
