@@ -135,7 +135,7 @@ int main(int argc, char **argv)
     if (Memories_GuestMap() != 0 || load_game(exe) != 0 || Memories_ModulesInit() != 0) {
         return 1;
     }
-    if (Platform_Open("Yu-Gi-Oh! Forbidden Memories (native port, work in progress)") != 0) {
+    if (Platform_Open("Yu-Gi-Oh Forbidden Memories Recompiled") != 0) {
         return 1;
     }
     /* The mods are applied by now (Platform_Open reads the settings), and

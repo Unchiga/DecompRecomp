@@ -68,7 +68,6 @@ static volatile uint16_t wheel_now;
 static int pointer_x, pointer_y, pointer_inside, cursor_hidden;
 static unsigned last_pointer_motion, current_frame;
 static int focus_clock_rate = 100, focus_paused;
-static char base_title[160];
 static float known_refresh; /* what the wayland driver reported before a fallback to x11 */
 
 static void show(void);
@@ -273,19 +272,6 @@ void Platform_OpenControls(void)
 }
 
 static void pump(void);
-
-static void update_title(void)
-{
-    char title[256], suffix[32] = "";
-    int clock_rate = Platform_ClockRate();
-    if (!window) return;
-    if (clock_rate == 0) snprintf(suffix, sizeof(suffix), " [paused]");
-    else if (clock_rate == -1) snprintf(suffix, sizeof(suffix), " [uncapped]");
-    else if (clock_rate != 100) snprintf(suffix, sizeof(suffix), " [%d%%]", clock_rate);
-    snprintf(title, sizeof(title), "%s - state slot %d (F5 save, F7 load)%s",
-             base_title, state_slot, suffix);
-    SDL_SetWindowTitle(window, title);
-}
 
 static void show_cursor(void)
 {
@@ -1522,7 +1508,6 @@ int Platform_Open(const char *title)
     sigset_t previous;
     ControlsRuntime_Init();
     Menu_LoadSettings(); /* the volume and scale apply with or without a window */
-    snprintf(base_title, sizeof(base_title), "%s", title);
     if (getenv("MEMORIES_HEADLESS")) {
         return 0;
     }
@@ -1587,7 +1572,6 @@ int Platform_Open(const char *title)
     apply_display_settings();
     menu_visible = !covers_screen() || Settings_Get(SET_SHOW_MENU_FULLSCREEN);
     Menu_SetVisible(menu_visible);
-    update_title();
     return 0;
 }
 
@@ -1737,7 +1721,6 @@ void Platform_SetStateSlot(int slot)
 {
     if (slot < 1 || slot > 4) return;
     state_slot = slot;
-    update_title();
 }
 /* No frame is coming (paused, or a frame that is not shown): answer the
  * menu now, at most once per call. */
@@ -1849,7 +1832,6 @@ static void run_event_script(unsigned frame)
 
 void Platform_Frame(unsigned frame)
 {
-    static int shown_rate = -2;
     static unsigned composed_then;
     current_frame = frame;
     Log_Drain();
@@ -1865,10 +1847,6 @@ void Platform_Frame(unsigned frame)
     }
     if (menu_reveal_frames > 0) menu_reveal_frames--;
     update_menu_visibility();
-    if (shown_rate != Platform_ClockRate()) {
-        shown_rate = Platform_ClockRate();
-        update_title();
-    }
     if (window && Settings_Get(SET_HIDE_CURSOR) && pointer_inside && !cursor_hidden &&
         pointer_x >= layout.dst.x && pointer_x < layout.dst.x + layout.dst.w &&
         pointer_y >= layout.dst.y && pointer_y < layout.dst.y + layout.dst.h &&
