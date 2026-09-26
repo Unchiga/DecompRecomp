@@ -491,9 +491,11 @@ static int count_duelists(int lba)
 }
 
 /* A card's name as the game shows it now -- a mod's, a translation's, or the
- * retail one -- in UTF-8. The same walk Cards_NameUtf8 does, which the export
- * table does not carry. */
-static int card_name(int id, char *out, size_t size)
+ * retail one. The same walk Cards_NameUtf8 does, which the export table does
+ * not carry. UTF-8 for the file; `ascii` for the overlay, whose draw_text
+ * takes ASCII and where a glyph outside it becomes '?' rather than a broken
+ * byte sequence. */
+static int card_text(int id, char *out, size_t size, int ascii)
 {
     const unsigned char *name;
     size_t n = 0;
@@ -515,7 +517,10 @@ static int card_name(int id, char *out, size_t size)
             code = ((code - 0xF0) << 8) | *name++;
         c = code ? Glyphs_Character(code) : ' ';
         if (c == 0) c = '?';
-        if (c < 0x80) {
+        if (ascii) {
+            if (n + 1 < size)
+                out[n++] = (char)(c >= 0x20u && c < 0x7Fu ? c : '?');
+        } else if (c < 0x80) {
             if (n + 1 < size) out[n++] = (char)c;
         } else if (c < 0x800) {
             if (n + 2 < size) {
@@ -530,6 +535,11 @@ static int card_name(int id, char *out, size_t size)
     }
     out[n] = '\0';
     return n != 0;
+}
+
+static int card_name(int id, char *out, size_t size)
+{
+    return card_text(id, out, size, 0);
 }
 
 /* The tier each opponent starts in, by duelist id. Only the tier is fixed --
@@ -871,10 +881,513 @@ static void ensure_config(void)
     apply_tiers();
 }
 
+static void drop_panel_reset(void);
+
 /* A save state restores VRAM too, so the ramps have to go back. */
 static void on_state_loaded(void)
 {
     ramps_done = 0;
+    drop_panel_reset();
+}
+
+/* The score a colour tier is chosen on, for one duelist and one pool. The same
+ * arithmetic apply_tiers does, so the SCORE column shows the number that
+ * picked the colour rather than a second implementation of it. Thousandths,
+ * floored at each step, and the config is established here too: the drop panel
+ * may be the first thing that asks for it. */
+static int tier_score(int duelist, int pool, int weight)
+{
+    long dm, rm;
+
+    ensure_config();
+    if (duelist < 0 || duelist > DUELIST_MAX || pool < 0 || pool >= RANK_COUNT ||
+        weight <= 0)
+        return 0;
+    dm = duelist_mult[duelist] != 0 ? duelist_mult[duelist] : tier_multiplier("default");
+    rm = rank_mult[pool];
+    return (int)((((long)weight * dm) / MULT_ONE) * rm / MULT_ONE);
+}
+
+
+/* ==== the drop panel ======================================================
+ *
+ * The Library tells you a card exists and nothing about how to get one. With
+ * "Show drop odds" on, the grid names the duelists who drop the card under the
+ * cursor, how often, and what that scores -- the same score the tiers above
+ * chose the card's colour by, so the panel shows this mod's working.
+ *
+ * The weights are the ones apply_tiers already reads: WA_MRG 0xE9B000 +
+ * 0x1800*(id-1), three sectors an opponent, four 1460-byte rows summing to
+ * 2048. Duel_SelectCardDrop rolls `(rand() & 2047) + 1` against a running sum
+ * of the row for the rank earned, so a weight of w IS that card's chance, w
+ * out of 2048, once per duel won at that rank.
+ *
+ * Tables_PoolFor is asked for every pool first, so a mod that edits drops is
+ * reflected -- the same call the game's own drop picker makes. Its array is
+ * indexed by card id; the disc's row is indexed by id - 1.
+ *
+ * Main_Loop dispatches on the low five bits of D_8009B26C (main_modes.c), so
+ * the Library is the running screen exactly while those bits are
+ * MAIN_MODE_LIBRARY and the 0x40 "already entered" bit is set. D_800EA1E8's
+ * low nibble is then the screen's own state, and 1 is the card grid. Both are
+ * read directly, so nothing depends on how often a callback happens to run:
+ * mod->frame is called from GsDrawOt -- once per draw list, not once per game
+ * frame -- and a screen that submits several would age a frame counter faster
+ * than its own update runs.
+ */
+
+#define SHOW_MAX 20                /* the most rows the table will print */
+#define WEIGHT_TOTAL 2048          /* DUEL_DROP_WEIGHT_TOTAL */
+
+/* Tables_PoolFor's pool numbering (pc/cards/tables.h): the deck pool, then the
+ * three drop pools in Duel_SelectCardDrop's order. */
+enum { TABLES_POOL_DECK, TABLES_POOL_POW };
+
+/* main_modes.c's dispatch table, and the bit Main_RunLibraryMenu sets once it
+ * has opened the screen. */
+#define MAIN_MODE_LIBRARY 4
+#define MAIN_MODE_MASK    0x1F
+#define MAIN_MODE_ENTERED 0x40
+#define LIBRARY_GRID      1        /* func_8002BAB4's state for the card grid */
+
+const unsigned short *Tables_PoolFor(int duelist, int pool,
+                                     const unsigned short *retail);
+extern u8 D_8009B26C[];
+extern u8 D_800EA1E8[];
+void func_8002BAB4(void);
+s32 Library_GetGridCursorCardId(u8 *state);
+/* Bit 0x80 is whether the grid draws the card's cell at all (func_80029EC4),
+ * which is the same test the screen makes before it will open one. */
+unsigned int Library_GetCardFlags(unsigned char *base, int index);
+/* The port's menu bar, which the overlay canvas includes. */
+int Menu_Height(void);
+
+static void *orig_dispatch;
+
+typedef struct {
+    u8 duelist;
+    u8 pool;
+    u16 weight;
+} Source;
+
+/* Every duelist that drops a card, not just the best few: the table can be
+ * ordered by any column, and a duelist well down the list by weight can be at
+ * the top of it by score. */
+static Source sources[CARD_COUNT + 1][DUELIST_MAX];
+static u8 source_count[CARD_COUNT + 1];
+static int drops_scanned;          /* 0 not yet, 1 done, -1 failed */
+
+enum { SORT_WEIGHT, SORT_SCORE, SORT_DUELIST, SORT_POOL };
+static int opt_drops = 1;
+static int opt_rows = 3;
+static int opt_sort = SORT_WEIGHT;
+static int opt_x = 8;
+static int opt_y = 8;
+
+#define PANEL_ALPHA 205
+#define POOL_NAME(p) ((p) == 0 ? "S/A POW" : (p) == 1 ? "B/C/D" : "S/A TEC")
+
+static void scan_drops(void)
+{
+    static u8 block[DROP_BLOCK];
+    static u16 retail[RANK_COUNT][CARD_COUNT];
+    const int lba = host->disc_file_start(host, WA_PATH);
+    int opp;
+
+    if (lba < 0) {
+        host->log(host, "card-name-color: no %s on the disc", WA_PATH);
+        drops_scanned = -1;
+        return;
+    }
+
+    for (opp = 1; opp <= DUELIST_MAX; opp++) {
+        const u16 *pool_weights[RANK_COUNT];
+        int pool, i, ok = 1;
+
+        if (host->disc_read(host, lba + DROPS_SECTOR + (opp - 1) * DROPS_STRIDE,
+                            DROPS_STRIDE, block) <= 0)
+            break;
+
+        /* Every real block's four rows each add up to 2048. */
+        for (pool = 0; pool < 4 && ok; pool++) {
+            unsigned long sum = 0;
+            for (i = 0; i < CARD_COUNT; i++)
+                sum += (unsigned)(block[pool * DROP_ROW + i * 2] |
+                                  ((unsigned)block[pool * DROP_ROW + i * 2 + 1] << 8));
+            if (sum != (unsigned long)WEIGHT_TOTAL)
+                ok = 0;
+        }
+        if (!ok)
+            break;
+
+        for (pool = 0; pool < RANK_COUNT; pool++) {
+            const u8 *row = block + (size_t)(pool + 1) * DROP_ROW;
+            for (i = 0; i < CARD_COUNT; i++)
+                retail[pool][i] = (u16)(row[i * 2] | ((unsigned)row[i * 2 + 1] << 8));
+            pool_weights[pool] = Tables_PoolFor(opp, TABLES_POOL_POW + pool,
+                                                retail[pool]);
+        }
+
+        for (i = 1; i <= CARD_COUNT; i++) {
+            u16 best = 0;
+            int best_pool = 0;
+            for (pool = 0; pool < RANK_COUNT; pool++) {
+                const u16 *edited = pool_weights[pool];
+                /* Tables_PoolFor answers by card id; the disc's row by id - 1. */
+                const u16 w = edited != NULL ? edited[i] : retail[pool][i - 1];
+                if (w > best) {
+                    best = w;
+                    best_pool = pool;
+                }
+            }
+            /* One entry per duelist, carrying its best pool of the three. */
+            if (best == 0 || source_count[i] >= DUELIST_MAX)
+                continue;
+            sources[i][source_count[i]].duelist = (u8)opp;
+            sources[i][source_count[i]].pool = (u8)best_pool;
+            sources[i][source_count[i]].weight = best;
+            source_count[i]++;
+        }
+    }
+
+    drops_scanned = 1;
+    host->log(host, "card-name-color: drop panel read %d opponents", duelist_count);
+}
+
+static void duelist_name(int duelist, char *out, size_t size)
+{
+    if (duelist > 0 && duelist < NAMED_DUELISTS)
+        snprintf(out, size, "%s", Tables_DuelistNames[duelist]);
+    else
+        snprintf(out, size, "Duelist %d", duelist);
+}
+
+typedef struct {
+    char name[32];
+    char weight[16];
+    char score[16];
+    int pool;
+    int by_weight;
+    int by_score;
+} Row;
+
+static int shown_id;               /* the card the rows below describe */
+static char shown_name[64];
+static int shown_ok;
+static Row rows[SHOW_MAX];
+static int row_count;
+static int row_total;              /* duelists dropping it, shown or not */
+
+/* Which of two candidates the chosen column puts first. Numbers read best
+ * first; names and pools read in their own order. */
+static int ahead_of(const Row *a, const Row *b)
+{
+    switch (opt_sort) {
+    case SORT_SCORE:   return a->by_score > b->by_score;
+    case SORT_DUELIST: return strcmp(a->name, b->name) < 0;
+    case SORT_POOL:    return a->pool < b->pool;
+    default:           return a->by_weight > b->by_weight;
+    }
+}
+
+/* Selection is on the column being ordered when that column is a number, so
+ * "by score" really shows the highest scores; ordering by a name or a rank
+ * takes the best by weight and then arranges those. */
+static int picked_by(const Row *a, const Row *b)
+{
+    if (opt_sort == SORT_SCORE)
+        return a->by_score > b->by_score;
+    return a->by_weight > b->by_weight;
+}
+
+static void build_rows(int id)
+{
+    static Row all[DUELIST_MAX];
+    const Source *list = sources[id];
+    const int have = source_count[id];
+    int i, j, taken;
+
+    row_total = have;
+    row_count = 0;
+    shown_ok = card_text(id, shown_name, sizeof shown_name, 1);
+    if (!shown_ok)
+        return;
+
+    for (i = 0; i < have && i < DUELIST_MAX; i++) {
+        duelist_name(list[i].duelist, all[i].name, sizeof all[i].name);
+        snprintf(all[i].weight, sizeof all[i].weight, "%d/2048", (int)list[i].weight);
+        all[i].by_weight = (int)list[i].weight;
+        all[i].by_score = tier_score(list[i].duelist, list[i].pool,
+                                     (int)list[i].weight);
+        snprintf(all[i].score, sizeof all[i].score, "%d", all[i].by_score);
+        all[i].pool = list[i].pool;
+    }
+
+    /* Take the best few, then put those in the order the column asks for.
+     * Selection sort over at most 64 candidates for at most 20 rows. */
+    taken = have < opt_rows ? have : opt_rows;
+    for (i = 0; i < taken; i++) {
+        int best = -1;
+        for (j = 0; j < have; j++) {
+            if (all[j].by_weight < 0)
+                continue;          /* already taken */
+            if (best < 0 || picked_by(&all[j], &all[best]))
+                best = j;
+        }
+        if (best < 0)
+            break;
+        rows[row_count++] = all[best];
+        all[best].by_weight = -1;
+    }
+    for (i = 1; i < row_count; i++) {
+        const Row hold = rows[i];
+        for (j = i; j > 0 && ahead_of(&hold, &rows[j - 1]); j--)
+            rows[j] = rows[j - 1];
+        rows[j] = hold;
+    }
+}
+
+/* The card under the grid cursor, or 0 when the Library's grid is not what is
+ * running. Read straight from the game rather than remembered from a callback,
+ * so the panel cannot outlive the screen or blink out under one. */
+static int cursor_card(void)
+{
+    const unsigned mode = D_8009B26C[0];
+    int id;
+
+    if (!opt_drops)
+        return 0;
+    if ((mode & MAIN_MODE_MASK) != MAIN_MODE_LIBRARY ||
+        (mode & MAIN_MODE_ENTERED) == 0)
+        return 0;
+    if ((D_800EA1E8[0] & 0xF) != LIBRARY_GRID)
+        return 0;
+    id = (int)Library_GetGridCursorCardId(D_800EA1E8);
+    if (id < 1 || id > CARD_COUNT)
+        return 0;
+    /* Nothing is said about a card the Library itself does not show yet: the
+     * panel would be telling the player what is in a cell they cannot see. */
+    if ((Library_GetCardFlags(D_800EA1E8, id) & 0x80) == 0)
+        return 0;
+    return id;
+}
+
+static void read_panel_settings(void)
+{
+    const int was_rows = opt_rows, was_sort = opt_sort;
+
+    opt_drops = host->setting(host, "drops", 1);
+    opt_rows = host->setting(host, "drop_rows", 3);
+    if (opt_rows < 1) opt_rows = 1;
+    if (opt_rows > SHOW_MAX) opt_rows = SHOW_MAX;
+    opt_sort = host->setting(host, "drop_sort", SORT_WEIGHT);
+    if (opt_sort < 0 || opt_sort > SORT_POOL) opt_sort = SORT_WEIGHT;
+    opt_x = host->setting(host, "drop_x", 8);
+    if (opt_x < 0) opt_x = 0;
+    opt_y = host->setting(host, "drop_y", 8);
+    if (opt_y < 0) opt_y = 0;
+
+    if (opt_rows != was_rows || opt_sort != was_sort)
+        shown_id = 0;              /* the table has to be built again */
+}
+
+/* The Library's own frame, then the card it left under the cursor. The disc
+ * reads and the table are done here, on the game's frame, rather than in the
+ * overlay, which runs while the picture is being presented. */
+static void library_frame(void)
+{
+    void (*original)(void) = (void (*)(void))orig_dispatch;
+    int id;
+
+    original();
+    read_panel_settings();
+
+    id = cursor_card();
+    if (id == 0)
+        return;
+    ensure_config();               /* the multipliers the score needs */
+    if (drops_scanned == 0 && gCard_nCount > 0)
+        scan_drops();
+    if (drops_scanned != 1 || id == shown_id)
+        return;
+    shown_id = id;
+    build_rows(id);
+}
+
+#define COL_BACK     0x0B0E13u
+#define COL_TITLE_BG 0x1B2430u
+#define COL_BORDER   0x39424Fu
+#define COL_BEVEL    0x55616Fu
+#define COL_RULE     0x2A3240u
+#define COL_STRIPE   0xFFFFFFu
+#define COL_TITLE    0xFFFFFFu
+#define COL_NUMBER   0x8FA0B4u
+#define COL_HEAD     0x7E8A9Au
+#define COL_PICKED   0xFFFFFFu
+#define COL_NAME     0xDCE3EBu
+#define COL_POOL     0x93A0B0u
+#define COL_WEIGHT   0xB9C6D6u
+#define COL_SCORE    0x7FC9FFu
+#define COL_FOOT     0x76818Fu
+#define COL_NONE     0xE8A85Cu
+
+#define HEAD_NAME   "DUELIST"
+/* tables.h calls these pools; what the column actually shows is the duel
+ * rank each one belongs to, which is what a player earns and recognises. */
+#define HEAD_POOL   "RANK"
+#define HEAD_WEIGHT "WEIGHT"
+#define HEAD_SCORE  "SCORE"
+
+static int widest(int a, int b) { return a > b ? a : b; }
+
+/* The heading of the column being ordered on, lit so the table says what it is
+ * sorted by without a line of its own. */
+static unsigned head_colour(int column)
+{
+    return column == opt_sort ? COL_PICKED : COL_HEAD;
+}
+
+static void panel(void)
+{
+    char number[16], footer[64];
+    int width, height, scale, bar;
+    int w_name, w_pool, w_weight, w_score, w_title, w_foot, w_body;
+    int pad, gap, line, rule, box_w, box_h, x, y, cy, i;
+    int at_name, at_pool, end_weight, end_score;
+
+    host->overlay_size(host, &width, &height, &scale);
+    if (scale < 1)
+        scale = 1;
+    if (width <= 0 || height <= 0)
+        return;
+
+    snprintf(number, sizeof number, "#%d", shown_id);
+    if (row_total == 0)
+        snprintf(footer, sizeof footer, "No duelist drops this card");
+    else if (row_total > row_count)
+        snprintf(footer, sizeof footer, "and %d more duelist%s",
+                 row_total - row_count, row_total - row_count == 1 ? "" : "s");
+    else
+        footer[0] = '\0';
+
+    /* Every column is as wide as its heading or its widest cell. */
+    w_name = host->text_width(host, HEAD_NAME, scale);
+    w_pool = host->text_width(host, HEAD_POOL, scale);
+    w_weight = host->text_width(host, HEAD_WEIGHT, scale);
+    w_score = host->text_width(host, HEAD_SCORE, scale);
+    for (i = 0; i < row_count; i++) {
+        w_name = widest(w_name, host->text_width(host, rows[i].name, scale));
+        w_pool = widest(w_pool, host->text_width(host, POOL_NAME(rows[i].pool), scale));
+        w_weight = widest(w_weight, host->text_width(host, rows[i].weight, scale));
+        w_score = widest(w_score, host->text_width(host, rows[i].score, scale));
+    }
+
+    line = 16 * scale;
+    pad = 9 * scale;
+    gap = 12 * scale;
+    rule = scale;
+
+    w_title = host->text_width(host, shown_name, scale) + gap +
+              host->text_width(host, number, scale);
+    w_foot = footer[0] ? host->text_width(host, footer, scale) : 0;
+    w_body = row_count ? w_name + gap + w_pool + gap + w_weight + gap + w_score : 0;
+    box_w = widest(widest(w_body, w_title), w_foot) + pad * 2;
+    box_h = pad + line
+          + (row_count ? rule + line + row_count * line : 0)
+          + (footer[0] ? rule + line : 0)
+          + pad;
+
+    /* x and y are the panel's own corner, in menu units, measured from the top
+     * left of the picture -- under the menu bar, which the canvas includes. */
+    bar = Menu_Height();
+    x = opt_x * scale;
+    y = bar + opt_y * scale;
+    if (x + box_w > width) x = width - box_w;
+    if (y + box_h > height) y = height - box_h;
+    if (x < 0) x = 0;
+    if (y < bar) y = bar;
+
+    host->fill(host, x, y, box_w, box_h, COL_BACK, PANEL_ALPHA);
+    host->fill(host, x, y, box_w, line + pad, COL_TITLE_BG, PANEL_ALPHA);
+    host->fill(host, x, y, box_w, rule, COL_BEVEL, 255);
+    host->fill(host, x, y + box_h - rule, box_w, rule, COL_BORDER, 255);
+    host->fill(host, x, y, rule, box_h, COL_BORDER, 255);
+    host->fill(host, x + box_w - rule, y, rule, box_h, COL_BORDER, 255);
+
+    cy = y + pad;
+    host->draw_text(host, x + pad, cy + line / 2, shown_name, COL_TITLE, scale);
+    host->draw_text(host, x + box_w - pad - host->text_width(host, number, scale),
+                    cy + line / 2, number, COL_NUMBER, scale);
+    cy += line;
+
+    at_name = x + pad;
+    at_pool = at_name + w_name + gap;
+    end_weight = at_pool + w_pool + gap + w_weight;
+    end_score = end_weight + gap + w_score;
+
+    if (row_count) {
+        host->fill(host, x + rule, cy, box_w - rule * 2, rule, COL_RULE, 255);
+        cy += rule;
+        host->draw_text(host, at_name, cy + line / 2, HEAD_NAME,
+                        head_colour(SORT_DUELIST), scale);
+        host->draw_text(host, at_pool, cy + line / 2, HEAD_POOL,
+                        head_colour(SORT_POOL), scale);
+        host->draw_text(host, end_weight - host->text_width(host, HEAD_WEIGHT, scale),
+                        cy + line / 2, HEAD_WEIGHT, head_colour(SORT_WEIGHT), scale);
+        host->draw_text(host, end_score - host->text_width(host, HEAD_SCORE, scale),
+                        cy + line / 2, HEAD_SCORE, head_colour(SORT_SCORE), scale);
+        cy += line;
+
+        for (i = 0; i < row_count; i++) {
+            /* Every other row lifted a little, so the eye keeps its line
+             * across four columns without a ruling between them. */
+            if (i & 1)
+                host->fill(host, x + rule, cy, box_w - rule * 2, line, COL_STRIPE, 10);
+            host->draw_text(host, at_name, cy + line / 2, rows[i].name, COL_NAME, scale);
+            host->draw_text(host, at_pool, cy + line / 2, POOL_NAME(rows[i].pool),
+                            COL_POOL, scale);
+            host->draw_text(host,
+                            end_weight - host->text_width(host, rows[i].weight, scale),
+                            cy + line / 2, rows[i].weight, COL_WEIGHT, scale);
+            host->draw_text(host,
+                            end_score - host->text_width(host, rows[i].score, scale),
+                            cy + line / 2, rows[i].score, COL_SCORE, scale);
+            cy += line;
+        }
+    }
+
+    if (footer[0]) {
+        host->fill(host, x + rule, cy, box_w - rule * 2, rule, COL_RULE, 255);
+        cy += rule;
+        host->draw_text(host, x + pad, cy + line / 2, footer,
+                        row_total == 0 ? COL_NONE : COL_FOOT, scale);
+    }
+}
+
+static void drop_panel_reset(void)
+{
+    shown_id = 0;
+    shown_ok = 0;
+}
+
+static int panel_live(void)
+{
+    return opt_drops && drops_scanned == 1 && shown_ok &&
+           shown_id >= 1 && shown_id <= CARD_COUNT && cursor_card() == shown_id;
+}
+
+static void drop_overlay(void)
+{
+    if (panel_live())
+        panel();
+}
+
+static unsigned drop_overlay_signature(void)
+{
+    if (!panel_live())
+        return 0;
+    return (unsigned)(shown_id * 128 + opt_rows * 8 + opt_sort * 2 + 1) ^
+           ((unsigned)opt_x << 20) ^ ((unsigned)opt_y << 26);
 }
 
 int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
@@ -894,7 +1407,15 @@ int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
         return 0;
     }
 
+    /* The drop panel. Its own hook, so the colours still work if the Library
+     * screen is not what this build has. */
+    if (host->hook(host, (void *)func_8002BAB4, (void *)library_frame,
+                   &orig_dispatch) == 0)
+        host->log(host, "card-name-color: no drop panel (func_8002BAB4)");
+
     mod->api = MEMORIES_MOD_API;
     mod->reset = on_state_loaded;
+    mod->overlay = drop_overlay;
+    mod->overlay_signature = drop_overlay_signature;
     return 1;
 }
