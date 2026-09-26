@@ -1665,6 +1665,56 @@ static int bind_pack_entry(int entry)
     return 1;
 }
 
+/* Widescreen draws each primitive into the picture and again into its
+ * target, so the runs alternate between the two and every primitive is a
+ * run of its own: a framebuffer switch and a draw each. Nothing drawn in a
+ * flush reads the picture or a target back (transfers and new targets
+ * flush first), so each one's runs can be drawn together, in their own
+ * order: the picture's, then each target's, with neighbours in one state
+ * joined into one run, as in 4:3. */
+static void group_runs(void)
+{
+    static GlVertex *grouped;
+    static Run *grouped_runs;
+    static size_t grouped_room, grouped_run_room;
+    size_t i, count = 0, used = 0;
+    int target;
+    for (i = 0; i < run_count && runs[i].wide < 0; i++) {}
+    if (i == run_count) return; /* no widescreen target: as drawn */
+    if (grouped_room < vertex_count) {
+        GlVertex *more = realloc(grouped, vertex_count * sizeof(*grouped));
+        if (!more) return;
+        grouped = more;
+        grouped_room = vertex_count;
+    }
+    if (grouped_run_room < run_count) {
+        Run *more = realloc(grouped_runs, run_count * sizeof(*grouped_runs));
+        if (!more) return;
+        grouped_runs = more;
+        grouped_run_room = run_count;
+    }
+    for (target = -1; target < WIDE_TARGETS; target++) {
+        for (i = 0; i < run_count; i++) {
+            const Run *run = &runs[i];
+            Run *last = count ? &grouped_runs[count - 1] : NULL;
+            if (run->wide != target) continue;
+            memcpy(grouped + used, vertices + run->first, run->count * sizeof(*grouped));
+            if (last && last->wide == target && !last->subtractive && !run->subtractive &&
+                !memcmp(last->clip, run->clip, sizeof(run->clip)) &&
+                !memcmp(last->window, run->window, sizeof(run->window)) && last->pack == run->pack) {
+                last->count += run->count;
+            } else {
+                grouped_runs[count] = *run;
+                grouped_runs[count++].first = used;
+            }
+            used += run->count;
+        }
+    }
+    memcpy(vertices, grouped, used * sizeof(*vertices));
+    memcpy(runs, grouped_runs, count * sizeof(*runs));
+    run_count = count;
+}
+
 /* The primitives gathered so far, in order, into the picture. */
 static void flush_runs(void)
 {
@@ -1675,6 +1725,7 @@ static void flush_runs(void)
         run_count = 0;
         return;
     }
+    group_runs();
     sync_banks();
     sync_pack();
     if (hd_text || hd_hud || opponent_name) sync_glyphs();

@@ -934,7 +934,14 @@ The software GPU keeps the 1x targets. At 2x and up the OpenGL pass draws
 its own at the scale (`gl_picture.c`, "widescreen"). Its targets follow the
 software GPU's rule and are laid out the same way. Each is a texture of
 the widened area alone. Its primitives go through the same runs as the
-picture's, in the same order, drawn with the viewport moved. Before this,
+picture's, in the same order, drawn with the viewport moved. Since each
+primitive is gathered for the picture and then for its target, the runs
+alternate between the two; `flush_runs` draws the picture's runs first and
+then each target's, each in its own order and with neighbours in one state
+joined (`group_runs`). Nothing in one flush reads the picture or a target
+back, so the picture is the same, and the 3D Monsters duel takes 17-22
+draws and 2-4 framebuffer switches a frame instead of about 400 of each
+(4x, NVIDIA: 1.6-1.9 ms per replay instead of 5-6.7 ms). Before this,
 the software GPU drew the scaled targets on the CPU next to the OpenGL
 pass. Unthrottled, the 3D Monsters duel case to its frame now takes 40 s
 instead of 128 s at 2x, and 41 s instead of 350 s at 4x. Against the
