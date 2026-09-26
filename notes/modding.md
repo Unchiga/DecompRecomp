@@ -8,7 +8,7 @@ directory in, restart, apply it in **Game > Mods**.
 
 | Directory | What is in it |
 |---|---|
-| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`) |
+| `mods/` beside the executable | the mods the release ships (`3d-monsters`, `hand-camera`, `ai-hard-mode`, `yamyi-mods`) |
 | `mods/` in the user directory | mods the player installed |
 
 The user directory is where everything the player owns lives: settings,
@@ -657,6 +657,8 @@ the reason beside any that failed to load.
 |---|---|
 | `mods/3d-monsters` | face-up monsters on the duel field stand on their cards as animated models (`notes/pc-build.md`) |
 | `mods/hand-camera` | L1/R1 turn and L3/R3 zoom the duel camera while the hand is up |
+| `mods/ai-hard-mode` | optional stronger opponent decisions |
+| `mods/yamyi-mods` | return-to-title confirmation, rarity colours and Library drop odds, with independent switches |
 
 The first two were part of the executable until they became mods; they are the worked
 examples of a code mod that reaches deep into the game. 3D Monsters' knobs
@@ -685,3 +687,25 @@ zone from that card on, for measuring the cache and the arenas.
 * `tests/pc/audio_replace_test.c` (`pc_audio_replace`) covers WAV and Ogg
   decoding, resampling, the `audio` object, which mod wins an id and what
   the mixer plays for the sound driver's calls.
+
+### Yamyi Mods
+
+Apply **Yamyi Mods** in **Game > Mods**. Its settings separately enable
+return-to-title confirmation, card-name rarity colours and Library drop odds.
+The panel can hide its rarity-score column, choose a sort order, list up to
+20 duelists and change position. It only describes cards visible in the Library.
+Rows are reduced to fit the window; enlarge a very small window to see the panel.
+Colours and odds both respect other mods' drop-table edits and added cards.
+When sorting by score, each duelist's best scoring rank is shown; other sorts
+use its highest drop weight. A weight of `w/2048` is the chance per win at that rank.
+
+The first card-name or Library display creates
+`mod-data/yamyi-mods/card_name_color.ini` in the player's directory. It contains
+named colour slots, rarity tiers, duelist/rank multipliers and card overrides.
+Restart after editing it. Lower scores mean rarer cards; an explicit zero
+multiplier is respected. The package is disabled by default and does not alter
+actual drops or duel rules.
+
+These features originate in yamyi's PRs #68, #70 and #77. Their overlapping
+Library panels are combined into one panel here; do not also install the old
+`menu-back-confirm`, `card-name-color` or `drop-odds` packages.
