@@ -80,9 +80,9 @@ static const SettingInfo info[SET_COUNT] = {
     /* Samples a pixel of the OpenGL picture is drawn with: 0 (off), 2, 4, 8
      * (gl_picture.c). */
     [SET_MSAA] = {"msaa", NULL, "MEMORIES_MSAA", NULL, 0, 0, 8},
-    /* 1: textures in perspective; 2: polygons at their precise positions too
-     * (pc/compat/pgxp.h). */
-    [SET_PGXP] = {"pgxp", NULL, "MEMORIES_PGXP", NULL, 0, 0, 2},
+    /* PGXP is disabled; keep its setting and implementation for future use.
+     * Clamp saved preferences, environment overrides and runtime writes off. */
+    [SET_PGXP] = {"pgxp", NULL, "MEMORIES_PGXP", NULL, 0, 0, 0},
 };
 
 /* A key the fixed list does not know: a mod's, or one this build dropped.

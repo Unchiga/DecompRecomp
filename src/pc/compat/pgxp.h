@@ -1,6 +1,7 @@
 #ifndef MEMORIES_PC_PGXP_H
 #define MEMORIES_PC_PGXP_H
-/* PGXP, precise geometry (Video > Precise geometry, `pgxp`). The GTE's
+/* PGXP, precise geometry (currently disabled by the `pgxp` setting's range).
+ * The implementation remains available for future use. The GTE's
  * perspective transform rounds a vertex to a whole console pixel and keeps
  * no depth with it, which makes polygons wobble as they move and their
  * textures bend. rtp() (gte.c) keeps where each vertex it projects really
