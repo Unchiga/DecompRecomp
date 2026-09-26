@@ -505,8 +505,11 @@ string 0x11, is the retail listing with the line added, compiled as a
 mod's text is (`Text_CompileOwn`) so its `{choose}` jumps land. The game
 keeps four entries' worth of enabled bits (`Text_HandleChoiceCommand`), so
 wherever it sets the menu's choices up (after its text, the memory card and
-the title confirm) `DeckMenu_ShopRestore` moves the last two down and
-turns the new one on. With the setting off, or a translation that rewrites
+the title confirm) `DeckMenu_ShopRestore` moves the cursor and enables all
+five entries. It does not reuse a nested prompt's enabled mask. The
+`deck-shop` save-state chunk keeps whether the menu has the extra entry
+and rebases pointers into its compiled text before restoring game memory,
+so loading a shop state also works in a fresh process. With the setting off, or a translation that rewrites
 string 0x11, the menu is the game's. Checked on a save in the tournament's
 shop: the setting off is pixel-identical to master (the menu, and the cursor
 on LEAVE SHOP); DECK SLOTS opens the screen, and Circle brings the menu back

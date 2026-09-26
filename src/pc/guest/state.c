@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "state.h"
+#include "state_remap.h"
 #include "pc/platform/paths.h"
 #include "pc/mods/mods.h"
 #include "pc/mods/events.h"
@@ -151,6 +152,11 @@ static const uint8_t *find_chunk(const MemoriesState *state, const char *tag, si
     return NULL;
 }
 
+void Memories_StateRemapRange(MemoriesState *state, uint32_t from, uint32_t to, uint32_t size)
+{
+    if (state->loading) Memories_StateRemapImage((uint8_t *)state->image, state->image_size, from, to, size);
+}
+
 int Memories_StateChunk(MemoriesState *state, const char *tag, const MemoriesStateField *fields, size_t count)
 {
     size_t total = 0, i, size;
@@ -254,6 +260,7 @@ static void subsystems(MemoriesState *state)
     LibPress_State(state);
     LibMcrd_State(state);
     SaveMenu_State(state);
+    if (!Memories_StateLoading(state)) DeckMenu_State(state);
     TitleJump_State(state);
     Platform_State(state);
 }
@@ -350,6 +357,7 @@ static void apply(void)
     unsigned i;
     hold_signals(1);
     Spu_Hold(1);
+    DeckMenu_State(&state);
     chunk = find_chunk(&state, "memory", &size);
     memcpy((void *)(uintptr_t)MEMORIES_GUEST_RAM, chunk, MEMORIES_GUEST_RAM_SIZE);
     memcpy((void *)(uintptr_t)SCRATCHPAD, chunk + MEMORIES_GUEST_RAM_SIZE, SCRATCHPAD_SIZE);
