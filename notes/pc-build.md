@@ -1134,34 +1134,48 @@ fixes one or two things in the OpenGL picture at 2x and up.
 - **Rounded vertices** (`pgxp=2`, *Textures and positions*, experimental).
   The GTE's perspective transform rounds each vertex to a whole console
   pixel, which makes 3D polygons wobble as they move. Polygons are also
-  drawn at the vertices' precise positions. On the small 3D Monsters models
-  this opens dark gaps (a head a few console pixels high shows black
-  triangles). The likeliest reason: the console's rounding closes seams
-  between their tiny polygons that the precise positions leave open. So it
-  is not the default level.
+  drawn at the vertices' precise positions. A model's parts are projected
+  each with its own matrix, and where they meet, the vertices lie up to
+  about a console pixel apart; the console's rounding closes those seams.
+  So a frame word that carries two different precise positions keeps its
+  whole-pixel one (`snap_seams` in `libgpu.c`; its depth stays precise).
+  Still experimental, so not the default level.
 
 **How it works** (`src/pc/compat/pgxp.c`):
 
-1. `rtp()` in `gte.c` records each vertex it projects. It works the
-   position out from the view position before the shift and the division in
-   full, not from the GTE's rounded quotient. The record is keyed by the
-   screen word the game stores for the vertex (x | y << 16). A vertex whose
-   precise position does not round near that word (clamped off the screen,
-   say) is not kept.
-2. The game copies that word into packets by many roads: GTE stores,
-   reading the register into C, `GsSortPoly`, the scratchpad, the
-   interpreter. So the key is the word's value, not an address, as in
-   DuckStation's vertex cache.
-3. `DrawOTag` looks up every word of the frame it collects. Projections up
-   to that point are the frame's, while the actual drawing happens later,
-   after the next frame has begun projecting. A word that two vertices of
-   one frame round to, with different precise values, is left as it is.
-4. The matches go with the batch to the OpenGL pass (`SoftGpu_SetPrecise`,
+1. `rtp()` in `gte.c` works each vertex's position out from the view
+   position before the shift and the division in full, not from the GTE's
+   rounded quotient. It keeps it with its depth beside the vertex's SXY
+   FIFO entry (`Memories_GtePrecise`); anything else writing the entry
+   drops it. A vertex whose precise position does not round near its screen
+   word (clamped off the screen, say) has none.
+2. Drawing that is ours or the game's C carries it to the packet, keyed by
+   the packet word's physical address (`Pgxp_StoreAt`):
+   - the HMD polygon drivers (`model_polygon_drivers.c`, the map) tag each
+     vertex word they write, and the pre-pass tags its results for them;
+   - the game units' `gte_stsxy` stores go through `Memories_GteStore`
+     (`Pgxp_Stored`), and their `addPrim` (redefined in `pgxp_game.h`,
+     which `build_game32.py` puts before every game unit and no mod
+     includes) tags the words of the primitive that hold those vertices
+     (`Pgxp_AddPrim`). This is how the duel's models get there
+     (`func_80033DB0`, `func_80034830`).
+   A vertex stored with no precise value is tagged as such and stays
+   rounded.
+3. Every other road (`GsSortPoly`, the scratchpad, the interpreter) falls
+   back to the word's value, as in DuckStation's vertex cache: `rtp()` also
+   records each vertex keyed by its screen word (x | y << 16), and a word
+   two vertices of one frame round to with different precise values is not
+   matched.
+4. `DrawOTag` collects every word of the frame with its address
+   (`Memories_GpuCollectAt`) and looks each up by address, then by value.
+   Projections up to that point are the frame's, while the actual drawing
+   happens later, after the next frame has begun projecting.
+5. The matches go with the batch to the OpenGL pass (`SoftGpu_SetPrecise`,
    the recorder's `precise`, arena op `OP_PRECISE`). There `polygon()`
    places each vertex at its precise position. Below level 2, `DrawOTag`
    puts the word's own whole-pixel position there first, so only the depth
    is new.
-5. A textured triangle whose three vertices all have their depths
+6. A textured triangle whose three vertices all have their depths
    interpolates uv / w and 1 / w and divides back per pixel (flag 32). Every
    other triangle takes the path it took before, so with PGXP off the
    picture is identical.
@@ -1171,13 +1185,12 @@ fixes one or two things in the OpenGL picture at 2x and up.
 - The software GPU, VRAM and the game see nothing of it. The smoke cases
   give their hashes with `pgxp=1`, and nothing changes at 1x.
 - In the 3D Monsters duel about 300 of a frame's 1,400 words are precise
-  vertices, which is most of the 3D. The rest is 2D drawn without the GTE.
-  `MEMORIES_TRACE=frames` logs the count. About 97% of the duel's
-  triangles are drawn in perspective. The main menu and Options come out
-  identical with PGXP on: their 2D is not projected.
-- Two limits: vertices `GsSortPoly` moves by its offsets no longer match
-  their word and stay rounded, and so do vertices that share an integer
-  word within a frame.
+  vertices, which is most of the 3D, nearly all of them by address. The
+  rest is 2D drawn without the GTE. `MEMORIES_TRACE=frames` logs the counts
+  (by address, by value). The main menu and Options come out identical
+  with PGXP on: their 2D is not projected.
+- One limit: vertices `GsSortPoly` moves by its offsets no longer match
+  their word and stay rounded.
 
 ### Deterministic PC checks
 
