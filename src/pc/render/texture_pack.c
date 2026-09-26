@@ -259,20 +259,20 @@ static int locate(uint32_t offset, int *row, int *word)
 /* Recall: the first bytes on the disc of every image and palette the pack
  * replaces, read once the entries are resolved and sorted by them. The
  * disc layer traces an upload through its ring of recent reads
- * (texture_dump.c); an upload it cannot trace is known by these instead:
+ * (texture_dump.c); an upload it cannot trace by address is known by these:
  * the duel's card thumbnails come from a table filled when the duel
  * starts, whose sectors have left the ring after a long duel (3D models
  * read since) or were never in it (a state loaded). Only images whose
- * rows follow each other on the disc: an upload is one block. Heads that
- * places with other bytes share (a thumbnail's border row, a palette two
- * archives hold) are told apart by a hash of their whole block. */
+ * rows follow each other on the disc: an upload is one block. Verify the
+ * whole block, even for a unique head: copied or modified data may share
+ * its first bytes. This also lets uploads prefer the pack's copy over an
+ * identical thumbnail in a recently read full-art record. */
 #define RECALL_BYTES 32
 typedef struct {
     unsigned char head[RECALL_BYTES]; /* first: compare_recalled */
     uint32_t disc;
     uint32_t bytes;  /* the block's size */
-    uint32_t hash;   /* of the whole block, where `shared` */
-    int shared;
+    uint32_t hash;   /* of the whole block */
 } Recalled;
 static Recalled *recalled;
 static int recalled_count;
@@ -333,16 +333,7 @@ static void recall_heads(void)
         }
     }
     qsort(recalled, (size_t)n, sizeof(*recalled), compare_recalled);
-    for (i = 0; i < n;) {
-        int j, k, shared = 0;
-        for (j = i + 1; j < n && !compare_recalled(&recalled[i], &recalled[j]); j++)
-            if (recalled[j].disc != recalled[i].disc) shared = 1;
-        for (k = i; k < j; k++) {
-            recalled[k].shared = shared;
-            recalled[k].hash = shared ? hash_disc(recalled[k].disc, recalled[k].bytes) : 0;
-        }
-        i = j;
-    }
+    for (i = 0; i < n; i++) recalled[i].hash = hash_disc(recalled[i].disc, recalled[i].bytes);
     recalled_count = n;
 }
 
@@ -364,11 +355,11 @@ static uint32_t recall(const uint16_t *pixels, size_t words)
     uint32_t found = 0;
     int i;
     if (words * 2 < RECALL_BYTES || (i = recalled_first(pixels)) < 0) return 0;
-    if (!recalled[i].shared) return recalled[i].disc;
-    /* Only the one place whose whole block the upload holds; two with the
-     * same bytes throughout would each be a guess. */
+    /* Match the entire upload, not just a prefix: a larger palette or
+     * transfer can start with a small recalled block but differ after it.
+     * Two places with the same bytes throughout would each be a guess. */
     for (; i < recalled_count && !memcmp(pixels, recalled[i].head, RECALL_BYTES); i++) {
-        if (recalled[i].bytes > words * 2 || !recalled[i].hash ||
+        if (recalled[i].bytes != words * 2 || !recalled[i].hash ||
             hash_bytes(pixels, recalled[i].bytes) != recalled[i].hash || recalled[i].disc == found)
             continue;
         if (found) return 0;

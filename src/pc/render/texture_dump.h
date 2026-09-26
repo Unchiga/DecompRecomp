@@ -65,8 +65,9 @@ extern int (*TextureDump_Sample)(int page_x, int page_y, int depth, int u, int v
  * moved. NULL: no pack. */
 extern void (*TextureDump_Forget)(int x, int y, int w, int h);
 extern void (*TextureDump_Follow)(int sx, int sy, int dx, int dy, int w, int h);
-/* The disc offset of an upload's first byte by its content, for an upload
- * the recent reads cannot trace (texture_pack.c, recall); 0 unknown. NULL:
+/* The disc offset of an upload's first byte by verified block content, for
+ * an upload the recent reads cannot trace by address (texture_pack.c,
+ * recall). Prefer the pack's copy to an unlisted duplicate; 0 unknown. NULL:
  * no pack. */
 extern uint32_t (*TextureDump_Recall)(const uint16_t *pixels, size_t words);
 /* VRAM restored from a state, its tags cleared: the pack finds what it can
