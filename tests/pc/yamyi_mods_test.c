@@ -9,6 +9,16 @@ u8 D_8009B26C[1], D_800EA1E8[1];
 const char *const Tables_DuelistNames[40] = {"", "Opponent"};
 static u16 edited[724];
 static int uploads;
+/* PE linkers retain references from the module entry point even though this
+ * harness only calls its scoring helpers. These game hooks must never run. */
+void func_80037DA4(DuelEffectChannel *object) { (void)object; assert(0); }
+DuelEffectChannel *DuelEffect_InitEntry(s32 index, s32 value, s32 flags)
+{ (void)index; (void)value; (void)flags; assert(0); return NULL; }
+void TextBox_Destroy(DuelEffectChannel *object) { (void)object; assert(0); }
+void func_8002BAB4(void) { assert(0); }
+s32 Library_GetGridCursorCardId(u8 *state) { (void)state; assert(0); return 0; }
+unsigned int Library_GetCardFlags(unsigned char *base, int index)
+{ (void)base; (void)index; assert(0); return 0; }
 int Cards_Valid(int id) { return id > 0 && id <= gCard_nCount; }
 int Cards_Named(const char *s) { (void)s; return 723; }
 int Cards_BaseId(int id) { return id; }
