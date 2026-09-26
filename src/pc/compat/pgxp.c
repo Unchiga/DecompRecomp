@@ -93,6 +93,14 @@ static int placed_fresh(const Placed *entry)
     return entry->frame && entry->frame + 1 >= frame;
 }
 
+static void forget_at(uint32_t address)
+{
+    unsigned at = first(address), n;
+    for (n = 0; n < PROBES; n++, at = (at + 1) & (TABLE_SIZE - 1)) {
+        if (placed[at].address == address) placed[at].frame = 0;
+    }
+}
+
 void Pgxp_StoreAt(uint32_t address, uint32_t word, const float *xyw)
 {
     unsigned at = first(address), n;
@@ -166,13 +174,16 @@ void Pgxp_AddPrim(const void *packet)
     const uint32_t *words = (const uint32_t *)packet;
     uint32_t base = (uint32_t)(uintptr_t)packet & 0x00ffffffu; /* physical, as packets link */
     unsigned length, i, k;
-    if (!Pgxp_Active || !stored_count) {
+    if (!Pgxp_Active) {
         stored_count = 0;
         return;
     }
     length = words[0] >> 24;
     for (i = 1; i <= length; i++) {
         int found = -1, clash = 0;
+        /* Packet buffers are reused for projected and unprojected drawing.
+         * Even an unchanged word is no longer the old address's vertex. */
+        forget_at(base + i * 4);
         for (k = stored_count; k-- > 0;) {
             if (stored[k].word != words[i]) continue;
             if (found < 0) {
