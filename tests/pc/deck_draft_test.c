@@ -6,7 +6,7 @@
 
 u8 D_801D0000[sizeof(SaveDataWorkspace)];
 /* Rendering and input are outside these draft tests. */
-u8 D_8009B269, D_8009B26C, gMain_bMenuID, gDuel_bEffectState;
+u8 D_8009B269, D_8009B26C, D_8009B26E, gMain_bMenuID, gDuel_bEffectState;
 u16 D_8009B27C;
 BuildDeckTransitionState *gBuildDeck_pState; /* controlled by the transition tests below */
 u32 D_801D9000[1];

@@ -58,6 +58,12 @@ const unsigned char *DeckMenu_Text(int id);
  * the active slot, when it is forty cards. */
 int DeckMenu_BuildDeckEntry(void);
 void DeckMenu_BuildDeckLeft(void);
+/* The same for the chest Main_RunDuel opens before a campaign duel (its
+ * step 0), only once F6 in that chest asked for it: Circle on the list keeps
+ * the deck, and DeckMenu_DuelChestLeft
+ * returns 1 when F6 in the chest asked for the list again (step 0 anew). */
+int DeckMenu_DuelChestEntry(void);
+int DeckMenu_DuelChestLeft(void);
 struct MemoriesState;
 void DeckMenu_State(struct MemoriesState *state);
 #endif
