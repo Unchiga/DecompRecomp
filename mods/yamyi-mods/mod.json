@@ -1,0 +1,143 @@
+{
+    "id": "yamyi-mods",
+    "name": "Yamyi Mods",
+    "version": "1.0",
+    "author": "yamyi",
+    "description": "Optional interface improvements by yamyi: confirm before returning to the title, colour card names by rarity, and show Library drop odds. Each feature can be switched independently. Rarity tiers, multipliers and card colours are configured in card_name_color.ini in this mod's player-data directory; restart after editing that file.",
+    "min_api": 4,
+    "game": "slus_01411",
+    "library": "yamyi-mods",
+    "enabled": false,
+    "restart": false,
+    "settings": [
+        {
+            "key": "confirm_exit",
+            "label": "Confirm return to title",
+            "type": "bool",
+            "default": 1
+        },
+        {
+            "key": "colors",
+            "label": "Colour card names by rarity",
+            "type": "bool",
+            "default": 1
+        },
+        {
+            "key": "drops",
+            "label": "Show drop odds in the Library",
+            "type": "bool",
+            "default": 1,
+            "description": "A panel on the Library's card grid naming the duelists who drop the card under the cursor, with the score that chose its colour."
+        },
+        {
+            "key": "show_score",
+            "label": "Show rarity score in drop panel",
+            "type": "bool",
+            "default": 1
+        },
+        {
+            "key": "drop_rows",
+            "label": "Duelists listed",
+            "type": "int",
+            "default": 3,
+            "min": 1,
+            "max": 20,
+            "step": 1,
+            "description": "How many duelists the table lists, 1 to 20. The rest are counted under it."
+        },
+        {
+            "key": "drop_sort",
+            "label": "Order by",
+            "type": "choice",
+            "default": 0,
+            "choices": [
+                "Weight",
+                "Score",
+                "Duelist",
+                "Rank"
+            ],
+            "description": "Which column orders the table. Its heading is lit. Weight and Score list the highest first, and pick the duelists by that column; Duelist and Rank arrange the best by weight."
+        },
+        {
+            "key": "drop_x",
+            "label": "Panel position across",
+            "type": "int",
+            "default": 8,
+            "min": 0,
+            "max": 1000,
+            "step": 4,
+            "description": "The panel's left edge, from the left of the picture, in menu units so it holds its place as the window changes size."
+        },
+        {
+            "key": "drop_y",
+            "label": "Panel position down",
+            "type": "int",
+            "default": 8,
+            "min": 0,
+            "max": 800,
+            "step": 4,
+            "description": "The panel's top edge, from just under the menu bar, in menu units."
+        },
+        {
+            "key": "default_answer",
+            "label": "Default answer",
+            "type": "choice",
+            "default": 1,
+            "choices": [
+                "YES",
+                "NO"
+            ],
+            "description": "Which answer the prompt opens on. NO means a second stray press cannot exit."
+        },
+        {
+            "key": "tint_title",
+            "label": "Title colour",
+            "type": "int",
+            "default": 5,
+            "min": 0,
+            "max": 6,
+            "step": 1,
+            "description": "Colour ramp for RETURN TO TITLE?. The game's own text colour ramps, 0 to 6. 0 is white and 1 the gold it titles with; the others are the rest of its palette."
+        },
+        {
+            "key": "tint_chosen",
+            "label": "Selected answer colour",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 6,
+            "step": 1,
+            "description": "Colour ramp for the answer currently chosen. The game's own text colour ramps, 0 to 6. 0 is white and 1 the gold it titles with; the others are the rest of its palette."
+        },
+        {
+            "key": "tint_dimmed",
+            "label": "Other answer colour",
+            "type": "int",
+            "default": 4,
+            "min": 0,
+            "max": 6,
+            "step": 1,
+            "description": "Colour ramp for the answer not chosen. The game's own text colour ramps, 0 to 6. 0 is white and 1 the gold it titles with; the others are the rest of its palette."
+        },
+        {
+            "key": "tint_ok",
+            "label": "OK label colour",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 6,
+            "step": 1,
+            "description": "Colour ramp for the OK label beside the cross button. The game's own text colour ramps, 0 to 6. 0 is white and 1 the gold it titles with; the others are the rest of its palette."
+        },
+        {
+            "key": "tint_cancel",
+            "label": "CANCEL label colour",
+            "type": "int",
+            "default": 0,
+            "min": 0,
+            "max": 6,
+            "step": 1,
+            "description": "Colour ramp for the CANCEL label beside the circle button. The game's own text colour ramps, 0 to 6. 0 is white and 1 the gold it titles with; the others are the rest of its palette."
+        }
+    ]
+}
