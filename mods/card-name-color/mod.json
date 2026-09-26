@@ -1,0 +1,12 @@
+{
+    "id": "card-name-color",
+    "name": "Card Name Color",
+    "version": "1.0",
+    "author": "yamyi",
+    "description": "Tints card names by how rare the card is to win. Card descriptions keep the colour the game gives them.\nRarity is read off the disc, from every opponent's drop weights:\nscore = weight out of 2048 x duelist multiplier x rank multiplier\nA card takes the best score any opponent gives it, so a LOW score is rare, and with it the rarest tier whose threshold it does not exceed. Cards no opponent drops can have a colour of their own, and any card may be pinned to one by name.\nColours are not limited to the game's seven text ramps: any RGB may be given, and is built from the game's own ramp so each glyph keeps its dark outline.\nAll of it is set in card_name_color.ini in the player's own directory, written on first run after accessing library or deck builder from the game's own card and duelist names.",
+    "min_api": 4,
+    "game": "slus_01411",
+    "library": "card-name-color",
+    "enabled": false,
+    "restart": false
+}
