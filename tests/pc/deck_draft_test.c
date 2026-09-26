@@ -6,8 +6,9 @@
 
 u8 D_801D0000[sizeof(SaveDataWorkspace)];
 /* Rendering and input are outside these draft tests. */
-u8 D_8009B269, D_8009B26C, gMain_bMenuID;
+u8 D_8009B269, D_8009B26C, gMain_bMenuID, gDuel_bEffectState;
 u16 D_8009B27C;
+BuildDeckTransitionState *gBuildDeck_pState; /* no Build Deck in these tests */
 u32 D_801D9000[1];
 s32 gDuel_adwCardStats[1];
 unsigned Memories_PresentedFrames(void) { return 0; }
