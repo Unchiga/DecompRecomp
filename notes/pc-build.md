@@ -1197,8 +1197,11 @@ Not covered yet: the sword and shield icons (pictures, not lettering).
 
 ### Precise geometry (PGXP)
 
-Video > Precise geometry (PGXP) (`pgxp`, `MEMORIES_PGXP`, off by default)
-fixes one or two things in the OpenGL picture at 2x and up.
+Precise geometry (PGXP) is currently disabled and has no Video menu option.
+The `pgxp` setting is clamped to zero, including saved preferences,
+`MEMORIES_PGXP` overrides and runtime changes. Its implementation and tests
+remain in place for future use. The modes described below are inactive;
+when enabled in the code, they affect the OpenGL picture at 2x and up.
 
 - **Affine textures** (`pgxp=1`, *Textures*). The GTE keeps no depth with a
   vertex, so textures on 3D polygons bend. Textured polygons are drawn in

@@ -30,13 +30,25 @@ int main(void)
     assert(fd >= 0);
     file = fdopen(fd, "w");
     assert(file);
-    fputs("volume=40\nmusic_volume=70\nunknown=7\n", file);
+    fputs("volume=40\nmusic_volume=70\nunknown=7\npgxp=2\n", file);
     assert(!fclose(file));
     assert(!setenv("MEMORIES_SETTINGS", path, 1));
     Settings_Load();
     assert(Settings_Get(SET_MASTER_VOLUME) == 40);
     assert(Settings_Get(SET_MUSIC_VOLUME) == 70);
     assert(Settings_Get(SET_SFX_VOLUME) == 100);
+    /* Disabled PGXP cannot be restored by an old preference, environment
+     * override or runtime setting change. */
+    assert(Settings_Get(SET_PGXP) == 0);
+    assert(!setenv("MEMORIES_PGXP", "1", 1));
+    Settings_Load();
+    assert(Settings_Get(SET_PGXP) == 0);
+    assert(!setenv("MEMORIES_PGXP", "2", 1));
+    Settings_Load();
+    assert(Settings_Get(SET_PGXP) == 0);
+    assert(!unsetenv("MEMORIES_PGXP"));
+    Settings_Set(SET_PGXP, 2);
+    assert(Settings_Get(SET_PGXP) == 0);
     Settings_Set(SET_ASPECT, 2);
     assert(Settings_Get(SET_ASPECT) == 2);
     Settings_Set(SET_ASPECT, 3);
@@ -54,6 +66,7 @@ int main(void)
     assert(contains(path, "volume=40\n"));
     assert(contains(path, "sfx_volume=65\n"));
     assert(contains(path, "unknown=7\n"));
+    assert(contains(path, "pgxp=0\n"));
     for (int i = 0; i < 1024; i++) {
         char key[200]; snprintf(key, sizeof(key), "mod.a_very_long_mod_id_that_used_to_exceed_the_old_key_limit.option_%d", i);
         Settings_SetNamed(key, i);
