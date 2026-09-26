@@ -67,8 +67,11 @@ static void field_thumbnail(void)
     const unsigned char green[] = {0, 255, 0, 255};
     png_image png = {0};
     char path[1024];
+    unsigned char encoded[256];
+    png_alloc_size_t size;
+    FILE *file;
     uint32_t rgb;
-    int i, entry;
+    int i, entry, written;
     for (i = 0; i < 640; i++) original[i] = (uint16_t)(1 + i % 63) * 0x101;
     for (i = 0; i < 64; i++) original[640 + i] = (uint16_t)i;
     memcpy(disc + 2048, original, sizeof(original));
@@ -80,7 +83,16 @@ static void field_thumbnail(void)
     png.version = PNG_IMAGE_VERSION;
     png.width = png.height = 1;
     png.format = PNG_FORMAT_RGBA;
-    assert(png_image_write_to_file(&png, path, 0, green, 0, NULL));
+    /* Through fopen (Memories_Fopen, UTF-8) like the other files here, not
+     * libpng's own fopen. */
+    size = sizeof(encoded);
+    written = png_image_write_to_memory(&png, encoded, &size, 0, green, 0, NULL);
+    if (!written) fprintf(stderr, "png: %s\n", png.message);
+    assert(written && size <= sizeof(encoded));
+    file = fopen(path, "wb");
+    assert(file);
+    assert(fwrite(encoded, 1, size, file) == size);
+    assert(!fclose(file));
     write_text("field/manifest.json", "[{\"file\":\"thumb.png\",\"archive\":\"WA_MRG.MRG\","
                "\"offset\":0,\"words\":20,\"rows\":32,\"bpp\":8,\"clut_offset\":1280,\"clut_entries\":64}]");
     snprintf(path, sizeof(path), "%s/field", root);
