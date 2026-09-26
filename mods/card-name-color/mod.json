@@ -1,0 +1,64 @@
+{
+    "id": "card-name-color",
+    "name": "Card Name Color",
+    "version": "1.3",
+    "author": "yamyi",
+    "description": "Tints card names by how rare the card is to win. Card descriptions keep the colour the game gives them.\nRarity is read off the disc, from every opponent's drop weights:\nscore = weight out of 2048 x duelist multiplier x rank multiplier\nA card takes the best score any opponent gives it, so a LOW score is rare, and with it the rarest tier whose threshold it does not exceed. Cards no opponent drops can have a colour of their own, and any card may be pinned to one by name.\nSeven of the eight colour slots are the game's own and fixed. The eighth is empty in the stock game and yours: give it any RGB and it is built from the game's own ramp, so each glyph keeps its dark outline.\nThe Library can also show its working: with the drop panel on, the card grid names the duelists who drop the card under the cursor, how often, and what it scores.\nAll of it is set in card_name_color.ini in the player's own directory, written on first run from the game's own card and duelist names.",
+    "min_api": 4,
+    "game": "slus_01411",
+    "library": "card-name-color",
+    "enabled": false,
+    "restart": false,
+    "settings": [
+        {
+            "key": "drops",
+            "label": "Show drop odds in the Library",
+            "type": "bool",
+            "default": 1,
+            "description": "A panel on the Library's card grid naming the duelists who drop the card under the cursor, with the score that chose its colour."
+        },
+        {
+            "key": "drop_rows",
+            "label": "Duelists listed",
+            "type": "int",
+            "default": 3,
+            "min": 1,
+            "max": 20,
+            "step": 1,
+            "description": "How many duelists the table lists, 1 to 20. The rest are counted under it."
+        },
+        {
+            "key": "drop_sort",
+            "label": "Order by",
+            "type": "choice",
+            "default": 0,
+            "choices": [
+                "Weight",
+                "Score",
+                "Duelist",
+                "Rank"
+            ],
+            "description": "Which column orders the table. Its heading is lit. Weight and Score list the highest first, and pick the duelists by that column; Duelist and Rank arrange the best by weight."
+        },
+        {
+            "key": "drop_x",
+            "label": "Panel position across",
+            "type": "int",
+            "default": 8,
+            "min": 0,
+            "max": 1000,
+            "step": 4,
+            "description": "The panel's left edge, from the left of the picture, in menu units so it holds its place as the window changes size."
+        },
+        {
+            "key": "drop_y",
+            "label": "Panel position down",
+            "type": "int",
+            "default": 8,
+            "min": 0,
+            "max": 800,
+            "step": 4,
+            "description": "The panel's top edge, from just under the menu bar, in menu units."
+        }
+    ]
+}
