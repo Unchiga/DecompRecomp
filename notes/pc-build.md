@@ -506,6 +506,14 @@ and Build Deck is then set up from the save. Circle goes back where Build
 Deck was entered from (`D_8009B269`), as its own way out does. As Build Deck
 leaves, `DeckMenu_BuildDeckLeft` puts the deck it wrote in the active slot.
 
+The chest a campaign duel opens first (`Main_RunDuel`'s step 0, the same
+Build Deck screen) takes F6 the same way: it is left through step 4, whose
+confirm there has no EXIT, so a short deck cannot reach the duel; then
+`DeckMenu_DuelChestLeft` sends the duel back to step 0, where
+`DeckMenu_DuelChestEntry` shows the list (Circle keeps the deck) before the
+chest again. The duel's own way in is unchanged: the list shows only after
+that F6.
+
 In Build Deck, waiting on a pane, F6 (or the menu item) goes back to the
 list: Build Deck is left the way Circle leaves it (step 4,
 `func_800339D0`, which writes the deck back) and entered again to the list

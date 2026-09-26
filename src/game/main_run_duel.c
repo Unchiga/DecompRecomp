@@ -22,6 +22,9 @@
 #include "../game/file_transfer.h"
 #include "../game/main_modes.h"
 #include "../game/main_reset_frontend_runtime.h"
+#ifdef MEMORIES_PC
+#include "pc/saves/deck_menu.h"
+#endif
 #include "../game/main_services.h"
 #include "../game/sound.h"
 #include "../game/sound_pending_entries.h"
@@ -59,6 +62,9 @@ void Main_RunDuel(void)
     switch (state) {
     case 0:
         if (!(value & 0x80)) {
+#ifdef MEMORIES_PC
+            if (DeckMenu_DuelChestEntry()) break; /* which deck first (deck_menu.h) */
+#endif
             D_8009B26E = value | 0x80;
             D_8009B2F8[0] = 0x80;
             func_800323F8(BUILD_DECK_WORKSPACE(D_80010000[0].payload_bases[0]),
@@ -68,6 +74,12 @@ void Main_RunDuel(void)
             SD_BGMFadeOut();
             Fade_WaitOut();
             Main_ResetFrontendRuntime();
+#ifdef MEMORIES_PC
+            if (DeckMenu_DuelChestLeft()) { /* F6 in it: the deck list, then the chest again */
+                D_8009B26E = 0;
+                break;
+            }
+#endif
             D_8009B26E = 1;
         }
         break;

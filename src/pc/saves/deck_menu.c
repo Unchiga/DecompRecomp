@@ -30,7 +30,9 @@ unsigned Memories_PresentedFrames(void);
 #define MODE_CAMPAIGN 2
 #define MODE_CAMPAIGN_MAP 5
 #define MODE_FREE_DUEL 6
+#define MODE_DUEL 3
 #define MODE_BUILD_DECK 7
+extern u8 D_8009B26E; /* main_run_duel.c: Main_RunDuel's step, 0x80 once set up */
 extern u8 gDuel_bEffectState; /* duel_effect.h: the card viewer and the like */
 #define MODE_MENU 8
 
@@ -93,6 +95,7 @@ static unsigned seen_saves, seen_loads;
 /* Build Deck asks for a deck as it is entered (DeckMenu_BuildDeckEntry). */
 enum { PICK_NONE, PICK_OPEN, PICK_CHOSEN };
 static int picking;
+static int duel_pick; /* the list is the duel's (DeckMenu_DuelChestEntry) */
 static int list_after_build_deck; /* F6 in Build Deck: its way out goes to the list */
 extern u8 D_8009B269; /* main_mode_state.h: where Build Deck returns to */
 
@@ -120,11 +123,13 @@ static int game_loaded(void) { return workspace()->state.player_deck[0] != 0; }
 /* Build Deck, set up (0x40): its step table (duel_transition_step_table.c)
  * waits for input in steps 2 and 3, one per pane; not while the not-ready
  * confirm (0x4000), a pane's slide or an effect (the card viewer) runs. */
+static int duel_chest(void); /* below: the same screen before a duel */
+
 static int build_deck_idle(void)
 {
     const BuildDeckTransitionState *screen = gBuildDeck_pState;
     unsigned step;
-    if ((D_8009B26C & 0x1F) != MODE_BUILD_DECK || !(D_8009B26C & 0x40) || !screen) return 0;
+    if (!screen || !(((D_8009B26C & 0x1F) == MODE_BUILD_DECK && (D_8009B26C & 0x40)) || duel_chest())) return 0;
     step = screen->state & 0x3F;
     return (step == 2 || step == 3) && !(screen->state & 0x4000) && screen->transition_ticks == 0 &&
            gDuel_bEffectState == 0;
@@ -143,8 +148,14 @@ static int screen_allowed(int where)
     /* Build Deck being entered, before it copies the deck (0x40 clear), or
      * waiting on a pane, where the list is reached by leaving it (back_to_list). */
     if (mode == MODE_BUILD_DECK) return (picking == PICK_OPEN && !(D_8009B26C & 0x40)) || build_deck_idle();
+    /* The duel's own chest (Main_RunDuel's first step), the same way. */
+    if (mode == MODE_DUEL) return (picking == PICK_OPEN && D_8009B26E == 0) || build_deck_idle();
     return mode == MODE_CAMPAIGN_MAP || mode == MODE_FREE_DUEL;
 }
+
+/* Main_RunDuel's first step (D_8009B26E 0) is Build Deck's screen before
+ * the duel: set up (0x80), it runs until left, and the duel follows. */
+static int duel_chest(void) { return (D_8009B26C & 0x1F) == MODE_DUEL && D_8009B26E == 0x80; }
 
 static void card_name(int id, char *out, size_t size)
 {
@@ -327,7 +338,7 @@ void DeckMenu_State(MemoriesState *state)
     changed();
 }
 
-int DeckMenu_BuildDeckEntry(void)
+static int chest_entry(void)
 {
     /* A short deck cannot be put in a slot. Let the player repair it in
      * Build Deck directly instead of trapping them in the slot picker. */
@@ -348,12 +359,15 @@ int DeckMenu_BuildDeckEntry(void)
     return 1;
 }
 
-void DeckMenu_BuildDeckLeft(void)
+/* Build Deck's screen left, where it was entered from or before a duel:
+ * the active slot takes the deck written. 1 when F6 asked for the list
+ * again (back_to_list) and the deck is forty cards. */
+static int chest_left(void)
 {
     const unsigned short *deck = workspace()->state.player_deck;
     int to_list = list_after_build_deck;
     list_after_build_deck = 0;
-    if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) return;
+    if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) return 0;
     if (draft.code == (uint32_t)workspace()->state.duelist_code && draft.active >= 0 && draft.active < DECK_SLOT_COUNT && deck_complete()) {
         DeckSlot *slot = &draft.slots[draft.active];
         if (memcmp(slot->cards, deck, sizeof(slot->cards))) {
@@ -364,9 +378,41 @@ void DeckMenu_BuildDeckLeft(void)
     } else {
         reconcile(); /* not picked here, or not forty cards: the slots stay */
     }
-    /* Entered again, to the list, instead of where it returns to; not when
-     * the not-ready confirm's EXIT left a deck short of forty. */
-    if (to_list && deck_complete()) D_8009B26C = MODE_BUILD_DECK;
+    /* Not when the not-ready confirm's EXIT left a deck short of forty. */
+    return to_list && deck_complete();
+}
+
+void DeckMenu_BuildDeckLeft(void)
+{
+    /* Entered again, to the list, instead of where it returns to. */
+    if (chest_left()) D_8009B26C = MODE_BUILD_DECK;
+}
+
+int DeckMenu_BuildDeckEntry(void)
+{
+    duel_pick = 0;
+    return chest_entry();
+}
+
+/* Before a duel the list shows only when F6 in the chest asked for it:
+ * the duel's own way in stays the game's. */
+static int duel_list;
+
+int DeckMenu_DuelChestEntry(void)
+{
+    int open;
+    if (!duel_list) return 0;
+    duel_pick = 1;
+    open = chest_entry();
+    if (!open) duel_list = 0;
+    return open;
+}
+
+int DeckMenu_DuelChestLeft(void)
+{
+    duel_pick = 0;
+    duel_list = chest_left();
+    return duel_list;
 }
 
 /* The screen asked for in Build Deck (F6 on a pane): the deck was already
@@ -384,6 +430,12 @@ static void back_to_list(void)
 
 static void cancel_pick(void)
 {
+    if (duel_pick) {
+        /* Before a duel there is nowhere to go back to: the deck stays. */
+        picking = PICK_CHOSEN;
+        DeckMenu_Close();
+        return;
+    }
     picking = PICK_NONE;
     D_8009B26C = D_8009B269; /* as Build Deck's own way out, already faded */
     DeckMenu_Close();
