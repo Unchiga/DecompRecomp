@@ -33,6 +33,9 @@
 #include "duel_effect_entry_control.h"
 #include "dialog_choice.h"
 #include "main_mode_state.h"
+#ifdef MEMORIES_PC
+#include "pc/saves/deck_menu.h"
+#endif
 
 #define DISPLAY_OBJECT_X_HALFWORD_INDEX \
     ((u32)&((DisplayObject *)0)->field_30.h.field_30 / sizeof(s16))
@@ -106,6 +109,9 @@ void Script_OpSavePrompt(void)
         gDialog_bChoice = 0;
         D_8009B34C = 0;
         D_8009B27C &= 0xFF7F;
+#ifdef MEMORIES_PC
+        DeckMenu_ShopRestore(); /* DECK SLOTS, when the menu has it */
+#endif
         return;
     }
 
@@ -126,12 +132,20 @@ void Script_OpSavePrompt(void)
             return;
         }
         func_8003B6AC(0, 2);
+#ifdef MEMORIES_PC
+        /* A row taller with DECK SLOTS (deck_menu.h). */
+        box = TextBox_Create(3, 0x11, -0x90, 0x38, 0x78, DeckMenu_ShopMenu() ? 0x3C : 0x30);
+#else
         box = TextBox_Create(3, 0x11, -0x90, 0x38, 0x78, 0x30);
+#endif
         DuelEffect_MarkObjectIfActive((MenuRecord *)box);
         box->flags_34 |= 0x24;
         do {
             func_80039794();
         } while (box->field_30 == 0);
+#ifdef MEMORIES_PC
+        DeckMenu_ShopRestore();
+#endif
         DisplayObject_SavePosition((DisplayObjectSnapshot *)box->field_28);
         slot = box->field_28;
         next = D_8009B27C | 0x6000;
@@ -167,6 +181,9 @@ void Script_OpSavePrompt(void)
         }
         gDialog_bChoiceCount = 4;
         gDialog_bChoice = 2;
+#ifdef MEMORIES_PC
+        DeckMenu_ShopRestore();
+#endif
         return;
     }
 
@@ -239,6 +256,9 @@ void Script_OpSavePrompt(void)
         D_801D0000[(SAVE_DATA_HEADER_SIZE + SAVE_DATA_CAMPAIGN_SCENE_INDEX_OFFSET) /
                   sizeof(s16)] = D_8009B2A6;
         choice = gDialog_bChoice;
+#ifdef MEMORIES_PC
+        choice = DeckMenu_ShopChoice(choice);
+#endif
         switch (choice) {
         case 0:
             SD_SEPlayFull(7);
@@ -261,6 +281,12 @@ void Script_OpSavePrompt(void)
             SD_SEPlayFull(8);
             D_8009B27C |= 0x1000;
             break;
+#ifdef MEMORIES_PC
+        case DECK_MENU_SHOP_SLOTS:
+            SD_SEPlayFull(7);
+            DeckMenu_Request();
+            break;
+#endif
         }
     } while (0);
 }

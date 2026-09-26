@@ -5,8 +5,9 @@
  * drawn in the port's overlay, like the save slot menu, and read with the
  * pad or the keys mapped to it; while it is open the game gets no buttons.
  * It opens with a game loaded, on the main menu (the one with Campaign), the
- * campaign map or Free Duel's opponent select, where nothing holds a copy of
- * the deck; the setting `deck_slots` (Game menu) turns it off. */
+ * campaign map, a card shop's menu or Free Duel's opponent select, where
+ * nothing holds a copy of the deck; the setting `deck_slots` (Game menu)
+ * turns it off. */
 struct MenuCanvas; /* pc/platform/menu.h */
 
 /* The menu item and F6. */
@@ -30,4 +31,20 @@ void DeckMenu_Poll(int where);
 
 void DeckMenu_Draw(struct MenuCanvas *canvas, int *x, int *y, int *w, int *h);
 unsigned DeckMenu_Signature(void);
+
+/* The campaign's card shop (Script_OpSavePrompt) offers DECK SLOTS under
+ * BUILD DECK while the setting is on, unless a translation rewrites the
+ * shop's menu. DeckMenu_ShopMenu decides it as the menu is made (1: five
+ * entries); the menu's text then comes from DeckMenu_Text. The game's code
+ * numbers the entries as its own four: DeckMenu_ShopChoice turns the
+ * cursor into that numbering (DECK_MENU_SHOP_SLOTS for the new one), and
+ * DeckMenu_ShopRestore puts the new entry back wherever the game sets the
+ * menu's choices up (after its text, the memory card and the title
+ * confirm). */
+enum { DECK_MENU_SHOP_SLOTS = 0x10 };
+int DeckMenu_ShopMenu(void);
+int DeckMenu_ShopChoice(int choice);
+void DeckMenu_ShopRestore(void);
+/* String `id` as the shop's menu has it, or NULL (Text_Resolve). */
+const unsigned char *DeckMenu_Text(int id);
 #endif

@@ -9,6 +9,7 @@
 #include "pc/platform/settings.h"
 #include "pc/cards/tables.h"
 #include "pc/cards/drops.h"
+#include "pc/saves/deck_menu.h"
 #include "pc/debug/log.h"
 #include "game/card_constants.h"
 #include <ctype.h>
@@ -256,11 +257,43 @@ static const unsigned char *results_copy(const unsigned char *retail)
     return room >= shift ? copy + (offset - TEXT_RESULTS_FROM) : NULL;
 }
 
+int Text_Overridden(int id) { return overrides && id >= 0 && id <= 0xFFFF && overrides[id]; }
+
+static void report_own(void *context, int line, const char *message)
+{
+    (void)context;
+    LOG(LOG_MODS, "text: the port's own listing, line %d: %s", line, message);
+}
+
+const unsigned char *Text_CompileOwn(const char *listing, int id, size_t *size)
+{
+    TextUnit *unit = TextListing_Compile(listing, strlen(listing), bases, units, unit_count, Glyphs_Code, report_own,
+                                         NULL);
+    TextUnit **bigger;
+    int i;
+    if (!unit) return NULL;
+    bigger = realloc(units, (size_t)(unit_count + 1) * sizeof(*units));
+    if (!bigger) {
+        TextListing_Free(unit);
+        return NULL;
+    }
+    units = bigger;
+    units[unit_count++] = unit;
+    for (i = 0; i < unit->string_count; i++) {
+        if (unit->strings[i].id == id) {
+            *size = unit->size - unit->strings[i].offset;
+            return unit->data + unit->strings[i].offset;
+        }
+    }
+    return NULL;
+}
+
 const unsigned char *Text_Resolve(int id, const unsigned char *retail)
 {
     const unsigned char *own = overrides && id >= 0 && id <= 0xFFFF ? overrides[id] : NULL;
-    const unsigned char *side = side_name(id), *drops = CardDrops_Text(id);
+    const unsigned char *side = side_name(id), *drops = CardDrops_Text(id), *shop = DeckMenu_Text(id);
     if (drops) return drops; /* the results screen's added pages (drops.h) */
+    if (shop) return shop;   /* the card shop's menu with DECK SLOTS (deck_menu.h) */
     if (side) return side;
     if (!own && id >= TEXT_RESULTS_FIRST && id <= TEXT_RESULTS_LAST) {
         const unsigned char *copy = results_copy(retail);
