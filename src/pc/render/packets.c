@@ -1,7 +1,14 @@
 #include "packets.h"
+#include "pc/compat/pgxp.h" /* Memories_GpuCollectAt */
 
 MemoriesGpuResult Memories_GpuCollect(MemoriesMemory *memory, uint32_t head,
     uint32_t *words, size_t capacity, size_t hop_limit, size_t *count)
+{
+    return Memories_GpuCollectAt(memory, head, words, NULL, capacity, hop_limit, count);
+}
+
+MemoriesGpuResult Memories_GpuCollectAt(MemoriesMemory *memory, uint32_t head,
+    uint32_t *words, uint32_t *addresses, size_t capacity, size_t hop_limit, size_t *count)
 {
     size_t used = 0, hops = 0;
     if (!count) return MEMORIES_GPU_ARGUMENT;
@@ -23,8 +30,10 @@ MemoriesGpuResult Memories_GpuCollect(MemoriesMemory *memory, uint32_t head,
         if (!Memories_Resolve(memory, head, (length + 1) * 4, 4))
             return MEMORIES_GPU_ADDRESS;
         if (length > capacity - used) return MEMORIES_GPU_CAPACITY;
-        for (i = 0; i < length; ++i)
+        for (i = 0; i < length; ++i) {
+            if (addresses) addresses[used] = head + 4 + (uint32_t)i * 4;
             words[used++] = Memories_ReadLE32(packet + 4 + i * 4);
+        }
         head = tag & 0x00ffffffu;
     }
     *count = used;

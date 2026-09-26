@@ -56,7 +56,9 @@ CFLAGS = ["-m32", "-std=gnu11", "-fpermissive", "-w", "-O0", "-g", "-fno-strict-
           # Room for a mod to hook any game function (src/pc/mods/hooks.c).
           "-fpatchable-function-entry=8,6",
           "-fwrapv", "-fcommon", "-fno-pie", "-fno-stack-protector", "-DMEMORIES_PC",
-          "-D_LANGUAGE_C", "-DLANGUAGE_C", "-Isrc"]
+          "-D_LANGUAGE_C", "-DLANGUAGE_C", "-Isrc",
+          # PGXP's addPrim, for game units only (see the header).
+          "-include", "src/pc/compat/pgxp_game.h"]
 if WINDOWS:
     # -fpermissive is GCC's; clang needs this one of its errors turned off.
     # -mno-ms-bitfields: MinGW lays bitfields out as MSVC does, where fields

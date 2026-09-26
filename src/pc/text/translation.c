@@ -265,7 +265,7 @@ static void report_own(void *context, int line, const char *message)
     LOG(LOG_MODS, "text: the port's own listing, line %d: %s", line, message);
 }
 
-const unsigned char *Text_CompileOwn(const char *listing, int id)
+const unsigned char *Text_CompileOwn(const char *listing, int id, size_t *size)
 {
     TextUnit *unit = TextListing_Compile(listing, strlen(listing), bases, units, unit_count, Glyphs_Code, report_own,
                                          NULL);
@@ -280,7 +280,10 @@ const unsigned char *Text_CompileOwn(const char *listing, int id)
     units = bigger;
     units[unit_count++] = unit;
     for (i = 0; i < unit->string_count; i++) {
-        if (unit->strings[i].id == id) return unit->data + unit->strings[i].offset;
+        if (unit->strings[i].id == id) {
+            *size = unit->size - unit->strings[i].offset;
+            return unit->data + unit->strings[i].offset;
+        }
     }
     return NULL;
 }

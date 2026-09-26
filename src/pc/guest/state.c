@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "state.h"
+#include "state_remap.h"
 #include "pc/platform/paths.h"
 #include "pc/mods/mods.h"
 #include "pc/mods/events.h"
@@ -108,6 +109,15 @@ static void leave_game_stack(void)
     set_stack_bounds(process_bounds);
     Memories_ContextSwitch(&game_context, &service_context);
 }
+
+/* The VSync a loaded state resumes in (apply). */
+static MemoriesStateEntry resume_entry;
+
+/* The first thing the game stack runs after a load: return from that VSync. */
+static void resume_game(void)
+{
+    Memories_StateReturn(&resume_entry, 263); /* one field, as VSync(0) reports it */
+}
 #else
 static ucontext_t service_context, game_context;
 #endif
@@ -150,6 +160,11 @@ static const uint8_t *find_chunk(const MemoriesState *state, const char *tag, si
         at += 20 + length;
     }
     return NULL;
+}
+
+void Memories_StateRemapRange(MemoriesState *state, uint32_t from, uint32_t to, uint32_t size)
+{
+    if (state->loading) Memories_StateRemapImage((uint8_t *)state->image, state->image_size, from, to, size);
 }
 
 int Memories_StateChunk(MemoriesState *state, const char *tag, const MemoriesStateField *fields, size_t count)
@@ -255,6 +270,7 @@ static void subsystems(MemoriesState *state)
     LibPress_State(state);
     LibMcrd_State(state);
     SaveMenu_State(state);
+    if (!Memories_StateLoading(state)) DeckMenu_ShopState(state);
     TitleJump_State(state);
     Platform_State(state);
     DeckMenu_State(state); /* the decks' draft, kept with the save */
@@ -352,6 +368,7 @@ static void apply(void)
     unsigned i;
     hold_signals(1);
     Spu_Hold(1);
+    DeckMenu_ShopState(&state);
     chunk = find_chunk(&state, "memory", &size);
     memcpy((void *)(uintptr_t)MEMORIES_GUEST_RAM, chunk, MEMORIES_GUEST_RAM_SIZE);
     memcpy((void *)(uintptr_t)SCRATCHPAD, chunk + MEMORIES_GUEST_RAM_SIZE, SCRATCHPAD_SIZE);
@@ -395,8 +412,24 @@ static void apply(void)
     hold_signals(0);
 #ifdef _WIN32
     set_stack_bounds(game_bounds);
-#endif
+    {
+        /* Into the game through a context switch, as its first run went, so
+         * that the service context is taken again here. The one taken
+         * before kept its registers on this stack, where apply has run since:
+         * the next load would resume from those (EBP 0, a return into the
+         * middle of Memories_StateRunGame). The switch lands in resume_game
+         * on the game stack, below what the state restored there. */
+        uint32_t *frame = (uint32_t *)(uintptr_t)(entry.esp - 64);
+        frame[0] = frame[1] = frame[2] = frame[3] = 0;
+        frame[4] = (uint32_t)(uintptr_t)resume_game;
+        frame[5] = 0;
+        resume_entry = entry;
+        game_context = (uint32_t)(uintptr_t)frame;
+        Memories_ContextSwitch(&service_context, &game_context);
+    }
+#else
     Memories_StateReturn(&entry, 263); /* one field, as VSync(0) reports it */
+#endif
 }
 
 /* Relocation across game-source changes. A state holds addresses of game
@@ -848,7 +881,9 @@ int Memories_StateRunGame(int (*entry)(void))
     /* Every load request re-enters here, on the process stack. */
     swapcontext(&service_context, &game_context);
 #endif
-    if (pending_image) {
+    /* On Windows apply returns once the game leaves its stack again: for
+     * the next load, or at its end (run_game). */
+    while (pending_image) {
         apply();
     }
     return game_result;

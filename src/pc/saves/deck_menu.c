@@ -10,7 +10,6 @@
 #include "pc/platform/paths.h"
 #include "pc/platform/platform.h"
 #include "pc/platform/settings.h"
-#include "pc/text/text.h"
 #include "pc/guest/state.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -39,8 +38,6 @@ unsigned Memories_PresentedFrames(void);
  * (0x4000) and while no other state of it runs: sliding in, the memory card,
  * the incomplete-deck notice, the title confirm, leaving, and their steps. */
 extern u16 D_8009B27C;
-extern u8 gDialog_bChoiceEnabled; /* dialog_choice.h: the menu on screen */
-extern s8 gDialog_bChoiceCount, gDialog_bChoice;
 #define SCRIPT_COMMAND_SHOP 13
 #define SHOP_OPEN 0x4000u
 #define SHOP_BUSY (0x2000u | 0x1000u | 0x0800u | 0x0400u | 0x0200u | 0x0080u)
@@ -130,69 +127,6 @@ static int screen_allowed(int where)
     /* Build Deck being entered, before it copies the deck (0x40 clear). */
     if (mode == MODE_BUILD_DECK) return picking == PICK_OPEN && !(D_8009B26C & 0x40);
     return mode == MODE_CAMPAIGN_MAP || mode == MODE_FREE_DUEL;
-}
-
-/* The card shop's menu, string 0x11, with DECK SLOTS under BUILD DECK: the
- * retail listing's lines (tools/pc/text_listing.py) and one more, as wide as
- * BUILD DECK and indented as it is. {choice} offers five and {choose} jumps
- * as retail's do. The game keeps four entries' worth of enabled bits
- * (Text_HandleChoiceCommand), so DeckMenu_ShopRestore sets the fifth. */
-#define SHOP_MENU_TEXT 0x11
-#define SHOP_MENU_SLOTS 2
-static const char shop_listing[] = "@bank dialog\n"
-                                   "\n"
-                                   "[0011]\n"
-                                   "{choice 4D 9F}{f8 02 2C}SAVE\n"
-                                   "{f8 02 14}BUILD DECK\n"
-                                   "{f8 02 14}DECK SLOTS\n"
-                                   "RETURN TO TITLE\n"
-                                   "{f8 02 14}LEAVE SHOP\n"
-                                   "{choose 80 0 0 0 0 0}\n";
-static int shop_extra; /* the shop's menu on screen has DECK SLOTS */
-
-static int in_shop(void)
-{
-    return (D_8009B26C & 0x1F) == MODE_CAMPAIGN && (D_8009B27C & 0x1F) == SCRIPT_COMMAND_SHOP;
-}
-
-static const unsigned char *shop_text(void)
-{
-    static const unsigned char *text;
-    static int tried;
-    if (!tried) {
-        tried = 1;
-        text = Text_CompileOwn(shop_listing, SHOP_MENU_TEXT);
-        if (!text) fprintf(stderr, "memories-pc: the card shop's menu with DECK SLOTS did not compile\n");
-    }
-    return text;
-}
-
-int DeckMenu_ShopMenu(void)
-{
-    shop_extra = Settings_Get(SET_DECK_SLOTS) && !Text_Overridden(SHOP_MENU_TEXT) && shop_text();
-    return shop_extra;
-}
-
-const unsigned char *DeckMenu_Text(int id)
-{
-    return id == SHOP_MENU_TEXT && shop_extra && in_shop() ? shop_text() : NULL;
-}
-
-int DeckMenu_ShopChoice(int choice)
-{
-    if (!shop_extra) return choice;
-    if (choice == SHOP_MENU_SLOTS) return DECK_MENU_SHOP_SLOTS;
-    return choice > SHOP_MENU_SLOTS ? choice - 1 : choice;
-}
-
-void DeckMenu_ShopRestore(void)
-{
-    unsigned enabled = gDialog_bChoiceEnabled;
-    if (!shop_extra) return;
-    /* The game's entries from 2 on move down one; the new one is on. */
-    gDialog_bChoiceCount = 5;
-    if (gDialog_bChoice >= SHOP_MENU_SLOTS) gDialog_bChoice++;
-    gDialog_bChoiceEnabled = (u8)((enabled & 3u) | 1u << SHOP_MENU_SLOTS | (enabled & 0xCu) << 1);
 }
 
 static void card_name(int id, char *out, size_t size)

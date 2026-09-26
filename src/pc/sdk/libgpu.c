@@ -32,6 +32,7 @@ static DRAWENV draw_env;
 static DISPENV disp_env;
 static int display_enabled, frames_presented, frames_shown;
 static uint32_t frame_words[MAX_FRAME_WORDS];
+static uint32_t frame_addresses[MAX_FRAME_WORDS]; /* where each was in guest RAM (PGXP) */
 static size_t pending_words;
 static void flush_drawing(void);
 #define MAX_FRAME_PRECISE 65536
@@ -347,13 +348,56 @@ static void flush_drawing(void)
     }
 }
 
+/* A model's parts are each projected with their own matrix, and where they
+ * meet the vertices differ by up to a pixel or so: the console closes the
+ * seam by rounding them into the same whole pixel. So a frame word that
+ * carries two different precise positions keeps its whole-pixel one on
+ * each of its vertices (the depth stays precise). */
+#define SEAM_TABLE (2 * MAX_FRAME_PRECISE)
+static void snap_seams(void)
+{
+    static struct {
+        uint32_t word, stamp;
+        float x, y;
+        int seam;
+    } table[SEAM_TABLE];
+    static uint32_t stamp;
+    size_t i, pass;
+    if (++stamp == 0) {
+        memset(table, 0, sizeof(table));
+        stamp = 1;
+    }
+    for (pass = 0; pass < 2; pass++) {
+        for (i = 0; i < pending_precise; i++) {
+            PgxpVertex *vertex = &frame_precise[i];
+            uint32_t word = frame_words[vertex->index];
+            unsigned at = (word * 2654435761u) >> 15; /* 17 bits: SEAM_TABLE */
+            while (table[at].stamp == stamp && table[at].word != word) at = (at + 1) & (SEAM_TABLE - 1);
+            if (!pass) {
+                if (table[at].stamp != stamp) {
+                    table[at].word = word;
+                    table[at].stamp = stamp;
+                    table[at].x = vertex->x;
+                    table[at].y = vertex->y;
+                    table[at].seam = 0;
+                } else if (table[at].x != vertex->x || table[at].y != vertex->y) {
+                    table[at].seam = 1;
+                }
+            } else if (table[at].seam) {
+                vertex->x = (float)(int16_t)(word & 0xffffu);
+                vertex->y = (float)(int16_t)(word >> 16);
+            }
+        }
+    }
+}
+
 void DrawOTag(u32 *list)
 {
     size_t count;
     MemoriesGpuResult result;
     flush_drawing();
-    result = Memories_GpuCollect(IMAGE, (uint32_t)(uintptr_t)list, frame_words, MAX_FRAME_WORDS, MAX_CHAIN_HOPS,
-                                 &count);
+    result = Memories_GpuCollectAt(IMAGE, (uint32_t)(uintptr_t)list, frame_words, frame_addresses, MAX_FRAME_WORDS,
+                                   MAX_CHAIN_HOPS, &count);
     if (result != MEMORIES_GPU_OK) {
         char detail[160];
         snprintf(detail, sizeof(detail), "DrawOTag(%p): %s", (void *)list, Memories_GpuResultName(result));
@@ -362,24 +406,40 @@ void DrawOTag(u32 *list)
     }
     pending_words = count;
     /* PGXP (pgxp.h): the frame's words that are vertices projected since the
-     * last DrawOTag, with where they really are; then the next frame's. */
+     * last DrawOTag, with where they really are: those the game's drawing
+     * wrote by address, the rest by value; then the next frame's. Below
+     * level 2 a vertex keeps the console's whole-pixel position and only its
+     * depth is used (textures in perspective); at level 2 the seams between
+     * a model's parts stay closed (snap_seams). */
     pending_precise = 0;
     if (Pgxp_Active) {
+        static unsigned frames, placed, matched;
+        int positions = Settings_Get(SET_PGXP) >= 2;
         size_t i;
         for (i = 0; i < count && pending_precise < MAX_FRAME_PRECISE; i++) {
             PgxpVertex *vertex = &frame_precise[pending_precise];
-            if (Pgxp_Find(frame_words[i], &vertex->x, &vertex->y, &vertex->w)) {
-                vertex->index = (uint32_t)i;
-                pending_precise++;
+            int at = Pgxp_FindAt(frame_addresses[i], frame_words[i], &vertex->x, &vertex->y, &vertex->w);
+            if (at > 0) {
+                placed++;
+            } else if (at < 0) {
+                continue;
+            } else if (Pgxp_Find(frame_words[i], &vertex->x, &vertex->y, &vertex->w)) {
+                matched++;
+            } else {
+                continue;
             }
+            if (!positions) {
+                vertex->x = (float)(int16_t)(frame_words[i] & 0xffffu);
+                vertex->y = (float)(int16_t)(frame_words[i] >> 16);
+            }
+            vertex->index = (uint32_t)i;
+            pending_precise++;
         }
-    }
-    if (Pgxp_Active) {
-        static unsigned frames, vertices;
-        vertices += (unsigned)pending_precise;
+        if (positions) snap_seams();
         if (++frames == 120) {
-            LOG(LOG_FRAMES, "pgxp: %u precise vertex words per DrawOTag", vertices / 120);
-            frames = vertices = 0;
+            LOG(LOG_FRAMES, "pgxp: %u precise vertex words per DrawOTag (%u by address, %u by value)",
+                (placed + matched) / 120, placed / 120, matched / 120);
+            frames = placed = matched = 0;
         }
     }
     Pgxp_NextFrame();

@@ -27,10 +27,29 @@ static Gte gte;
 static uint8_t unr_table[0x101];
 static int unr_ready;
 
+/* PGXP (pgxp.h): beside each SXY FIFO entry, where that vertex really
+ * falls and its depth, when an RTPS/RTPT put it there with PGXP on and
+ * nothing has written the entry since. Not register state (save states). */
+typedef struct Precise {
+    float x, y, w;
+    int known;
+} Precise;
+static Precise precise[3];
+
 void Memories_GteReset(void)
 {
     memset(&gte, 0, sizeof(gte));
+    memset(precise, 0, sizeof(precise));
     gte.lzcr = 32;
+}
+
+int Memories_GtePrecise(unsigned slot, float *x, float *y, float *w)
+{
+    if (slot > 2 || !precise[slot].known) return 0;
+    *x = precise[slot].x;
+    *y = precise[slot].y;
+    *w = precise[slot].w;
+    return 1;
 }
 
 static uint32_t pair(int16_t low, int16_t high)
@@ -109,11 +128,14 @@ void Memories_GteWriteData(unsigned index, uint32_t value)
         i = (index & 31) - 12;
         gte.sxy[i][0] = (int16_t)value;
         gte.sxy[i][1] = (int16_t)(value >> 16);
+        precise[i].known = 0;
         break;
     case 15:
         memmove(gte.sxy[0], gte.sxy[1], sizeof(gte.sxy[0]) * 2);
+        memmove(&precise[0], &precise[1], sizeof(precise[0]) * 2);
         gte.sxy[2][0] = (int16_t)value;
         gte.sxy[2][1] = (int16_t)(value >> 16);
+        precise[2].known = 0;
         break;
     case 16: case 17: case 18: case 19: gte.sz[(index & 31) - 16] = (uint16_t)value; break;
     case 20: case 21: case 22:
@@ -237,6 +259,8 @@ static void push_sz(int32_t value)
 static void push_sxy(int32_t x, int32_t y)
 {
     memmove(gte.sxy[0], gte.sxy[1], sizeof(gte.sxy[0]) * 2);
+    memmove(&precise[0], &precise[1], sizeof(precise[0]) * 2);
+    precise[2].known = 0; /* rtp() fills it in */
     gte.sxy[2][0] = (int16_t)clamp(x, -0x400, 0x3ff, UINT32_C(1) << 14);
     gte.sxy[2][1] = (int16_t)clamp(y, -0x400, 0x3ff, UINT32_C(1) << 13);
 }
@@ -329,6 +353,10 @@ static void rtp(unsigned index, unsigned shift, int lm, int last)
         double sy = (double)gte.ofy / 65536.0 + (double)gte.h * ((double)row_sums[1] / unit) / depth;
         int32_t wx = gte.sxy[2][0], wy = gte.sxy[2][1];
         if (sx > wx - 1 && sx < wx + 2 && sy > wy - 1 && sy < wy + 2) {
+            precise[2].x = (float)sx;
+            precise[2].y = (float)sy;
+            precise[2].w = (float)depth;
+            precise[2].known = 1;
             Pgxp_Project((uint32_t)(uint16_t)wx | (uint32_t)(uint16_t)wy << 16, sx, sy, depth);
         }
     }
@@ -524,7 +552,15 @@ void Memories_GteStoreWord(uint32_t value, void *address)
 
 void Memories_GteStore(unsigned index, void *address)
 {
-    Memories_GteStoreWord(Memories_GteReadData(index), address);
+    uint32_t value = Memories_GteReadData(index);
+    Memories_GteStoreWord(value, address);
+    if (Pgxp_Active && (index & 31) >= 12 && (index & 31) <= 15) {
+        /* The game storing a projected vertex (pgxp.h). */
+        unsigned slot = (index & 31) == 15 ? 2 : (index & 31) - 12;
+        float xyw[3];
+        int known = Memories_GtePrecise(slot, &xyw[0], &xyw[1], &xyw[2]);
+        Pgxp_Stored(value, known ? xyw : 0);
+    }
 }
 
 /* Save states: the register file, without tying the GTE to the state code. */

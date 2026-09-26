@@ -37,6 +37,11 @@ typedef struct MemoriesStateField {
 int Memories_StateChunk(MemoriesState *state, const char *tag, const MemoriesStateField *fields, size_t count);
 int Memories_StateLoading(const MemoriesState *state);
 
+/* Before restoring the game image, rebase pointers into a native allocation
+ * recreated by a subsystem. Only the saved game memory, variables, stack
+ * and entry registers are scanned; native chunks keep their own formats. */
+void Memories_StateRemapRange(MemoriesState *state, uint32_t from, uint32_t to, uint32_t size);
+
 /* Registers on entry to VSync, written by the assembly entry (state_i386.S). */
 typedef struct MemoriesStateEntry {
     uint32_t ebx, esi, edi, ebp, esp; /* esp points at the return address */
@@ -63,6 +68,7 @@ void LibGte_State(MemoriesState *state);
 void LibPress_State(MemoriesState *state);
 void LibMcrd_State(MemoriesState *state);
 void SaveMenu_State(MemoriesState *state);
+void DeckMenu_ShopState(MemoriesState *state);
 void TitleJump_State(MemoriesState *state);
 void Platform_State(MemoriesState *state);
 #endif

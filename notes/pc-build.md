@@ -531,8 +531,11 @@ string 0x11, is the retail listing with the line added, compiled as a
 mod's text is (`Text_CompileOwn`) so its `{choose}` jumps land. The game
 keeps four entries' worth of enabled bits (`Text_HandleChoiceCommand`), so
 wherever it sets the menu's choices up (after its text, the memory card and
-the title confirm) `DeckMenu_ShopRestore` moves the last two down and
-turns the new one on. With the setting off, or a translation that rewrites
+the title confirm) `DeckMenu_ShopRestore` moves the cursor and enables all
+five entries. It does not reuse a nested prompt's enabled mask. The
+`deck-shop` save-state chunk keeps whether the menu has the extra entry
+and rebases pointers into its compiled text before restoring game memory,
+so loading a shop state also works in a fresh process. With the setting off, or a translation that rewrites
 string 0x11, the menu is the game's. Checked on a save in the tournament's
 shop: the setting off is pixel-identical to master (the menu, and the cursor
 on LEAVE SHOP); DECK SLOTS opens the screen, and Circle brings the menu back
@@ -989,7 +992,14 @@ The software GPU keeps the 1x targets. At 2x and up the OpenGL pass draws
 its own at the scale (`gl_picture.c`, "widescreen"). Its targets follow the
 software GPU's rule and are laid out the same way. Each is a texture of
 the widened area alone. Its primitives go through the same runs as the
-picture's, in the same order, drawn with the viewport moved. Before this,
+picture's, in the same order, drawn with the viewport moved. Since each
+primitive is gathered for the picture and then for its target, the runs
+alternate between the two; `flush_runs` draws the picture's runs first and
+then each target's, each in its own order and with neighbours in one state
+joined (`group_runs`). Nothing in one flush reads the picture or a target
+back, so the picture is the same, and the 3D Monsters duel takes 17-22
+draws and 2-4 framebuffer switches a frame instead of about 400 of each
+(4x, NVIDIA: 1.6-1.9 ms per replay instead of 5-6.7 ms). Before this,
 the software GPU drew the scaled targets on the CPU next to the OpenGL
 pass. Unthrottled, the 3D Monsters duel case to its frame now takes 40 s
 instead of 128 s at 2x, and 41 s instead of 350 s at 4x. Against the
@@ -1173,35 +1183,57 @@ Not covered yet: the sword and shield icons (pictures, not lettering).
 
 ### Precise geometry (PGXP)
 
-Video > Precise geometry (PGXP) (`pgxp`, `MEMORIES_PGXP=1`, off by default)
-fixes two things in the OpenGL picture at 2x and up.
+Video > Precise geometry (PGXP) (`pgxp`, `MEMORIES_PGXP`, off by default)
+fixes one or two things in the OpenGL picture at 2x and up.
 
-- **Rounded vertices.** The GTE's perspective transform rounds each vertex
-  to a whole console pixel, which makes 3D polygons wobble as they move.
-  Polygons are now drawn at the vertices' precise positions.
-- **Affine textures.** The GTE keeps no depth with a vertex, so textures on
-  3D polygons bend. Textured polygons are now drawn in perspective.
+- **Affine textures** (`pgxp=1`, *Textures*). The GTE keeps no depth with a
+  vertex, so textures on 3D polygons bend. Textured polygons are drawn in
+  perspective, at the console's whole-pixel vertices.
+- **Rounded vertices** (`pgxp=2`, *Textures and positions*, experimental).
+  The GTE's perspective transform rounds each vertex to a whole console
+  pixel, which makes 3D polygons wobble as they move. Polygons are also
+  drawn at the vertices' precise positions. A model's parts are projected
+  each with its own matrix, and where they meet, the vertices lie up to
+  about a console pixel apart; the console's rounding closes those seams.
+  So a frame word that carries two different precise positions keeps its
+  whole-pixel one (`snap_seams` in `libgpu.c`; its depth stays precise).
+  Still experimental, so not the default level.
 
 **How it works** (`src/pc/compat/pgxp.c`):
 
-1. `rtp()` in `gte.c` records each vertex it projects. It works the
-   position out from the view position before the shift and the division in
-   full, not from the GTE's rounded quotient. The record is keyed by the
-   screen word the game stores for the vertex (x | y << 16). A vertex whose
-   precise position does not round near that word (clamped off the screen,
-   say) is not kept.
-2. The game copies that word into packets by many roads: GTE stores,
-   reading the register into C, `GsSortPoly`, the scratchpad, the
-   interpreter. So the key is the word's value, not an address, as in
-   DuckStation's vertex cache.
-3. `DrawOTag` looks up every word of the frame it collects. Projections up
-   to that point are the frame's, while the actual drawing happens later,
-   after the next frame has begun projecting. A word that two vertices of
-   one frame round to, with different precise values, is left as it is.
-4. The matches go with the batch to the OpenGL pass (`SoftGpu_SetPrecise`,
+1. `rtp()` in `gte.c` works each vertex's position out from the view
+   position before the shift and the division in full, not from the GTE's
+   rounded quotient. It keeps it with its depth beside the vertex's SXY
+   FIFO entry (`Memories_GtePrecise`); anything else writing the entry
+   drops it. A vertex whose precise position does not round near its screen
+   word (clamped off the screen, say) has none.
+2. Drawing that is ours or the game's C carries it to the packet, keyed by
+   the packet word's physical address (`Pgxp_StoreAt`):
+   - the HMD polygon drivers (`model_polygon_drivers.c`, the map) tag each
+     vertex word they write, and the pre-pass tags its results for them;
+   - the game units' `gte_stsxy` stores go through `Memories_GteStore`
+     (`Pgxp_Stored`), and their `addPrim` (redefined in `pgxp_game.h`,
+     which `build_game32.py` puts before every game unit and no mod
+     includes) tags the words of the primitive that hold those vertices
+     (`Pgxp_AddPrim`). This is how the duel's models get there
+     (`func_80033DB0`, `func_80034830`).
+   A vertex stored with no precise value is tagged as such and stays
+   rounded.
+3. Every other road (`GsSortPoly`, the scratchpad, the interpreter) falls
+   back to the word's value, as in DuckStation's vertex cache: `rtp()` also
+   records each vertex keyed by its screen word (x | y << 16), and a word
+   two vertices of one frame round to with different precise values is not
+   matched.
+4. `DrawOTag` collects every word of the frame with its address
+   (`Memories_GpuCollectAt`) and looks each up by address, then by value.
+   Projections up to that point are the frame's, while the actual drawing
+   happens later, after the next frame has begun projecting.
+5. The matches go with the batch to the OpenGL pass (`SoftGpu_SetPrecise`,
    the recorder's `precise`, arena op `OP_PRECISE`). There `polygon()`
-   places each vertex at its precise position.
-5. A textured triangle whose three vertices all have their depths
+   places each vertex at its precise position. Below level 2, `DrawOTag`
+   puts the word's own whole-pixel position there first, so only the depth
+   is new.
+6. A textured triangle whose three vertices all have their depths
    interpolates uv / w and 1 / w and divides back per pixel (flag 32). Every
    other triangle takes the path it took before, so with PGXP off the
    picture is identical.
@@ -1211,13 +1243,12 @@ fixes two things in the OpenGL picture at 2x and up.
 - The software GPU, VRAM and the game see nothing of it. The smoke cases
   give their hashes with `pgxp=1`, and nothing changes at 1x.
 - In the 3D Monsters duel about 300 of a frame's 1,400 words are precise
-  vertices, which is most of the 3D. The rest is 2D drawn without the GTE.
-  `MEMORIES_TRACE=frames` logs the count. About 97% of the duel's
-  triangles are drawn in perspective. The main menu and Options come out
-  identical with PGXP on: their 2D is not projected.
-- Two limits: vertices `GsSortPoly` moves by its offsets no longer match
-  their word and stay rounded, and so do vertices that share an integer
-  word within a frame.
+  vertices, which is most of the 3D, nearly all of them by address. The
+  rest is 2D drawn without the GTE. `MEMORIES_TRACE=frames` logs the counts
+  (by address, by value). The main menu and Options come out identical
+  with PGXP on: their 2D is not projected.
+- One limit: vertices `GsSortPoly` moves by its offsets no longer match
+  their word and stay rounded.
 
 ### Deterministic PC checks
 
@@ -1664,7 +1695,13 @@ What differs from Linux, and why:
   page 64 KiB above the game stack's bottom, below `DeallocationStack` so
   that Windows and Wine take it for a plain guard page and not stack growth,
   turns an overflow into a report; running off the end left no stack to
-  deliver the exception on, and the process just ended.
+  deliver the exception on, and the process just ended. A context is the
+  stack pointer of a suspended switch, with the registers kept on that
+  stack; unlike a ucontext, it is gone once that stack is used again. So a
+  state load enters the game through a switch too (`apply`, `resume_game`),
+  which takes the service context again each time: resuming the startup
+  one after `apply` had run over it crashed every second load of a session
+  (EBP 0 at `Memories_StateRunGame`).
 - **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`
   labels are renamed to match. No GNU linker script: pins are absolute
   symbols from `guest_symbols.s`, and the game units' COMMON symbols for
