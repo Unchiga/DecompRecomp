@@ -348,6 +348,49 @@ static void flush_drawing(void)
     }
 }
 
+/* A model's parts are each projected with their own matrix, and where they
+ * meet the vertices differ by up to a pixel or so: the console closes the
+ * seam by rounding them into the same whole pixel. So a frame word that
+ * carries two different precise positions keeps its whole-pixel one on
+ * each of its vertices (the depth stays precise). */
+#define SEAM_TABLE (2 * MAX_FRAME_PRECISE)
+static void snap_seams(void)
+{
+    static struct {
+        uint32_t word, stamp;
+        float x, y;
+        int seam;
+    } table[SEAM_TABLE];
+    static uint32_t stamp;
+    size_t i, pass;
+    if (++stamp == 0) {
+        memset(table, 0, sizeof(table));
+        stamp = 1;
+    }
+    for (pass = 0; pass < 2; pass++) {
+        for (i = 0; i < pending_precise; i++) {
+            PgxpVertex *vertex = &frame_precise[i];
+            uint32_t word = frame_words[vertex->index];
+            unsigned at = (word * 2654435761u) >> 15; /* 17 bits: SEAM_TABLE */
+            while (table[at].stamp == stamp && table[at].word != word) at = (at + 1) & (SEAM_TABLE - 1);
+            if (!pass) {
+                if (table[at].stamp != stamp) {
+                    table[at].word = word;
+                    table[at].stamp = stamp;
+                    table[at].x = vertex->x;
+                    table[at].y = vertex->y;
+                    table[at].seam = 0;
+                } else if (table[at].x != vertex->x || table[at].y != vertex->y) {
+                    table[at].seam = 1;
+                }
+            } else if (table[at].seam) {
+                vertex->x = (float)(int16_t)(word & 0xffffu);
+                vertex->y = (float)(int16_t)(word >> 16);
+            }
+        }
+    }
+}
+
 void DrawOTag(u32 *list)
 {
     size_t count;
@@ -366,8 +409,8 @@ void DrawOTag(u32 *list)
      * last DrawOTag, with where they really are: those the game's drawing
      * wrote by address, the rest by value; then the next frame's. Below
      * level 2 a vertex keeps the console's whole-pixel position and only its
-     * depth is used (textures in perspective): on the small monster models,
-     * precise positions open dark gaps. */
+     * depth is used (textures in perspective); at level 2 the seams between
+     * a model's parts stay closed (snap_seams). */
     pending_precise = 0;
     if (Pgxp_Active) {
         static unsigned frames, placed, matched;
@@ -392,6 +435,7 @@ void DrawOTag(u32 *list)
             vertex->index = (uint32_t)i;
             pending_precise++;
         }
+        if (positions) snap_seams();
         if (++frames == 120) {
             LOG(LOG_FRAMES, "pgxp: %u precise vertex words per DrawOTag (%u by address, %u by value)",
                 (placed + matched) / 120, placed / 120, matched / 120);
