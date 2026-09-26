@@ -295,15 +295,28 @@ static void follow_saves(void)
 void DeckMenu_State(MemoriesState *state)
 {
     MemoriesStateField field = {&draft, sizeof(draft)};
-    /* A state from before the draft: read the file again. */
-    if (!Memories_StateChunk(state, "deck-slots", &field, 1) && Memories_StateLoading(state)) draft.code = 0;
+    int loaded = Memories_StateChunk(state, "deck-slots", &field, 1);
+    if (Memories_StateLoading(state)) {
+        if (!loaded) draft.code = 0; /* older state: read the file again */
+        else draft.dirty = 1; /* the file may have changed since this snapshot */
+        seen_saves = SaveMenu_SaveCount();
+        seen_loads = SaveMenu_LoadCount();
+        picking = PICK_NONE;
+        requested = allowed = holding = 0;
+        previous_bits = 0;
+        DeckMenu_Close();
+    }
     changed();
 }
 
 int DeckMenu_BuildDeckEntry(void)
 {
-    if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) {
+    /* A short deck cannot be put in a slot. Let the player repair it in
+     * Build Deck directly instead of trapping them in the slot picker. */
+    if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded() || !deck_complete()) {
         picking = PICK_NONE;
+        requested = 0;
+        DeckMenu_Close();
         return 0;
     }
     if (picking == PICK_CHOSEN) {
@@ -321,7 +334,7 @@ void DeckMenu_BuildDeckLeft(void)
 {
     const unsigned short *deck = workspace()->state.player_deck;
     if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) return;
-    if (draft.code == (uint32_t)workspace()->state.duelist_code && draft.active >= 0 && deck_complete()) {
+    if (draft.code == (uint32_t)workspace()->state.duelist_code && draft.active >= 0 && draft.active < DECK_SLOT_COUNT && deck_complete()) {
         DeckSlot *slot = &draft.slots[draft.active];
         if (memcmp(slot->cards, deck, sizeof(slot->cards))) {
             memcpy(slot->cards, deck, sizeof(slot->cards));

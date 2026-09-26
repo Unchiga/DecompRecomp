@@ -485,7 +485,10 @@ written only when the game is saved through the save slot menu, and read
 again when a save is loaded (`SaveMenu_SaveCount`, `SaveMenu_LoadCount`).
 So the decks go with the save: a game left unsaved loses its deck changes
 with the rest. A save state holds the draft (the `deck-slots` chunk); a
-state from before it reads the file. The screen shows "saved with the game"
+state from before it reads the file. A restored draft is written on the next
+game save even if it was clean in the snapshot, since the file may have
+changed afterwards. Loading a state also closes any old deck picker.
+The screen shows "saved with the game"
 while the draft differs from the file.
 
 The screen (`deck_menu.c`) is drawn in the overlay like the save slot menu.
@@ -498,7 +501,7 @@ the screen is released, so the game never takes that press as its own.
 Build Deck opens with it. `Main_RunBuildDeckMenu` asks
 `DeckMenu_BuildDeckEntry` before it copies the deck (`func_800323F8`):
 while the list is up, the mode is not set up yet (0x40 clear), so Build Deck
-has no copy yet. Cross picks the deck to edit, which becomes the active one,
+has no copy yet. An incomplete deck bypasses the picker so it can be repaired. Cross picks the deck to edit, which becomes the active one,
 and Build Deck is then set up from the save. Circle goes back where Build
 Deck was entered from (`D_8009B269`), as its own way out does. As Build Deck
 leaves, `DeckMenu_BuildDeckLeft` puts the deck it wrote in the active slot.
