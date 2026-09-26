@@ -488,6 +488,9 @@ deck:
   not count: the entry byte `gMain_bMenuID` is 5 or more only on the loaded
   one;
 - the campaign map;
+- a card shop's menu (Save / Build Deck / Return to Title / Leave Shop)
+  while it waits for a choice: the only way to Build Deck in the present,
+  which has no map (`Script_OpSavePrompt`, scene-script command 13);
 - Free Duel's opponent select.
 
 Changes are made where `Main_Loop` or that loop is between two steps.
