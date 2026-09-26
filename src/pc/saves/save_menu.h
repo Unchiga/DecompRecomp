@@ -46,6 +46,11 @@ enum { SAVE_MENU_SOUND_NONE = 0, SAVE_MENU_SOUND_MOVE = 6, SAVE_MENU_SOUND_CONFI
 int SaveMenu_Begin(int step, unsigned char *buffer, unsigned char *second, int size, const char *name,
                    SaveSlotCheck check);
 int SaveMenu_Active(void);
+/* How many games the menu has saved, and loaded (not the pairs of a trade
+ * or a 2P duel), since the program started: deck_menu.c keeps its decks
+ * with the save. */
+unsigned SaveMenu_SaveCount(void);
+unsigned SaveMenu_LoadCount(void);
 /* The slot loaded or saved last, and the slot each side of the last pair
  * load came from; -1 for none. */
 int SaveMenu_CurrentSlot(void);

@@ -11,6 +11,7 @@
 #include "pc/platform/platform.h"
 #include "pc/platform/settings.h"
 #include "pc/text/text.h"
+#include "pc/guest/state.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,7 @@ unsigned Memories_PresentedFrames(void);
 #define MODE_CAMPAIGN 2
 #define MODE_CAMPAIGN_MAP 5
 #define MODE_FREE_DUEL 6
+#define MODE_BUILD_DECK 7
 #define MODE_MENU 8
 
 /* The campaign's card shop (the only way to Build Deck in the present, which
@@ -58,15 +60,13 @@ extern s8 gDialog_bChoiceCount, gDialog_bChoice;
 enum { SOUND_MOVE = 6, SOUND_CONFIRM = 7, SOUND_CANCEL = 8, SOUND_BUZZER = 9 };
 
 enum { VIEW_CLOSED, VIEW_LIST, VIEW_CONFIRM, VIEW_MESSAGE };
-enum { ASK_SAVE, ASK_CLEAR };
+enum { ASK_CLEAR };
 #define MONSTER_TYPE_END 20 /* types 0-19 are monsters, then magic, trap, ritual, equip */
 
 static struct {
     int view, cursor, top, ask, choice, close_after;
     char message[160];
     char title[64];
-    char path[1024];
-    DeckSlot slots[DECK_SLOT_COUNT];
     int status[DECK_SLOT_COUNT], current[DECK_SLOT_COUNT];
     char label[DECK_SLOT_COUNT][96];
     unsigned changes;
@@ -74,6 +74,28 @@ static struct {
 
 static int requested, allowed, holding, item_enabled = -1, shown_rows = DECK_SLOT_COUNT;
 static unsigned last_poll = 0xffffff00u, previous_bits;
+
+/* --- the decks: a draft beside the save -----------------------------------
+ * The slots of the save being played (its duelist code) are a draft. Using
+ * a deck, making one or clearing one changes it, and so does leaving Build
+ * Deck: the active slot takes the deck the game wrote. The file is written
+ * only when the game is saved and read again when a save is loaded, so the
+ * decks go with the save (unsaved, both are lost together); a save state
+ * holds the draft (DeckMenu_State). Which slot is active is not kept in the
+ * file: it is the one holding the save's forty cards (reconcile). */
+static struct {
+    uint32_t code;   /* whose draft: the duelist code, 0 for none read */
+    int32_t active;  /* the slot that is the deck, -1 none */
+    int32_t dirty;   /* the file does not have it yet */
+    DeckSlot slots[DECK_SLOT_COUNT];
+} draft;
+static unsigned seen_saves, seen_loads;
+
+/* Build Deck asks for a deck as it is entered (DeckMenu_BuildDeckEntry). */
+enum { PICK_NONE, PICK_OPEN, PICK_CHOSEN };
+static int picking;
+extern u8 D_8009B269; /* main_mode_state.h: where Build Deck returns to */
+
 
 static SaveDataWorkspace *workspace(void) { return (SaveDataWorkspace *)D_801D0000; }
 static int live(unsigned frame) { return frame - last_poll <= 2; }
@@ -105,6 +127,8 @@ static int screen_allowed(int where)
         unsigned state = D_8009B27C;
         return (state & 0x1F) == SCRIPT_COMMAND_SHOP && (state & SHOP_OPEN) && !(state & SHOP_BUSY);
     }
+    /* Build Deck being entered, before it copies the deck (0x40 clear). */
+    if (mode == MODE_BUILD_DECK) return picking == PICK_OPEN && !(D_8009B26C & 0x40);
     return mode == MODE_CAMPAIGN_MAP || mode == MODE_FREE_DUEL;
 }
 
@@ -193,10 +217,10 @@ static int card_attack(int id) { return (int)((unsigned)gDuel_adwCardStats[id - 
 
 static void describe(int slot)
 {
-    const DeckSlot *kept = &menu.slots[slot];
+    const DeckSlot *kept = &draft.slots[slot];
     int i, best = 0, monsters = 0, card, count;
     char name[64];
-    menu.current[slot] = DeckSlots_Same(kept, workspace()->state.player_deck);
+    menu.current[slot] = slot == draft.active;
     menu.status[slot] = DeckSlots_Check(workspace()->state.player_deck, kept, trunk, NULL, &card, &count);
     menu.label[slot][0] = 0;
     if (!kept->used || menu.status[slot] == DECK_INVALID) return;
@@ -234,35 +258,176 @@ static void message(int close_after, const char *text)
     changed();
 }
 
+static int draft_path(uint32_t code, char *path, size_t size)
+{
+    char relative[64];
+    snprintf(relative, sizeof(relative), "decks/%08X.txt", (unsigned)code);
+    return Paths_User(path, size, relative);
+}
+
+static int deck_complete(void)
+{
+    int i;
+    for (i = 0; i < DECK_SLOT_CARDS; i++) {
+        if (!workspace()->state.player_deck[i]) return 0;
+    }
+    return 1;
+}
+
+/* The draft of the save being played, and its active slot: the one it
+ * names if that still holds the deck, else the first that does. A deck in
+ * no slot takes the first empty one. */
+static void reconcile(void)
+{
+    const unsigned short *deck = workspace()->state.player_deck;
+    uint32_t code = workspace()->state.duelist_code;
+    char path[1024];
+    int slot, skipped = 0;
+    if (draft.code != code) {
+        memset(&draft, 0, sizeof(draft));
+        draft.code = code;
+        draft.active = -1;
+        if (!draft_path(code, path, sizeof(path))) {
+            DeckSlots_Read(path, draft.slots, Cards_FindIdentity, &skipped);
+            if (skipped) {
+                fprintf(stderr, "memories-pc: %d line(s) of %s are not forty cards; those slots read as empty\n",
+                        skipped, path);
+            }
+        }
+    }
+    if (draft.active >= 0 && draft.active < DECK_SLOT_COUNT && DeckSlots_Same(&draft.slots[draft.active], deck))
+        return;
+    draft.active = -1;
+    for (slot = 0; slot < DECK_SLOT_COUNT; slot++) {
+        if (DeckSlots_Same(&draft.slots[slot], deck)) {
+            draft.active = slot;
+            return;
+        }
+    }
+    if (!deck_complete()) return;
+    for (slot = 0; slot < DECK_SLOT_COUNT; slot++) {
+        if (!draft.slots[slot].used) {
+            draft.slots[slot].used = 1;
+            memcpy(draft.slots[slot].cards, deck, sizeof(draft.slots[slot].cards));
+            draft.active = slot;
+            draft.dirty = 1;
+            fprintf(stderr, "memories-pc: the deck goes in slot %d\n", slot + 1);
+            return;
+        }
+    }
+}
+
+static int store(void)
+{
+    char path[1024], folder[1024], comment[128], name[16], *slash, *back;
+    if (draft_path(draft.code, path, sizeof(path))) return -1;
+    snprintf(folder, sizeof(folder), "%s", path);
+    slash = strrchr(folder, '/');
+    back = strrchr(folder, '\\');
+    if (back && (!slash || back > slash)) slash = back;
+    if (slash) {
+        *slash = 0;
+        Paths_MakeDirs(folder);
+    }
+    SaveSlots_StateName((const unsigned char *)&workspace()->state, name, sizeof(name));
+    snprintf(comment, sizeof(comment), "Deck slots of %s (duelist code %08X), kept by the PC port.",
+             name[0] ? name : "(no name)", (unsigned)draft.code);
+    if (DeckSlots_Write(path, draft.slots, identity, comment)) {
+        fprintf(stderr, "memories-pc: cannot write %s\n", path);
+        return -1;
+    }
+    return 0;
+}
+
+/* The save slot menu saved or loaded a game since the last frame. */
+static void follow_saves(void)
+{
+    unsigned saves = SaveMenu_SaveCount(), loads = SaveMenu_LoadCount();
+    if (loads != seen_loads) {
+        seen_loads = loads;
+        draft.code = 0; /* read again for the save loaded */
+    }
+    if (saves != seen_saves) {
+        seen_saves = saves;
+        if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) return;
+        reconcile();
+        if (draft.dirty && !store()) {
+            draft.dirty = 0;
+            fprintf(stderr, "memories-pc: deck slots saved with the game\n");
+        }
+    }
+}
+
+void DeckMenu_State(MemoriesState *state)
+{
+    MemoriesStateField field = {&draft, sizeof(draft)};
+    /* A state from before the draft: read the file again. */
+    if (!Memories_StateChunk(state, "deck-slots", &field, 1) && Memories_StateLoading(state)) draft.code = 0;
+    changed();
+}
+
+int DeckMenu_BuildDeckEntry(void)
+{
+    if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) {
+        picking = PICK_NONE;
+        return 0;
+    }
+    if (picking == PICK_CHOSEN) {
+        picking = PICK_NONE;
+        return 0;
+    }
+    if (picking == PICK_NONE) {
+        picking = PICK_OPEN;
+        requested = 1;
+    }
+    return 1;
+}
+
+void DeckMenu_BuildDeckLeft(void)
+{
+    const unsigned short *deck = workspace()->state.player_deck;
+    if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) return;
+    if (draft.code == (uint32_t)workspace()->state.duelist_code && draft.active >= 0 && deck_complete()) {
+        DeckSlot *slot = &draft.slots[draft.active];
+        if (memcmp(slot->cards, deck, sizeof(slot->cards))) {
+            memcpy(slot->cards, deck, sizeof(slot->cards));
+            draft.dirty = 1;
+            fprintf(stderr, "memories-pc: slot %d takes the deck Build Deck wrote\n", draft.active + 1);
+        }
+        return;
+    }
+    reconcile(); /* not picked here, or not forty cards: the slots stay */
+}
+
+static void cancel_pick(void)
+{
+    picking = PICK_NONE;
+    D_8009B26C = D_8009B269; /* as Build Deck's own way out, already faded */
+    DeckMenu_Close();
+}
+
+static void choose(void)
+{
+    picking = PICK_CHOSEN;
+    DeckMenu_Close();
+}
+
 static void show(void)
 {
-    char relative[64], name[16];
-    int skipped, slot;
+    char name[16];
     previous_bits = Platform_Pad(0); /* a button already down is not a press */
     holding = 1;
     menu.top = 0;
     if (!allowed) {
-        message(1, "Deck slots open on the main menu, the map, a card shop or Free Duel, with a game loaded.");
+        message(1, "Decks open on the main menu, the map, a card shop or Free Duel, and as you enter Build Deck.");
         return;
     }
-    snprintf(relative, sizeof(relative), "decks/%08X.txt", (unsigned)workspace()->state.duelist_code);
-    if (Paths_User(menu.path, sizeof(menu.path), relative)) {
-        message(1, "The deck slot file has no place in the user folder.");
-        return;
-    }
-    DeckSlots_Read(menu.path, menu.slots, Cards_FindIdentity, &skipped);
-    if (skipped) fprintf(stderr, "memories-pc: %d line(s) of %s are not forty cards; those slots read as empty\n",
-                         skipped, menu.path);
+    reconcile();
     SaveSlots_StateName((const unsigned char *)&workspace()->state, name, sizeof(name));
-    snprintf(menu.title, sizeof(menu.title), "Deck slots: %s", name[0] ? name : "(no name)");
+    snprintf(menu.title, sizeof(menu.title), picking == PICK_OPEN ? "Build Deck: which deck? (%s)" : "Decks: %s",
+             name[0] ? name : "(no name)");
     refresh();
-    menu.cursor = 0;
-    for (slot = 0; slot < DECK_SLOT_COUNT; slot++) {
-        if (menu.current[slot]) {
-            menu.cursor = slot;
-            break;
-        }
-    }
+    menu.cursor = draft.active >= 0 ? draft.active : 0;
     keep_cursor_shown();
     menu.view = VIEW_LIST;
     changed();
@@ -283,42 +448,46 @@ void DeckMenu_Request(void)
     if (Settings_Get(SET_DECK_SLOTS)) requested = 1;
 }
 
-static int store(void)
-{
-    char folder[1024], comment[128], name[16], *slash, *back;
-    snprintf(folder, sizeof(folder), "%s", menu.path);
-    slash = strrchr(folder, '/');
-    back = strrchr(folder, '\\');
-    if (back && (!slash || back > slash)) slash = back;
-    if (slash) {
-        *slash = 0;
-        Paths_MakeDirs(folder);
-    }
-    SaveSlots_StateName((const unsigned char *)&workspace()->state, name, sizeof(name));
-    snprintf(comment, sizeof(comment), "Deck slots of %s (duelist code %08X), kept by the PC port.",
-             name[0] ? name : "(no name)", (unsigned)workspace()->state.duelist_code);
-    if (DeckSlots_Write(menu.path, menu.slots, identity, comment)) {
-        fprintf(stderr, "memories-pc: cannot write %s\n", menu.path);
-        return -1;
-    }
-    return 0;
-}
-
+/* Cross on a slot: the active one; an empty one becomes a copy of the deck;
+ * another deck is used, the one it replaces staying in its own slot. */
 static void use(int slot)
 {
     char text[160], name[64];
     int card, count, result;
-    if (!menu.slots[slot].used) {
-        SD_SEPlayFull(SOUND_BUZZER);
-        message(0, "This slot is empty. Square keeps your current deck in it.");
-        return;
-    }
-    if (menu.current[slot]) {
+    reconcile();
+    if (slot == draft.active) {
+        if (picking == PICK_OPEN) {
+            SD_SEPlayFull(SOUND_CONFIRM);
+            choose();
+            return;
+        }
         SD_SEPlayFull(SOUND_BUZZER);
         message(0, "That is already your deck.");
         return;
     }
-    result = DeckSlots_Check(workspace()->state.player_deck, &menu.slots[slot], trunk, NULL, &card, &count);
+    if (draft.active < 0) {
+        /* Every slot holds another deck, or the deck is not forty cards. */
+        SD_SEPlayFull(SOUND_BUZZER);
+        message(0, deck_complete() ? "Your deck is in no slot and all ten are used: clear one to keep it."
+                                   : "Your deck is not forty cards yet: finish it in Build Deck first.");
+        return;
+    }
+    if (!draft.slots[slot].used) {
+        draft.slots[slot].used = 1;
+        memcpy(draft.slots[slot].cards, workspace()->state.player_deck, sizeof(draft.slots[slot].cards));
+        draft.active = slot;
+        draft.dirty = 1;
+        SD_SEPlayFull(SOUND_CONFIRM);
+        refresh();
+        if (picking == PICK_OPEN) {
+            choose();
+            return;
+        }
+        snprintf(text, sizeof(text), "Slot %d is a new deck, a copy of yours. Build Deck changes it.", slot + 1);
+        message(0, text);
+        return;
+    }
+    result = DeckSlots_Check(workspace()->state.player_deck, &draft.slots[slot], trunk, NULL, &card, &count);
     name[0] = 0;
     if (card && Cards_Valid(card)) card_name(card, name, sizeof(name));
     if (result == DECK_MISSING) {
@@ -334,42 +503,23 @@ static void use(int slot)
         message(0, text);
         return;
     }
-    DeckSlots_Use(workspace()->state.player_deck, &menu.slots[slot], trunk, NULL);
+    DeckSlots_Use(workspace()->state.player_deck, &draft.slots[slot], trunk, NULL);
+    draft.active = slot;
     fprintf(stderr, "memories-pc: deck slot %d is the deck now\n", slot + 1);
     SD_SEPlayFull(SOUND_CONFIRM);
     refresh();
-    snprintf(text, sizeof(text), "Your deck is now the one in slot %d.", slot + 1);
-    message(0, text);
-}
-
-static void keep(int slot)
-{
-    char text[96];
-    DeckSlot before = menu.slots[slot];
-    menu.slots[slot].used = 1;
-    memcpy(menu.slots[slot].cards, workspace()->state.player_deck, sizeof(menu.slots[slot].cards));
-    if (store()) {
-        menu.slots[slot] = before;
-        SD_SEPlayFull(SOUND_BUZZER);
-        message(0, "The deck slot file could not be written.");
+    if (picking == PICK_OPEN) {
+        choose();
         return;
     }
-    SD_SEPlayFull(SOUND_CONFIRM);
-    refresh();
-    snprintf(text, sizeof(text), "Your deck is kept in slot %d.", slot + 1);
+    snprintf(text, sizeof(text), "Your deck is now the one in slot %d.", slot + 1);
     message(0, text);
 }
 
 static void clear(int slot)
 {
-    DeckSlot before = menu.slots[slot];
-    menu.slots[slot].used = 0;
-    if (store()) {
-        menu.slots[slot] = before;
-        SD_SEPlayFull(SOUND_BUZZER);
-        message(0, "The deck slot file could not be written.");
-        return;
-    }
+    draft.slots[slot].used = 0;
+    draft.dirty = 1;
     SD_SEPlayFull(SOUND_CONFIRM);
     refresh();
     menu.view = VIEW_LIST;
@@ -405,8 +555,7 @@ static void press(unsigned pressed)
             menu.view = VIEW_LIST;
             changed();
         } else if (pressed & (PAD_CROSS | PAD_START)) {
-            if (menu.ask == ASK_SAVE) keep(slot);
-            else clear(slot);
+            clear(slot);
         }
         return;
     default:
@@ -419,16 +568,13 @@ static void press(unsigned pressed)
         changed();
     } else if (pressed & (PAD_CIRCLE | PAD_START)) {
         SD_SEPlayFull(SOUND_CANCEL);
-        DeckMenu_Close();
+        if (picking == PICK_OPEN) cancel_pick();
+        else DeckMenu_Close();
     } else if (pressed & PAD_CROSS) {
         use(slot);
-    } else if (pressed & PAD_SQUARE) {
-        /* Ask before replacing a different deck; keeping the same one again
-         * (in its new order) needs no question. */
-        if (menu.slots[slot].used && !menu.current[slot]) ask(ASK_SAVE);
-        else keep(slot);
     } else if (pressed & PAD_TRIANGLE) {
-        if (menu.slots[slot].used) ask(ASK_CLEAR);
+        /* The active deck is the game's: it cannot go. */
+        if (draft.slots[slot].used && slot != draft.active) ask(ASK_CLEAR);
         else SD_SEPlayFull(SOUND_BUZZER);
     }
 }
@@ -452,6 +598,8 @@ void DeckMenu_Poll(int where)
         /* The game sees the pad again once the buttons that closed the menu
          * are up, so it does not take them as its own presses. */
         if (!bits) holding = 0;
+        /* The list Build Deck asked for, closed without a deck (Esc). */
+        if (picking == PICK_OPEN) cancel_pick();
         return;
     }
     /* A save state loaded, or the screen changed, under an open list: the
@@ -480,11 +628,14 @@ void DeckMenu_Frame(unsigned frame)
             break;
         }
     }
+    follow_saves();
     if (!live(frame)) {
         /* Main_Loop is not running (the title's own loop, a jump to it, a
          * long disc wait): nothing can answer the screen, so it is not kept
          * open over the pads. */
-        if (requested) fprintf(stderr, "memories-pc: deck slots open on the main menu, the map, a card shop or Free Duel\n");
+        if (requested) {
+            fprintf(stderr, "memories-pc: decks open on the main menu, the map, a card shop or Free Duel\n");
+        }
         requested = 0;
         holding = 0;
         DeckMenu_Close();
@@ -555,7 +706,7 @@ static void centred(MenuCanvas *canvas, int x, int w, int y, const char *line, u
 
 static const char *status_text(int slot)
 {
-    if (!menu.slots[slot].used) return "Empty";
+    if (!draft.slots[slot].used) return "Empty";
     if (menu.current[slot]) return "your deck";
     switch (menu.status[slot]) {
     case DECK_MISSING: return "cards missing";
@@ -597,9 +748,9 @@ void DeckMenu_Draw(MenuCanvas *canvas, int *x, int *y, int *w, int *h)
     for (i = 0; i < rows && menu.top + i < DECK_SLOT_COUNT; i++) {
         int slot = menu.top + i, ry = list_y + i * row_h, cy = ry + row_h / 2;
         const char *right = status_text(slot);
-        uint32_t colour = menu.slots[slot].used ? COLOUR_TEXT : COLOUR_DIM;
+        uint32_t colour = draft.slots[slot].used ? COLOUR_TEXT : COLOUR_DIM;
         uint32_t right_colour = menu.current[slot] ? COLOUR_CURRENT
-                                : menu.slots[slot].used && menu.status[slot] != DECK_OK ? COLOUR_WARN : colour;
+                                : draft.slots[slot].used && menu.status[slot] != DECK_OK ? COLOUR_WARN : colour;
         if (slot == menu.cursor) fill(canvas, px + 6 * s, ry, pw - 12 * s, row_h - 2 * s, 0x3a5aa8u, 200);
         snprintf(line, sizeof(line), "%2d   %s", slot + 1, menu.label[slot]);
         text(canvas, px + 16 * s, cy, line, colour);
@@ -608,13 +759,19 @@ void DeckMenu_Draw(MenuCanvas *canvas, int *x, int *y, int *w, int *h)
     if (menu.top > 0) text(canvas, px + pw - 30 * s, py + 20 * s, "^", COLOUR_DIM);
     if (menu.top + rows < DECK_SLOT_COUNT) text(canvas, px + pw - 18 * s, py + 20 * s, "v", COLOUR_DIM);
     text(canvas, px + 14 * s, py + ph - 16 * s,
-         "Cross: use   Square: keep your deck here   Triangle: clear   Circle: close", COLOUR_DIM);
+         picking == PICK_OPEN ? "Cross: edit this deck (an empty slot: a copy of yours)   Triangle: clear   Circle: back"
+                              : "Cross: use (an empty slot: a copy of yours)   Triangle: clear   Circle: close",
+         COLOUR_DIM);
+    if (draft.dirty) {
+        /* Kept with the game: lost with it when it is not saved. */
+        const char *note = "saved with the game";
+        text(canvas, px + pw - 40 * s - width(note), py + 20 * s, note, COLOUR_WARN);
+    }
     if (menu.view == VIEW_CONFIRM) {
         int bw = 120 * s, bh = 108 * s, bx0 = px + 24 * s, by = py + (ph - bh) / 2, cw = pw - 48 * s, bx;
         const char *labels[2] = {"Yes", "No"};
         frame_box(canvas, bx0, by, cw, bh, s);
-        snprintf(line, sizeof(line), menu.ask == ASK_SAVE ? "Slot %d holds another deck. Replace it with yours?"
-                                                          : "Clear slot %d?", menu.cursor + 1);
+        snprintf(line, sizeof(line), "Clear slot %d?", menu.cursor + 1);
         centred(canvas, bx0, cw, by + 30 * s, line, COLOUR_TEXT);
         bx = bx0 + (cw - 2 * bw - 16 * s) / 2;
         for (i = 0; i < 2; i++) {

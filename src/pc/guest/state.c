@@ -9,6 +9,7 @@
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/render/texture_dump.h"
+#include "pc/saves/deck_menu.h"
 #include "pc/debug/crash.h"
 #include "pc/debug/log.h"
 #include "pc/compat/signal.h"
@@ -256,6 +257,7 @@ static void subsystems(MemoriesState *state)
     SaveMenu_State(state);
     TitleJump_State(state);
     Platform_State(state);
+    DeckMenu_State(state); /* the decks' draft, kept with the save */
 }
 
 static void tagged(char *out, size_t size, const char *kind, const char *name)
