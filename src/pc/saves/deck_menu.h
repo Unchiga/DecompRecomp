@@ -5,7 +5,8 @@
  * drawn in the port's overlay, like the save slot menu, and read with the
  * pad or the keys mapped to it; while it is open the game gets no buttons.
  * It opens with a game loaded, on the main menu (the one with Campaign), the
- * campaign map, a card shop's menu or Free Duel's opponent select, where
+ * campaign map, a card shop's menu, Build Deck (made again from the save
+ * when a deck is used there) or Free Duel's opponent select, where
  * nothing holds a copy of the deck; the setting `deck_slots` (Game menu)
  * turns it off. */
 struct MenuCanvas; /* pc/platform/menu.h */

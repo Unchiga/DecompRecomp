@@ -494,8 +494,23 @@ deck:
 - Free Duel's opponent select.
 
 Changes are made where `Main_Loop` or that loop is between two steps.
-Elsewhere (Build Deck works on its own copy), the screen says where it
-opens. The setting `deck_slots` (Game > Use deck slots) turns it off.
+Elsewhere, the screen says where it opens. The setting `deck_slots`
+(Game > Use deck slots) turns it off.
+
+Build Deck works on a copy of the deck and trunk, and writes them to the
+save as it closes (`func_800339D0`). The screen opens there too, while
+Build Deck waits for input on either pane (steps 2 and 3, no not-ready
+confirm, no pane sliding, no card viewer). A deck used there goes to the
+save, and Build Deck is made again from it the way entering it does. Once
+the screen is closed and its buttons are up, the way out's music and fade
+run, and the mode is published again: `Main_Loop` resets the objects
+(`Main_ResetFrontendRuntime`) and `Main_RunBuildDeckMenu` sets the screen
+up from the save (`func_800323F8`). Where it returns to (`D_8009B269`) is
+kept. Cards moved but not yet written show as trunk counts that differ
+from the save's. With some, using a deck first asks to put them back, and
+the deck the save still holds can be used to do only that. Keeping the
+deck in a slot waits until Build Deck is left, since the save still has
+the deck from before.
 
 The card shop's own menu also offers it: DECK SLOTS under BUILD DECK.
 `Script_OpSavePrompt` asks `DeckMenu_ShopMenu` as it makes the menu (a row
@@ -529,7 +544,14 @@ save loaded through the save slot menu:
   holds slot 2's deck, and each of the 722 trunk counts is exactly what the
   swap should leave;
 - the missing-card refusal with the card's name, and an invalid slot;
-- the screen on Free Duel's opponent select, and the refusal in Build Deck;
+- the screen on Free Duel's opponent select;
+- in Build Deck, entered from the main menu: a slot holding another deck
+  (a trunk card for a deck card) used, and Build Deck made again with its
+  counts (40 in the deck, the two cards' trunk and deck columns swapped);
+  leaving it keeps that deck, and the screen then marks the slot as the
+  deck. A card taken out (39), then the save's own deck used: the question
+  to put it back, Build Deck made again with 40, left with no not-ready
+  confirm. The setting off is pixel-identical to master there;
 - F6 and the menu item, which are off on the title's menu and with the
   setting off, and Esc closing the screen without quitting.
 

@@ -6,6 +6,7 @@
 #include "save_slots.h"
 #include "types.h"
 #include "game/save_data.h"
+#include "game/build_deck_transition_state.h"
 #include "pc/cards/cards.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/platform.h"
@@ -29,7 +30,11 @@ unsigned Memories_PresentedFrames(void);
 #define MODE_CAMPAIGN 2
 #define MODE_CAMPAIGN_MAP 5
 #define MODE_FREE_DUEL 6
+#define MODE_BUILD_DECK 7
 #define MODE_MENU 8
+extern u8 gDuel_bEffectState; /* duel_effect.h: the card viewer and the like */
+void SD_BGMFadeOut(void);
+void Fade_WaitOut(void);
 
 /* The campaign's card shop (the only way to Build Deck in the present, which
  * has no map): Script_OpSavePrompt, scene-script command 13 in the low bits
@@ -58,7 +63,7 @@ extern s8 gDialog_bChoiceCount, gDialog_bChoice;
 enum { SOUND_MOVE = 6, SOUND_CONFIRM = 7, SOUND_CANCEL = 8, SOUND_BUZZER = 9 };
 
 enum { VIEW_CLOSED, VIEW_LIST, VIEW_CONFIRM, VIEW_MESSAGE };
-enum { ASK_SAVE, ASK_CLEAR };
+enum { ASK_SAVE, ASK_CLEAR, ASK_DISCARD };
 #define MONSTER_TYPE_END 20 /* types 0-19 are monsters, then magic, trap, ritual, equip */
 
 static struct {
@@ -95,6 +100,32 @@ static const char *identity(int id)
 
 static int game_loaded(void) { return workspace()->state.player_deck[0] != 0; }
 
+/* Build Deck, set up (0x40): its step table (duel_transition_step_table.c)
+ * waits for input in steps 2 and 3, one per pane; not while the not-ready
+ * confirm (0x4000), a pane's slide or an effect (the card viewer) runs. */
+static int build_deck_idle(void)
+{
+    const BuildDeckTransitionState *screen = gBuildDeck_pState;
+    unsigned step;
+    if ((D_8009B26C & 0x1F) != MODE_BUILD_DECK || !(D_8009B26C & 0x40) || !screen) return 0;
+    step = screen->state & 0x3F;
+    return (step == 2 || step == 3) && !(screen->state & 0x4000) && screen->transition_ticks == 0 &&
+           gDuel_bEffectState == 0;
+}
+
+/* Whether Build Deck holds changes it has not written yet. It works on a
+ * copy and writes the trunk and the deck back as it closes (func_800339D0),
+ * so while a trunk count differs from the save's, a card has moved. */
+static int build_deck_staged(void)
+{
+    const BuildDeckTransitionState *screen = gBuildDeck_pState;
+    int id;
+    for (id = CARD_ID_FIRST; id <= CARD_COUNT_LIVE; id++) {
+        if (screen->chest_card_quantities[id] != *Cards_ChestSlot(screen->deck_cards, id)) return 1;
+    }
+    return 0;
+}
+
 static int screen_allowed(int where)
 {
     int mode = D_8009B26C & 0x1F;
@@ -105,7 +136,28 @@ static int screen_allowed(int where)
         unsigned state = D_8009B27C;
         return (state & 0x1F) == SCRIPT_COMMAND_SHOP && (state & SHOP_OPEN) && !(state & SHOP_BUSY);
     }
+    if (mode == MODE_BUILD_DECK) return build_deck_idle();
     return mode == MODE_CAMPAIGN_MAP || mode == MODE_FREE_DUEL;
+}
+
+/* A deck used in Build Deck: the screen shows its copy of the old one, so
+ * it is made again from the save, as entering it does. Once the list is
+ * closed and its buttons are up (none of them reaches the new screen), the
+ * way out's music and fade (Main_RunBuildDeckMenu), then the mode published
+ * again: Main_Loop resets the screen's objects and effects
+ * (Main_ResetFrontendRuntime) and the mode's runner sets it up from the
+ * save (func_800323F8). Where it returns to (D_8009B269) and the shop's
+ * narrow dialogs (D_8009B2F8) are left as they were. */
+static int reopen_build_deck;
+
+static void reopen(void)
+{
+    reopen_build_deck = 0;
+    if ((D_8009B26C & 0x1F) != MODE_BUILD_DECK || !(D_8009B26C & 0x40)) return;
+    fprintf(stderr, "memories-pc: Build Deck made again from the save for the deck used\n");
+    SD_BGMFadeOut();
+    Fade_WaitOut();
+    D_8009B26C = MODE_BUILD_DECK;
 }
 
 /* The card shop's menu, string 0x11, with DECK SLOTS under BUILD DECK: the
@@ -242,7 +294,7 @@ static void show(void)
     holding = 1;
     menu.top = 0;
     if (!allowed) {
-        message(1, "Deck slots open on the main menu, the map, a card shop or Free Duel, with a game loaded.");
+        message(1, "Deck slots open on the main menu, the map, a card shop, Build Deck or Free Duel, with a game loaded.");
         return;
     }
     snprintf(relative, sizeof(relative), "decks/%08X.txt", (unsigned)workspace()->state.duelist_code);
@@ -304,7 +356,10 @@ static int store(void)
     return 0;
 }
 
-static void use(int slot)
+static void ask(int what);
+
+/* `discard`: the player said the cards moved in Build Deck may go back. */
+static void use(int slot, int discard)
 {
     char text[160], name[64];
     int card, count, result;
@@ -313,7 +368,9 @@ static void use(int slot)
         message(0, "This slot is empty. Square keeps your current deck in it.");
         return;
     }
-    if (menu.current[slot]) {
+    /* In Build Deck with cards moved, the save still has the deck from before
+     * them: using it is putting them back. */
+    if (menu.current[slot] && !(build_deck_idle() && build_deck_staged())) {
         SD_SEPlayFull(SOUND_BUZZER);
         message(0, "That is already your deck.");
         return;
@@ -334,10 +391,21 @@ static void use(int slot)
         message(0, text);
         return;
     }
-    DeckSlots_Use(workspace()->state.player_deck, &menu.slots[slot], trunk, NULL);
+    if (build_deck_idle() && build_deck_staged() && !discard) {
+        ask(ASK_DISCARD);
+        return;
+    }
+    if (!menu.current[slot]) DeckSlots_Use(workspace()->state.player_deck, &menu.slots[slot], trunk, NULL);
     fprintf(stderr, "memories-pc: deck slot %d is the deck now\n", slot + 1);
     SD_SEPlayFull(SOUND_CONFIRM);
     refresh();
+    if (build_deck_idle()) {
+        reopen_build_deck = 1;
+        snprintf(text, sizeof(text), "Your deck is now the one in slot %d. Build Deck opens again with it.",
+                 slot + 1);
+        message(1, text);
+        return;
+    }
     snprintf(text, sizeof(text), "Your deck is now the one in slot %d.", slot + 1);
     message(0, text);
 }
@@ -346,6 +414,12 @@ static void keep(int slot)
 {
     char text[96];
     DeckSlot before = menu.slots[slot];
+    if (build_deck_idle() && build_deck_staged()) {
+        /* The save still has the deck from before the cards moved. */
+        SD_SEPlayFull(SOUND_BUZZER);
+        message(0, "Build Deck writes the cards you moved as you leave it: leave it first to keep this deck.");
+        return;
+    }
     menu.slots[slot].used = 1;
     memcpy(menu.slots[slot].cards, workspace()->state.player_deck, sizeof(menu.slots[slot].cards));
     if (store()) {
@@ -406,6 +480,7 @@ static void press(unsigned pressed)
             changed();
         } else if (pressed & (PAD_CROSS | PAD_START)) {
             if (menu.ask == ASK_SAVE) keep(slot);
+            else if (menu.ask == ASK_DISCARD) use(slot, 1);
             else clear(slot);
         }
         return;
@@ -421,7 +496,7 @@ static void press(unsigned pressed)
         SD_SEPlayFull(SOUND_CANCEL);
         DeckMenu_Close();
     } else if (pressed & PAD_CROSS) {
-        use(slot);
+        use(slot, 0);
     } else if (pressed & PAD_SQUARE) {
         /* Ask before replacing a different deck; keeping the same one again
          * (in its new order) needs no question. */
@@ -452,6 +527,7 @@ void DeckMenu_Poll(int where)
         /* The game sees the pad again once the buttons that closed the menu
          * are up, so it does not take them as its own presses. */
         if (!bits) holding = 0;
+        if (reopen_build_deck && !holding) reopen();
         return;
     }
     /* A save state loaded, or the screen changed, under an open list: the
@@ -484,7 +560,7 @@ void DeckMenu_Frame(unsigned frame)
         /* Main_Loop is not running (the title's own loop, a jump to it, a
          * long disc wait): nothing can answer the screen, so it is not kept
          * open over the pads. */
-        if (requested) fprintf(stderr, "memories-pc: deck slots open on the main menu, the map, a card shop or Free Duel\n");
+        if (requested) fprintf(stderr, "memories-pc: deck slots open on the main menu, the map, a card shop, Build Deck or Free Duel\n");
         requested = 0;
         holding = 0;
         DeckMenu_Close();
@@ -613,8 +689,11 @@ void DeckMenu_Draw(MenuCanvas *canvas, int *x, int *y, int *w, int *h)
         int bw = 120 * s, bh = 108 * s, bx0 = px + 24 * s, by = py + (ph - bh) / 2, cw = pw - 48 * s, bx;
         const char *labels[2] = {"Yes", "No"};
         frame_box(canvas, bx0, by, cw, bh, s);
-        snprintf(line, sizeof(line), menu.ask == ASK_SAVE ? "Slot %d holds another deck. Replace it with yours?"
-                                                          : "Clear slot %d?", menu.cursor + 1);
+        snprintf(line, sizeof(line),
+                 menu.ask == ASK_SAVE      ? "Slot %d holds another deck. Replace it with yours?"
+                 : menu.ask == ASK_DISCARD ? "Put back the cards you moved in Build Deck and use slot %d?"
+                                           : "Clear slot %d?",
+                 menu.cursor + 1);
         centred(canvas, bx0, cw, by + 30 * s, line, COLOUR_TEXT);
         bx = bx0 + (cw - 2 * bw - 16 * s) / 2;
         for (i = 0; i < 2; i++) {
