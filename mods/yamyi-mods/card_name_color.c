@@ -47,6 +47,8 @@
 #include "types.h"
 #include "game/duel_effect.h"
 #include "game/duel_effect_command.h"
+#include "game/duel_effect_init_entry.h"
+#include "game/text_box_lifecycle.h"
 #include "pc/mods/modapi.h"
 
 #include <ctype.h>
@@ -99,9 +101,19 @@ unsigned Glyphs_Character(int code);
 
 static const MemoriesModHost *host;
 static void *original_func_80037DA4;
+static void *original_init_entry, *original_destroy;
 
-static u8 card_color[CARD_COUNT + 1];
-static u8 card_color_set[CARD_COUNT + 1];
+static u8 *card_color;
+static u8 *card_color_set;
+static int card_count;
+static u16 *drop_weights;
+static int drops_scanned;
+static void scan_drops(void);
+static int tier_score(int duelist, int pool, int weight);
+static int weight_for(int duelist, int pool, int id)
+{
+    return drop_weights[((duelist - 1) * RANK_COUNT + pool) * (card_count + 1) + id];
+}
 
 /* colours by name, from [Colors] */
 typedef struct {
@@ -113,6 +125,8 @@ static int color_name_count;
 static u8 custom_rgb[COLOR_COUNT][3];
 static u8 custom_set[COLOR_COUNT];
 static int ramps_done;
+static u32 original_ramps[COLOR_COUNT * RAMP_ENTRIES / 2];
+static int have_original_ramps;
 
 /* rarity tiers, from [tiers] */
 typedef struct {
@@ -139,8 +153,9 @@ static int duelist_count;   /* counted off the disc, not assumed */
 static long rank_mult[RANK_COUNT] = { MULT_ONE, MULT_ONE, MULT_ONE };
 
 typedef struct {
-    DuelEffectChannel *object;
+    u32 guest_offset; /* Save-safe offset in the fixed two-MiB guest RAM. */
     u8 saved_color;
+    u8 override_color;
     u8 active;
 } SavedNameColor;
 static SavedNameColor saved_colors[TRACKED_BOXES];
@@ -175,24 +190,27 @@ static void trim(char *s)
 /* "1", "1.5", "0.75" -> thousandths, so scoring stays in integers. */
 static long read_multiplier(const char *value)
 {
-    char *end;
-    long whole, frac = 0;
-    int digits = 0;
-
+    long whole = 0, frac = 0;
+    int digits = 0, any = 0;
     while (isspace((unsigned char)*value)) value++;
-    whole = strtol(value, &end, 10);
-    if (*end == '.') {
-        end++;
-        while (*end >= '0' && *end <= '9' && digits < 3) {
-            frac = frac * 10 + (*end - '0');
-            end++;
-            digits++;
+    if (*value == '+') value++;
+    while (isdigit((unsigned char)*value)) {
+        any = 1;
+        if (whole < 11) whole = whole * 10 + (*value - '0');
+        value++;
+    }
+    if (*value == '.') {
+        value++;
+        while (isdigit((unsigned char)*value)) {
+            any = 1;
+            if (digits < 3) { frac = frac * 10 + (*value - '0'); digits++; }
+            value++;
         }
     }
+    while (isspace((unsigned char)*value)) value++;
+    if (!any || *value) return MULT_ONE;
     while (digits++ < 3) frac *= 10;
-    if (whole < 0) return MULT_ONE;
-    whole = whole * MULT_ONE + frac;
-    return whole > MULT_MAX ? MULT_MAX : whole;
+    return whole >= 10 ? MULT_MAX : whole * MULT_ONE + frac;
 }
 
 /* A colour by name, or by its slot number. */
@@ -245,11 +263,14 @@ static void read_color_line(const char *key, const char *value)
         for (i = 0; i < 3; i++) {
             char *stop;
             long n;
-            while (*at && !isdigit((unsigned char)*at)) at++;
+            while (isspace((unsigned char)*at)) at++;
             n = strtol(at, &stop, 10);
             if (stop == at || n < 0 || n > 255) return;
             rgb[i] = (u8)n;
             at = stop;
+            while (isspace((unsigned char)*at)) at++;
+            if (i < 2) { if (*at != ',') return; at++; }
+            else if (*at != ')') return;
         }
         custom_rgb[slot][0] = rgb[0];
         custom_rgb[slot][1] = rgb[1];
@@ -412,7 +433,7 @@ static void read_file(FILE *file, int pass)
 
             if (end == line || *end != '\0')
                 id = Cards_Named(line);
-            if (id >= 1 && id <= CARD_COUNT && color >= 0) {
+            if (id >= 1 && id <= card_count && color >= 0) {
                 card_color[id] = (u8)color;
                 card_color_set[id] = 1;
             } else if (color >= 0) {
@@ -527,8 +548,13 @@ static int card_text(int id, char *out, size_t size, int ascii)
                 out[n++] = (char)(0xC0 | (c >> 6));
                 out[n++] = (char)(0x80 | (c & 0x3F));
             }
-        } else if (n + 3 < size) {
+        } else if (c < 0x10000 && n + 3 < size) {
             out[n++] = (char)(0xE0 | (c >> 12));
+            out[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
+            out[n++] = (char)(0x80 | (c & 0x3F));
+        } else if (c >= 0x10000 && c <= 0x10FFFF && n + 4 < size) {
+            out[n++] = (char)(0xF0 | (c >> 18));
+            out[n++] = (char)(0x80 | ((c >> 12) & 0x3F));
             out[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
             out[n++] = (char)(0x80 | (c & 0x3F));
         }
@@ -658,57 +684,24 @@ static void write_default_ini(void)
 /* ---- rarity -------------------------------------------------------------- */
 static void apply_tiers(void)
 {
-    static u8 block[DROP_BLOCK];
-    static u32 best[CARD_COUNT + 1];
-    /* Whether ANY pool lists the card at all, taken from the raw weight before
-     * the multipliers. A score of zero does not mean the same thing: a weight
-     * of 1 through a 0.25 opponent and a 0.5 pool floors to zero in integer
-     * maths, and that card is still winnable. */
-    static u8 droppable[CARD_COUNT + 1];
-    const long all = tier_multiplier("default");
-    int lba, opp, pool, i, t;
-
-    if (tier_count == 0 && default_color < 0 && undroppable_color < 0)
-        return;
-
-    lba = host->disc_file_start(host, WA_PATH);
-    if (lba < 0) {
-        host->log(host, "card-name-color: no %s on the disc", WA_PATH);
-        return;
-    }
-
-    memset(best, 0, sizeof best);
-    memset(droppable, 0, sizeof droppable);
-    for (opp = 1; opp <= duelist_count; opp++) {
-        const u32 dm = (u32)(duelist_mult[opp] != 0 ? duelist_mult[opp] : all);
-        if (host->disc_read(host,
-                            lba + DROPS_SECTOR + (opp - 1) * DROPS_STRIDE,
-                            DROPS_STRIDE, block) <= 0) {
-            host->log(host, "card-name-color: could not read opponent %d's drops", opp);
-            return;
-        }
-        for (pool = 0; pool < RANK_COUNT; pool++) {
-            const u8 *row = block + (size_t)(pool + 1) * DROP_ROW;
-            const u32 rm = (u32)rank_mult[pool];
-            for (i = 1; i <= CARD_COUNT; i++) {
-                const u32 w = (u32)(row[(i - 1) * 2] |
-                                    ((u32)row[(i - 1) * 2 + 1] << 8));
-                const u32 score = ((w * dm) / MULT_ONE) * rm / MULT_ONE;
-                if (w != 0)
-                    droppable[i] = 1;
-                if (score > best[i])
-                    best[i] = score;
+    int i, opp, pool, t;
+    if (drops_scanned != 1) return;
+    for (i = 1; i <= card_count; i++) {
+        int best = 0, droppable = 0;
+        for (opp = 1; opp <= duelist_count; opp++) {
+            for (pool = 0; pool < RANK_COUNT; pool++) {
+                int weight = weight_for(opp, pool, i);
+                int score = tier_score(opp, pool, weight);
+                if (weight) droppable = 1;
+                if (score > best) best = score;
             }
         }
-    }
-
-    for (i = 1; i <= CARD_COUNT; i++) {
         int chosen = default_color;
         long rarest = -1;
 
         if (card_color_set[i])          /* [cards] wins */
             continue;
-        if (!droppable[i] && undroppable_color >= 0) {
+        if (!droppable && undroppable_color >= 0) {
             /* No opponent lists it in any pool: it cannot be won at all, so
              * it is given its own colour rather than falling into the rarest
              * tier and crowding it. */
@@ -719,7 +712,7 @@ static void apply_tiers(void)
         for (t = 0; t < tier_count; t++) {
             if (!tiers[t].has_threshold || !tiers[t].has_color)
                 continue;
-            if ((long)best[i] <= tiers[t].threshold &&
+            if ((long)best <= tiers[t].threshold &&
                 (rarest < 0 || tiers[t].threshold < rarest)) {
                 rarest = tiers[t].threshold;
                 chosen = tiers[t].color;
@@ -735,13 +728,22 @@ static void apply_tiers(void)
 }
 
 /* ---- the ramps ----------------------------------------------------------- */
+static int read_original_ramps(void)
+{
+    u32 sector[512];
+    int lba = host->disc_file_start(host, WA_PATH);
+    if (lba < 0 || host->disc_read(host, lba + RAMP_SECTOR, 1, sector) <= 0) return 0;
+    memcpy(original_ramps, sector, sizeof original_ramps);
+    have_original_ramps = 1;
+    return 1;
+}
+
 static void upload_ramps(void)
 {
-    static u32 sector[512];
     u16 base[RAMP_ENTRIES];
     u16 ramp[RAMP_ENTRIES];
     ModRect rect;
-    int lba, slot, i, wanted = 0;
+    int slot, i, wanted = 0;
 
     ramps_done = 1;
     for (slot = 0; slot < COLOR_COUNT; slot++)
@@ -749,14 +751,8 @@ static void upload_ramps(void)
     if (wanted == 0)
         return;
 
-    lba = host->disc_file_start(host, WA_PATH);
-    if (lba < 0)
-        return;
-    if (host->disc_read(host, lba + RAMP_SECTOR, 1, sector) <= 0) {
-        host->log(host, "card-name-color: could not read the text ramps");
-        return;
-    }
-    memcpy(base, sector, sizeof base);   /* slot 0: the luminance ramp */
+    if (!read_original_ramps()) return;
+    memcpy(base, original_ramps, sizeof base); /* slot 0: luminance ramp */
 
     for (slot = 0; slot < COLOR_COUNT; slot++) {
         if (!custom_set[slot])
@@ -771,6 +767,8 @@ static void upload_ramps(void)
                             (((lum * custom_rgb[slot][1]) / 255u) << 5) |
                              ((lum * custom_rgb[slot][0]) / 255u));
         }
+        for (i = 0; i < RAMP_ENTRIES; i++)
+            if (base[i] && !ramp[i]) ramp[i] = 0x8000;
         rect.x = RAMP_VX;
         rect.y = (s16)(RAMP_VY + slot);
         rect.w = RAMP_ENTRIES;
@@ -787,7 +785,7 @@ static SavedNameColor *find_saved_color(DuelEffectChannel *object)
 {
     int i;
     for (i = 0; i < TRACKED_BOXES; i++)
-        if (saved_colors[i].active && saved_colors[i].object == object)
+        if (saved_colors[i].active && saved_colors[i].guest_offset == (u32)(uintptr_t)object - 0x80000000u)
             return &saved_colors[i];
     return NULL;
 }
@@ -795,11 +793,14 @@ static SavedNameColor *find_saved_color(DuelEffectChannel *object)
 static void remember_name_color(DuelEffectChannel *object)
 {
     int i;
+    if ((uintptr_t)object < 0x80000000u ||
+        (uintptr_t)object > 0x80200000u - sizeof(*object)) return;
     if (find_saved_color(object) != NULL)
         return;
     for (i = 0; i < TRACKED_BOXES; i++) {
         if (!saved_colors[i].active) {
-            saved_colors[i].object = object;
+            saved_colors[i].guest_offset = (u32)(uintptr_t)object - 0x80000000u;
+            saved_colors[i].override_color = card_color[gDuel_wSelectedCardID];
             saved_colors[i].saved_color = object->field_54;
             saved_colors[i].active = 1;
             return;
@@ -812,9 +813,25 @@ static void restore_name_color(DuelEffectChannel *object)
     SavedNameColor *slot = find_saved_color(object);
     if (slot == NULL)
         return;
-    object->field_54 = slot->saved_color;
+    if (object->field_54 == slot->override_color)
+        object->field_54 = slot->saved_color;
     slot->active = 0;
-    slot->object = NULL;
+    slot->guest_offset = 0;
+}
+
+/* A channel can be reused without issuing a description command. Forget its
+ * previous name colour at the same boundary that resets the game's channel. */
+static DuelEffectChannel *init_entry(s32 index, s32 value, s32 flags)
+{
+    DuelEffectChannel *object = ((DuelEffectChannel *(*)(s32,s32,s32))original_init_entry)(index, value, flags);
+    SavedNameColor *slot = find_saved_color(object);
+    if (slot) memset(slot, 0, sizeof(*slot));
+    return object;
+}
+static void destroy_box(DuelEffectChannel *object)
+{
+    restore_name_color(object);
+    ((void (*)(DuelEffectChannel *))original_destroy)(object);
 }
 
 static void ensure_config(void);
@@ -831,19 +848,21 @@ static void process_text_command(DuelEffectChannel *object)
     command = *current;
 
     original = (void (*)(DuelEffectChannel *))original_func_80037DA4;
+    restore_name_color(object);
     original(object);
+    if (!host->setting(host, "colors", 1)) return;
 
     id = gDuel_wSelectedCardID;
     ensure_config();
 
-    if ((command & 0x20) != 0) {
+    if ((command & 0x10) == 0 && (command & 0x20) != 0) {
         /* The original handler has now selected the card-name text. Save the
          * colour the game chose and replace it only for the name. */
-        if (id >= 1 && id <= CARD_COUNT && card_color_set[id]) {
+        if (id >= 1 && id <= card_count && card_color_set && card_color_set[id]) {
             if (!ramps_done)
                 upload_ramps();
             remember_name_color(object);
-            object->field_54 = card_color[id];
+            if (find_saved_color(object)) object->field_54 = card_color[id];
         }
     } else if ((command & 0x40) != 0) {
         /* The same box is switching to the description: put back whatever
@@ -871,22 +890,37 @@ static void ensure_config(void)
         return;
     if (gCard_nCount <= 0)
         return;                     /* cards not built yet; try again later */
+    card_count = gCard_nCount;
+    card_color = calloc((size_t)card_count + 1, 1);
+    card_color_set = calloc((size_t)card_count + 1, 1);
+    if (!card_color || !card_color_set) {
+        free(card_color); free(card_color_set);
+        card_color = card_color_set = NULL;
+        return;
+    }
     config_done = 1;
-
+    { int i; for (i = 0; i <= DUELIST_MAX; i++) duelist_mult[i] = -1; }
     {
         const int lba = host->disc_file_start(host, WA_PATH);
         duelist_count = lba >= 0 ? count_duelists(lba) : 0;
     }
     load_ini();
+    scan_drops();
     apply_tiers();
 }
 
 static void drop_panel_reset(void);
+static void restore_boxes(void);
+static void colors_removed(void);
 
 /* A save state restores VRAM too, so the ramps have to go back. */
 static void on_state_loaded(void)
 {
-    ramps_done = 0;
+    ensure_config();
+    /* A startup load can contain our palette before this process ever drew
+     * a name. Restore the disc baseline even when colours are switched off. */
+    if (config_done) read_original_ramps();
+    colors_removed();
     drop_panel_reset();
 }
 
@@ -903,7 +937,7 @@ static int tier_score(int duelist, int pool, int weight)
     if (duelist < 0 || duelist > DUELIST_MAX || pool < 0 || pool >= RANK_COUNT ||
         weight <= 0)
         return 0;
-    dm = duelist_mult[duelist] != 0 ? duelist_mult[duelist] : tier_multiplier("default");
+    dm = duelist_mult[duelist] >= 0 ? duelist_mult[duelist] : tier_multiplier("default");
     rm = rank_mult[pool];
     return (int)((((long)weight * dm) / MULT_ONE) * rm / MULT_ONE);
 }
@@ -964,21 +998,9 @@ int Menu_Height(void);
 
 static void *orig_dispatch;
 
-typedef struct {
-    u8 duelist;
-    u8 pool;
-    u16 weight;
-} Source;
-
-/* Every duelist that drops a card, not just the best few: the table can be
- * ordered by any column, and a duelist well down the list by weight can be at
- * the top of it by score. */
-static Source sources[CARD_COUNT + 1][DUELIST_MAX];
-static u8 source_count[CARD_COUNT + 1];
-static int drops_scanned;          /* 0 not yet, 1 done, -1 failed */
-
 enum { SORT_WEIGHT, SORT_SCORE, SORT_DUELIST, SORT_POOL };
 static int opt_drops = 1;
+static int opt_score = 1;
 static int opt_rows = 3;
 static int opt_sort = SORT_WEIGHT;
 static int opt_x = 8;
@@ -990,68 +1012,31 @@ static int opt_y = 8;
 static void scan_drops(void)
 {
     static u8 block[DROP_BLOCK];
-    static u16 retail[RANK_COUNT][CARD_COUNT];
+    static u16 retail[CARD_COUNT];
     const int lba = host->disc_file_start(host, WA_PATH);
-    int opp;
-
-    if (lba < 0) {
-        host->log(host, "card-name-color: no %s on the disc", WA_PATH);
-        drops_scanned = -1;
-        return;
-    }
-
-    for (opp = 1; opp <= DUELIST_MAX; opp++) {
-        const u16 *pool_weights[RANK_COUNT];
-        int pool, i, ok = 1;
-
+    int opp, pool, i;
+    drops_scanned = -1;
+    if (lba < 0 || duelist_count <= 0) return;
+    drop_weights = calloc((size_t)duelist_count * RANK_COUNT * (card_count + 1), sizeof(u16));
+    if (!drop_weights) return;
+    for (opp = 1; opp <= duelist_count; opp++) {
         if (host->disc_read(host, lba + DROPS_SECTOR + (opp - 1) * DROPS_STRIDE,
-                            DROPS_STRIDE, block) <= 0)
-            break;
-
-        /* Every real block's four rows each add up to 2048. */
-        for (pool = 0; pool < 4 && ok; pool++) {
-            unsigned long sum = 0;
-            for (i = 0; i < CARD_COUNT; i++)
-                sum += (unsigned)(block[pool * DROP_ROW + i * 2] |
-                                  ((unsigned)block[pool * DROP_ROW + i * 2 + 1] << 8));
-            if (sum != (unsigned long)WEIGHT_TOTAL)
-                ok = 0;
+                            DROPS_STRIDE, block) <= 0) {
+            free(drop_weights); drop_weights = NULL;
+            return;
         }
-        if (!ok)
-            break;
-
         for (pool = 0; pool < RANK_COUNT; pool++) {
-            const u8 *row = block + (size_t)(pool + 1) * DROP_ROW;
+            const u8 *row = block + (pool + 1) * DROP_ROW;
+            const u16 *edited;
             for (i = 0; i < CARD_COUNT; i++)
-                retail[pool][i] = (u16)(row[i * 2] | ((unsigned)row[i * 2 + 1] << 8));
-            pool_weights[pool] = Tables_PoolFor(opp, TABLES_POOL_POW + pool,
-                                                retail[pool]);
-        }
-
-        for (i = 1; i <= CARD_COUNT; i++) {
-            u16 best = 0;
-            int best_pool = 0;
-            for (pool = 0; pool < RANK_COUNT; pool++) {
-                const u16 *edited = pool_weights[pool];
-                /* Tables_PoolFor answers by card id; the disc's row by id - 1. */
-                const u16 w = edited != NULL ? edited[i] : retail[pool][i - 1];
-                if (w > best) {
-                    best = w;
-                    best_pool = pool;
-                }
-            }
-            /* One entry per duelist, carrying its best pool of the three. */
-            if (best == 0 || source_count[i] >= DUELIST_MAX)
-                continue;
-            sources[i][source_count[i]].duelist = (u8)opp;
-            sources[i][source_count[i]].pool = (u8)best_pool;
-            sources[i][source_count[i]].weight = best;
-            source_count[i]++;
+                retail[i] = (u16)(row[i * 2] | ((unsigned)row[i * 2 + 1] << 8));
+            edited = Tables_PoolFor(opp, TABLES_POOL_POW + pool, retail);
+            for (i = 1; i <= card_count; i++)
+                drop_weights[((opp - 1) * RANK_COUNT + pool) * (card_count + 1) + i] =
+                    edited ? edited[i] : i <= CARD_COUNT ? retail[i - 1] : 0;
         }
     }
-
     drops_scanned = 1;
-    host->log(host, "card-name-color: drop panel read %d opponents", duelist_count);
 }
 
 static void duelist_name(int duelist, char *out, size_t size)
@@ -1103,25 +1088,28 @@ static int picked_by(const Row *a, const Row *b)
 static void build_rows(int id)
 {
     static Row all[DUELIST_MAX];
-    const Source *list = sources[id];
-    const int have = source_count[id];
-    int i, j, taken;
-
-    row_total = have;
+    int have = 0, opp, pool, i, j, taken;
     row_count = 0;
     shown_ok = card_text(id, shown_name, sizeof shown_name, 1);
-    if (!shown_ok)
-        return;
-
-    for (i = 0; i < have && i < DUELIST_MAX; i++) {
-        duelist_name(list[i].duelist, all[i].name, sizeof all[i].name);
-        snprintf(all[i].weight, sizeof all[i].weight, "%d/2048", (int)list[i].weight);
-        all[i].by_weight = (int)list[i].weight;
-        all[i].by_score = tier_score(list[i].duelist, list[i].pool,
-                                     (int)list[i].weight);
-        snprintf(all[i].score, sizeof all[i].score, "%d", all[i].by_score);
-        all[i].pool = list[i].pool;
+    if (!shown_ok) return;
+    for (opp = 1; opp <= duelist_count; opp++) {
+        int best_weight = 0, best_score = -1, best_pool = 0;
+        for (pool = 0; pool < RANK_COUNT; pool++) {
+            int weight = weight_for(opp, pool, id);
+            int score = tier_score(opp, pool, weight);
+            if (weight && (opt_sort == SORT_SCORE ? score > best_score : weight > best_weight)) {
+                best_weight = weight; best_score = score; best_pool = pool;
+            }
+        }
+        if (!best_weight) continue;
+        duelist_name(opp, all[have].name, sizeof all[have].name);
+        snprintf(all[have].weight, sizeof all[have].weight, "%d/2048", best_weight);
+        all[have].by_weight = best_weight;
+        all[have].by_score = best_score;
+        snprintf(all[have].score, sizeof all[have].score, "%d", best_score);
+        all[have++].pool = best_pool;
     }
+    row_total = have;
 
     /* Take the best few, then put those in the order the column asks for.
      * Selection sort over at most 64 candidates for at most 20 rows. */
@@ -1163,7 +1151,7 @@ static int cursor_card(void)
     if ((D_800EA1E8[0] & 0xF) != LIBRARY_GRID)
         return 0;
     id = (int)Library_GetGridCursorCardId(D_800EA1E8);
-    if (id < 1 || id > CARD_COUNT)
+    if (id < 1 || id > gCard_nCount)
         return 0;
     /* Nothing is said about a card the Library itself does not show yet: the
      * panel would be telling the player what is in a cell they cannot see. */
@@ -1176,6 +1164,7 @@ static void read_panel_settings(void)
 {
     const int was_rows = opt_rows, was_sort = opt_sort;
 
+    opt_score = host->setting(host, "show_score", 1);
     opt_drops = host->setting(host, "drops", 1);
     opt_rows = host->setting(host, "drop_rows", 3);
     if (opt_rows < 1) opt_rows = 1;
@@ -1184,8 +1173,10 @@ static void read_panel_settings(void)
     if (opt_sort < 0 || opt_sort > SORT_POOL) opt_sort = SORT_WEIGHT;
     opt_x = host->setting(host, "drop_x", 8);
     if (opt_x < 0) opt_x = 0;
+    if (opt_x > 1000) opt_x = 1000;
     opt_y = host->setting(host, "drop_y", 8);
     if (opt_y < 0) opt_y = 0;
+    if (opt_y > 800) opt_y = 800;
 
     if (opt_rows != was_rows || opt_sort != was_sort)
         shown_id = 0;              /* the table has to be built again */
@@ -1206,8 +1197,6 @@ static void library_frame(void)
     if (id == 0)
         return;
     ensure_config();               /* the multipliers the score needs */
-    if (drops_scanned == 0 && gCard_nCount > 0)
-        scan_drops();
     if (drops_scanned != 1 || id == shown_id)
         return;
     shown_id = id;
@@ -1249,11 +1238,11 @@ static unsigned head_colour(int column)
 
 static void panel(void)
 {
-    char number[16], footer[64];
+    char number[16], footer[64], title[64];
     int width, height, scale, bar;
     int w_name, w_pool, w_weight, w_score, w_title, w_foot, w_body;
     int pad, gap, line, rule, box_w, box_h, x, y, cy, i;
-    int at_name, at_pool, end_weight, end_score;
+    int at_name, at_pool, end_weight, end_score, visible;
 
     host->overlay_size(host, &width, &height, &scale);
     if (scale < 1)
@@ -1261,12 +1250,21 @@ static void panel(void)
     if (width <= 0 || height <= 0)
         return;
 
+    bar = Menu_Height();
+    while (scale > 1 && (width < 520 * scale || height - bar < 140 * scale)) scale--;
+    if (width < 300 * scale || height - bar < 100 * scale) return;
+    visible = (height - bar - 85 * scale) / (16 * scale);
+    if (visible > row_count) visible = row_count;
+    if (visible < 0) visible = 0;
+    snprintf(title, sizeof title, "%s", shown_name);
+    while (title[0] && host->text_width(host, title, scale) > width - 90 * scale)
+        title[strlen(title) - 1] = 0;
     snprintf(number, sizeof number, "#%d", shown_id);
     if (row_total == 0)
         snprintf(footer, sizeof footer, "No duelist drops this card");
-    else if (row_total > row_count)
+    else if (row_total > visible)
         snprintf(footer, sizeof footer, "and %d more duelist%s",
-                 row_total - row_count, row_total - row_count == 1 ? "" : "s");
+                 row_total - visible, row_total - visible == 1 ? "" : "s");
     else
         footer[0] = '\0';
 
@@ -1275,7 +1273,7 @@ static void panel(void)
     w_pool = host->text_width(host, HEAD_POOL, scale);
     w_weight = host->text_width(host, HEAD_WEIGHT, scale);
     w_score = host->text_width(host, HEAD_SCORE, scale);
-    for (i = 0; i < row_count; i++) {
+    for (i = 0; i < visible; i++) {
         w_name = widest(w_name, host->text_width(host, rows[i].name, scale));
         w_pool = widest(w_pool, host->text_width(host, POOL_NAME(rows[i].pool), scale));
         w_weight = widest(w_weight, host->text_width(host, rows[i].weight, scale));
@@ -1287,13 +1285,14 @@ static void panel(void)
     gap = 12 * scale;
     rule = scale;
 
-    w_title = host->text_width(host, shown_name, scale) + gap +
+    w_title = host->text_width(host, title, scale) + gap +
               host->text_width(host, number, scale);
     w_foot = footer[0] ? host->text_width(host, footer, scale) : 0;
-    w_body = row_count ? w_name + gap + w_pool + gap + w_weight + gap + w_score : 0;
+    w_body = visible ? w_name + gap + w_pool + gap + w_weight + (opt_score ? gap + w_score : 0) : 0;
     box_w = widest(widest(w_body, w_title), w_foot) + pad * 2;
+    if (box_w > width) return;
     box_h = pad + line
-          + (row_count ? rule + line + row_count * line : 0)
+          + (visible ? rule + line + visible * line : 0)
           + (footer[0] ? rule + line : 0)
           + pad;
 
@@ -1315,7 +1314,7 @@ static void panel(void)
     host->fill(host, x + box_w - rule, y, rule, box_h, COL_BORDER, 255);
 
     cy = y + pad;
-    host->draw_text(host, x + pad, cy + line / 2, shown_name, COL_TITLE, scale);
+    host->draw_text(host, x + pad, cy + line / 2, title, COL_TITLE, scale);
     host->draw_text(host, x + box_w - pad - host->text_width(host, number, scale),
                     cy + line / 2, number, COL_NUMBER, scale);
     cy += line;
@@ -1325,7 +1324,7 @@ static void panel(void)
     end_weight = at_pool + w_pool + gap + w_weight;
     end_score = end_weight + gap + w_score;
 
-    if (row_count) {
+    if (visible) {
         host->fill(host, x + rule, cy, box_w - rule * 2, rule, COL_RULE, 255);
         cy += rule;
         host->draw_text(host, at_name, cy + line / 2, HEAD_NAME,
@@ -1334,11 +1333,11 @@ static void panel(void)
                         head_colour(SORT_POOL), scale);
         host->draw_text(host, end_weight - host->text_width(host, HEAD_WEIGHT, scale),
                         cy + line / 2, HEAD_WEIGHT, head_colour(SORT_WEIGHT), scale);
-        host->draw_text(host, end_score - host->text_width(host, HEAD_SCORE, scale),
+        if (opt_score) host->draw_text(host, end_score - host->text_width(host, HEAD_SCORE, scale),
                         cy + line / 2, HEAD_SCORE, head_colour(SORT_SCORE), scale);
         cy += line;
 
-        for (i = 0; i < row_count; i++) {
+        for (i = 0; i < visible; i++) {
             /* Every other row lifted a little, so the eye keeps its line
              * across four columns without a ruling between them. */
             if (i & 1)
@@ -1349,7 +1348,7 @@ static void panel(void)
             host->draw_text(host,
                             end_weight - host->text_width(host, rows[i].weight, scale),
                             cy + line / 2, rows[i].weight, COL_WEIGHT, scale);
-            host->draw_text(host,
+            if (opt_score) host->draw_text(host,
                             end_score - host->text_width(host, rows[i].score, scale),
                             cy + line / 2, rows[i].score, COL_SCORE, scale);
             cy += line;
@@ -1373,7 +1372,7 @@ static void drop_panel_reset(void)
 static int panel_live(void)
 {
     return opt_drops && drops_scanned == 1 && shown_ok &&
-           shown_id >= 1 && shown_id <= CARD_COUNT && cursor_card() == shown_id;
+           shown_id >= 1 && shown_id <= card_count && cursor_card() == shown_id;
 }
 
 static void drop_overlay(void)
@@ -1386,11 +1385,54 @@ static unsigned drop_overlay_signature(void)
 {
     if (!panel_live())
         return 0;
-    return (unsigned)(shown_id * 128 + opt_rows * 8 + opt_sort * 2 + 1) ^
-           ((unsigned)opt_x << 20) ^ ((unsigned)opt_y << 26);
+    {
+        unsigned h = 2166136261u;
+        h = (h ^ (unsigned)shown_id) * 16777619u;
+        h = (h ^ (unsigned)opt_rows) * 16777619u;
+        h = (h ^ (unsigned)opt_sort) * 16777619u;
+        h = (h ^ (unsigned)opt_score) * 16777619u;
+        h = (h ^ (unsigned)opt_x) * 16777619u;
+        return (h ^ (unsigned)opt_y) * 16777619u;
+    }
 }
 
-int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
+static void restore_boxes(void)
+{
+    int i;
+    for (i = 0; i < TRACKED_BOXES; i++) {
+        SavedNameColor *slot = &saved_colors[i];
+        if (slot->active && slot->guest_offset <= 0x200000u - sizeof(DuelEffectChannel))
+            restore_name_color((DuelEffectChannel *)(uintptr_t)(0x80000000u + slot->guest_offset));
+    }
+    memset(saved_colors, 0, sizeof saved_colors);
+}
+static void colors_removed(void)
+{
+    ModRect rect = {RAMP_VX, RAMP_VY, RAMP_ENTRIES, COLOR_COUNT};
+    restore_boxes();
+    if (have_original_ramps) {
+        int slot;
+        rect.h = 1;
+        for (slot = 0; slot < COLOR_COUNT; slot++) {
+            if (!custom_set[slot]) continue;
+            rect.y = (s16)(RAMP_VY + slot);
+            LoadImage(&rect, original_ramps + slot * RAMP_ENTRIES / 2);
+        }
+        DrawSync(0);
+    }
+    ramps_done = 0;
+    have_original_ramps = 0;
+}
+static void colors_frame(void)
+{
+    if (!host->setting(host, "colors", 1)) colors_removed();
+}
+static void colors_applied(int on)
+{
+    if (!on) { colors_removed(); drop_panel_reset(); }
+}
+
+int YamyiColors_Init(const MemoriesModHost *from, MemoriesMod *mod)
 {
     int token;
 
@@ -1399,6 +1441,7 @@ int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
 
     host = from;
     memset(saved_colors, 0, sizeof saved_colors);
+    if (!host->register_state(host, saved_colors, sizeof saved_colors, 1)) return 0;
 
     token = host->hook(host, (void *)func_80037DA4,
                        (void *)process_text_command, &original_func_80037DA4);
@@ -1407,14 +1450,18 @@ int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
         return 0;
     }
 
-    /* The drop panel. Its own hook, so the colours still work if the Library
-     * screen is not what this build has. */
+    if (!host->hook(host, (void *)DuelEffect_InitEntry, (void *)init_entry, &original_init_entry) ||
+        !host->hook(host, (void *)TextBox_Destroy, (void *)destroy_box, &original_destroy)) return 0;
+
+    /* A package requires all its advertised features to load. */
     if (host->hook(host, (void *)func_8002BAB4, (void *)library_frame,
                    &orig_dispatch) == 0)
-        host->log(host, "card-name-color: no drop panel (func_8002BAB4)");
+        return 0;
 
     mod->api = MEMORIES_MOD_API;
     mod->reset = on_state_loaded;
+    mod->frame = colors_frame;
+    mod->applied = colors_applied;
     mod->overlay = drop_overlay;
     mod->overlay_signature = drop_overlay_signature;
     return 1;

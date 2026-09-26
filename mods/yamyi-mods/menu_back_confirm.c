@@ -58,8 +58,8 @@
  *     and which are the game's own text colours;
  *   - the block is byte-identical in both captures, so it is resident here.
  *
- * Nothing is uploaded and nothing is allocated: every texel this draws is
- * already in VRAM, put there by the boot sequence. GsSortPoly copies a
+ * The frame art is loaded once from the disc and uploaded when opened.
+ * GsSortPoly copies a
  * primitive into its own packet buffer before linking it (src/pc/sdk/libgs.c),
  * so the primitives below can be locals and need no guest-addressable arena.
  *
@@ -235,7 +235,6 @@ static int glyph_cell(unsigned char c)
 #define SE_MOVE 6
 #define SE_BACK 8
 #define SE_REFUSED 9
-#define ALIVE_FRAMES 2
 
 enum { SEL_YES = 0, SEL_NO = 1 };
 
@@ -247,7 +246,8 @@ static int s_open;
 static int s_art;        /* 0 not tried, 1 loaded, -1 failed: flat quads */
 static u32 *s_sheet;     /* the sheet and both palettes, kept in RAM */
 static int s_sel;
-static int s_alive;
+extern u8 D_8009B26C[];
+int DeckMenu_Active(void);
 static unsigned s_sig;
 
 /* ---- drawing ------------------------------------------------------------ */
@@ -289,6 +289,7 @@ static void glyph(int x, int y, int cell, int tint, unsigned pri)
     p.code = CODE_FT4;
     /* Neutral modulation: the colour comes from the ramp the CLUT selects. */
     p.r0 = 0x80; p.g0 = 0x80; p.b0 = 0x80;
+    if (tint < 0 || tint > 6) tint = 0;
     p.clut = CLUT_WORD(tint);
     p.tpage = FONT_TPAGE;
     p.pad1 = 0;
@@ -548,7 +549,6 @@ static void prompt_close(void)
         return;
     }
     s_open = 0;
-    s_alive = 0;
     s_sig++;
 }
 
@@ -558,7 +558,6 @@ static void prompt_open(void)
     upload_art();
     s_open = 1;
     s_sel = host->setting(host, "default_answer", SEL_NO) == SEL_YES ? SEL_YES : SEL_NO;
-    s_alive = ALIVE_FRAMES;
     s_sig++;
 }
 
@@ -571,7 +570,7 @@ static void leave_to_title(void)
 
 static int port_ui_open(void)
 {
-    return SaveMenu_Active() || Menu_IsOpen();
+    return SaveMenu_Active() || Menu_IsOpen() || DeckMenu_Active();
 }
 
 /* MainMenu_StartFrontendEntryTransition. Mode 1 with the leave flag set and
@@ -585,6 +584,10 @@ static void transition(s32 mode)
      * from that overlay's own Circle, not from the wheel. Take it back
      * without asking: the player was closing a menu, not leaving the game.
      * Stock would drop to the title here. */
+    if (!host->setting(host, "confirm_exit", 1)) {
+        ((void (*)(s32))orig_transition)(mode);
+        return;
+    }
     if (leaving && port_ui_open()) {
         D_80184595 = 0;
         return;
@@ -614,12 +617,11 @@ static s32 update_frontend(void)
     s32 result;
 
     /* An overlay opening over the prompt takes the input with it. */
-    if (s_open && port_ui_open()) {
+    if (s_open && (port_ui_open() || !host->setting(host, "confirm_exit", 1))) {
         prompt_close();
     }
 
     if (s_open) {
-        s_alive = ALIVE_FRAMES;
 
         if ((pressed & PAD_DIRECTION_LEFT) != 0 && s_sel != SEL_YES) {
             s_sel = SEL_YES;
@@ -671,7 +673,8 @@ static s32 update_frontend(void)
 
 static void frame(void)
 {
-    if (s_open && --s_alive <= 0) {
+    if (s_open && ((D_8009B26C[0] & 0x1f) != 8 ||
+                   !host->setting(host, "confirm_exit", 1))) {
         prompt_close();
     }
 }
@@ -688,7 +691,7 @@ static void reset(void)
     prompt_close();
 }
 
-int MemoriesModInit(const MemoriesModHost *from, MemoriesMod *mod)
+int YamyiConfirm_Init(const MemoriesModHost *from, MemoriesMod *mod)
 {
     if (from->api < 4) {
         return 0;
