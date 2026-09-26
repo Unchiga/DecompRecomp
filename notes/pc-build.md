@@ -1606,7 +1606,13 @@ What differs from Linux, and why:
   page 64 KiB above the game stack's bottom, below `DeallocationStack` so
   that Windows and Wine take it for a plain guard page and not stack growth,
   turns an overflow into a report; running off the end left no stack to
-  deliver the exception on, and the process just ended.
+  deliver the exception on, and the process just ended. A context is the
+  stack pointer of a suspended switch, with the registers kept on that
+  stack; unlike a ucontext, it is gone once that stack is used again. So a
+  state load enters the game through a switch too (`apply`, `resume_game`),
+  which takes the service context again each time: resuming the startup
+  one after `apply` had run over it crashed every second load of a session
+  (EBP 0 at `Memories_StateRunGame`).
 - **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`
   labels are renamed to match. No GNU linker script: pins are absolute
   symbols from `guest_symbols.s`, and the game units' COMMON symbols for
