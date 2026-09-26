@@ -1719,6 +1719,14 @@ What differs from Linux, and why:
   which takes the service context again each time: resuming the startup
   one after `apply` had run over it crashed every second load of a session
   (EBP 0 at `Memories_StateRunGame`).
+- **Icon.** The window and the taskbar show the game's memory card icon,
+  the one its saves carry (Yugi, frame 0 of three), decoded from the save
+  header template `gSaveData_aHeaderTemplate` of the game being played
+  (`src/pc/platform/save_icon.c`) and pixel-doubled to 32, 48 and 64. On
+  Windows the executable carries it too: `build_game32.py` (`exe_icon`)
+  makes `icon.ico` from `game/SLUS_014.11` and links it in as a resource
+  through windres. Nothing of the game's is in the repository; without the
+  game files or windres, the executable has no icon.
 - **Link (lld, PE).** C symbols carry a leading underscore; `asm("name")`
   labels are renamed to match. No GNU linker script: pins are absolute
   symbols from `guest_symbols.s`, and the game units' COMMON symbols for
