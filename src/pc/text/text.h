@@ -20,6 +20,13 @@ void Text_SortCards(void);
 /* The text for string `id`: a mod's, else `retail`. */
 const unsigned char *Text_Resolve(int id, const unsigned char *retail);
 
+/* Whether an applied mod's text rewrites string `id`. */
+int Text_Overridden(int id);
+/* String `id` of a listing the port writes itself (a menu it adds an entry
+ * to), compiled as a mod's text is, so that its jumps land (Text_Retarget);
+ * it stands in for nothing by itself. NULL if it does not compile. */
+const unsigned char *Text_CompileOwn(const char *listing, int id);
+
 /* Where a jump from the stream at `cursor` to `target` lands: into the
  * translation `cursor` is in, by the translation's own targets, or, for the
  * game's own text, `target` in the cursor's 64 KB bank. */

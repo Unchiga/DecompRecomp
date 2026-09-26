@@ -497,6 +497,23 @@ Changes are made where `Main_Loop` or that loop is between two steps.
 Elsewhere (Build Deck works on its own copy), the screen says where it
 opens. The setting `deck_slots` (Game > Use deck slots) turns it off.
 
+The card shop's own menu also offers it: DECK SLOTS under BUILD DECK.
+`Script_OpSavePrompt` asks `DeckMenu_ShopMenu` as it makes the menu (a row
+taller) and hands the choice to the screen; the rest of its code keeps
+numbering its four entries (`DeckMenu_ShopChoice`). The menu's text,
+string 0x11, is the retail listing with the line added, compiled as a
+mod's text is (`Text_CompileOwn`) so its `{choose}` jumps land. The game
+keeps four entries' worth of enabled bits (`Text_HandleChoiceCommand`), so
+wherever it sets the menu's choices up (after its text, the memory card and
+the title confirm) `DeckMenu_ShopRestore` moves the last two down and
+turns the new one on. With the setting off, or a translation that rewrites
+string 0x11, the menu is the game's. Checked on a save in the tournament's
+shop: the setting off is pixel-identical to master (the menu, and the cursor
+on LEAVE SHOP); DECK SLOTS opens the screen, and Circle brings the menu back
+with the cursor on it; LEAVE SHOP has its normal highlight and leaves;
+RETURN TO TITLE's No returns to it; SAVE cancelled, then LEAVE SHOP;
+BUILD DECK opens.
+
 The slots are kept in `decks/<duelist code>.txt` in the user folder, one
 file per game, as text. Each line is `slot: forty cards`, a retail id or, for
 a card a mod adds, its identity, because those ids change with the mods
