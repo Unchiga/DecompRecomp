@@ -1335,7 +1335,7 @@ one after every eighth command. Results:
 
 ### Save states
 
-F1, F2 and F4 pick those slots (shown in the window title), while slot 3 is
+F1, F2 and F4 pick those slots (shown in the File menu), while slot 3 is
 available from File; **F5 saves and F7 loads**. Slots
 are `states/slot<N>.state` in the user directory (`MEMORIES_STATE_DIR` moves them), about
 4 MiB each. `./build-pc.sh load [slot]` or `MEMORIES_LOAD_STATE=<slot or

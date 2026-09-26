@@ -54,20 +54,6 @@ static struct { int x, y, w, h; } shown_menu; /* the menu's bounds as last paint
 static volatile uint16_t scripted_bits2, scripted_bits;
 static int state_slot = 1;
 static unsigned current_frame;
-static char base_title[160];
-
-static void update_title(void)
-{
-    char title[256], suffix[32] = "";
-    int clock_rate = Platform_ClockRate();
-    if (!display) return;
-    if (clock_rate == 0) snprintf(suffix, sizeof(suffix), " [paused]");
-    else if (clock_rate == -1) snprintf(suffix, sizeof(suffix), " [uncapped]");
-    else if (clock_rate != 100) snprintf(suffix, sizeof(suffix), " [%d%%]", clock_rate);
-    snprintf(title, sizeof(title), "%s - state slot %d (F5 save, F7 load)%s",
-             base_title, state_slot, suffix);
-    XStoreName(display, window, title);
-}
 
 /* Arrows d-pad; X cross, S circle, Z square, A triangle; Q/W L1/R1, E/R
  * L2/R2, T/Y L3/R3; Enter start, right Shift select. */
@@ -397,7 +383,6 @@ int Platform_Open(const char *title)
     XSizeHints hints;
     ControlsRuntime_Init();
     Menu_LoadSettings(); /* the volume and scale apply with or without a window */
-    snprintf(base_title, sizeof(base_title), "%s", title);
     if (getenv("MEMORIES_HEADLESS")) {
         return 0;
     }
@@ -434,7 +419,6 @@ int Platform_Open(const char *title)
     Menu_SetItemEnabled(MENU_ITEM_FILTER_LINEAR, 0);
     Menu_SetItemEnabled(MENU_ITEM_FILTER_SHARP, 0);
     Menu_SetItemEnabled(MENU_ITEM_VSYNC, 0);
-    update_title();
     return 0;
 }
 
@@ -823,7 +807,6 @@ void Platform_SetStateSlot(int slot)
 {
     if (slot < 1 || slot > 4) return;
     state_slot = slot;
-    update_title();
 }
 
 void Platform_PumpEvents(void) { if (display) pump(); }
@@ -838,13 +821,8 @@ int Platform_PadConnected(int port) { return port == 0 || Gamepad_Connected(port
 
 void Platform_Frame(unsigned frame)
 {
-    static int shown_rate = -2;
     current_frame = frame;
     Log_Drain();
-    if (shown_rate != Platform_ClockRate()) {
-        shown_rate = Platform_ClockRate();
-        update_title();
-    }
     Gamepad_Poll(frame);
     Cheats_Frame();
     Cards_Frame();
