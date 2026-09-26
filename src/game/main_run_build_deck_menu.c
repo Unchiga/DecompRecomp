@@ -19,6 +19,9 @@
 #define HIGH_MEMORY_ADDRESSES_MODEL_PREFIX
 #include "high_memory_addresses.h"
 #include "main_mode_state.h"
+#ifdef MEMORIES_PC
+#include "pc/saves/deck_menu.h"
+#endif
 
 /* The common definition makes MASPSX preserve the load-delay nop before the
  * final D_8009B26C store. c_symbols.ld supplies the retail storage address. */
@@ -29,6 +32,9 @@ void Main_RunBuildDeckMenu(void)
     unsigned char flags = D_8009B26C;
 
     if ((flags & 0x40) == 0) {
+#ifdef MEMORIES_PC
+        if (DeckMenu_BuildDeckEntry()) return; /* which deck first (deck_menu.h) */
+#endif
         D_8009B26C = flags | 0x40;
         func_800323F8(
             BUILD_DECK_WORKSPACE(D_80010000[0].payload_bases[0]),
@@ -44,5 +50,8 @@ void Main_RunBuildDeckMenu(void)
         Fade_WaitOut();
         value = D_8009B269;
         D_8009B26C = value;
+#ifdef MEMORIES_PC
+        DeckMenu_BuildDeckLeft(); /* the active deck slot takes what it wrote */
+#endif
     }
 }

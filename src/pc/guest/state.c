@@ -10,6 +10,7 @@
 #include "pc/compat/gte.h"
 #include "pc/render/soft_gpu.h"
 #include "pc/render/texture_dump.h"
+#include "pc/saves/deck_menu.h"
 #include "pc/debug/crash.h"
 #include "pc/debug/log.h"
 #include "pc/compat/signal.h"
@@ -269,9 +270,10 @@ static void subsystems(MemoriesState *state)
     LibPress_State(state);
     LibMcrd_State(state);
     SaveMenu_State(state);
-    if (!Memories_StateLoading(state)) DeckMenu_State(state);
+    if (!Memories_StateLoading(state)) DeckMenu_ShopState(state);
     TitleJump_State(state);
     Platform_State(state);
+    DeckMenu_State(state); /* the decks' draft, kept with the save */
 }
 
 static void tagged(char *out, size_t size, const char *kind, const char *name)
@@ -366,7 +368,7 @@ static void apply(void)
     unsigned i;
     hold_signals(1);
     Spu_Hold(1);
-    DeckMenu_State(&state);
+    DeckMenu_ShopState(&state);
     chunk = find_chunk(&state, "memory", &size);
     memcpy((void *)(uintptr_t)MEMORIES_GUEST_RAM, chunk, MEMORIES_GUEST_RAM_SIZE);
     memcpy((void *)(uintptr_t)SCRATCHPAD, chunk + MEMORIES_GUEST_RAM_SIZE, SCRATCHPAD_SIZE);

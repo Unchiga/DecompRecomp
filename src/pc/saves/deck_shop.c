@@ -52,7 +52,7 @@ static const unsigned char *shop_text(void)
 
 /* Restore this before the game image: its text streams contain pointers
  * into the compiled listing, whose heap address changes between sessions. */
-void DeckMenu_State(MemoriesState *state)
+void DeckMenu_ShopState(MemoriesState *state)
 {
     uint32_t base = shop_text_size ? (uint32_t)(uintptr_t)shop_text() : 0;
     uint32_t size = (uint32_t)shop_text_size;

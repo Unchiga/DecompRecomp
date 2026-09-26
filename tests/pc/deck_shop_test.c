@@ -59,22 +59,22 @@ int main(void)
     gDialog_bChoice = 2;
     DeckMenu_ShopRestore();
     assert(gDialog_bChoice == 3 && gDialog_bChoiceEnabled == 31);
-    DeckMenu_State(&five);
+    DeckMenu_ShopState(&five);
 
     enabled = 0;
     assert(!DeckMenu_ShopMenu());
-    DeckMenu_State(&four);
+    DeckMenu_ShopState(&four);
     five.loading = 1;
-    DeckMenu_State(&five);
+    DeckMenu_ShopState(&five);
     /* The saved menu controls numbering, regardless of the current setting
      * or the most recently visited shop. */
     assert(DeckMenu_ShopChoice(2) == DECK_MENU_SHOP_SLOTS && remapped == 1);
     four.loading = 1;
-    DeckMenu_State(&four);
+    DeckMenu_ShopState(&four);
     assert(DeckMenu_ShopChoice(2) == 2 && DeckMenu_Text(0x11) == 0);
     enabled = 1;
     assert(DeckMenu_ShopMenu());
-    DeckMenu_State(&old);
+    DeckMenu_ShopState(&old);
     assert(DeckMenu_ShopChoice(2) == 2);
     translated = 1;
     assert(!DeckMenu_ShopMenu());

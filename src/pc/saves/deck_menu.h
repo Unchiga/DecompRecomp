@@ -47,4 +47,17 @@ int DeckMenu_ShopChoice(int choice);
 void DeckMenu_ShopRestore(void);
 /* String `id` as the shop's menu has it, or NULL (Text_Resolve). */
 const unsigned char *DeckMenu_Text(int id);
+
+/* The decks are a draft kept with the save: written to the file when the
+ * game is saved (the save slot menu), read again when one is loaded, and
+ * held in save states. One slot is active, the one holding the save's deck.
+ * Main_RunBuildDeckMenu asks DeckMenu_BuildDeckEntry before it copies the
+ * deck: while it returns 1 the list is up to pick the deck to edit, which
+ * becomes the active one (Circle goes back where Build Deck was entered
+ * from). As it leaves, DeckMenu_BuildDeckLeft puts the deck it wrote in
+ * the active slot, when it is forty cards. */
+int DeckMenu_BuildDeckEntry(void);
+void DeckMenu_BuildDeckLeft(void);
+struct MemoriesState;
+void DeckMenu_State(struct MemoriesState *state);
 #endif

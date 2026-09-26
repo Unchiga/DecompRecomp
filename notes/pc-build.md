@@ -472,12 +472,39 @@ It is refused, with the reason, in three cases:
   game's own return to a full trunk drops the card;
 - the slot is not forty cards this game has, at most three of each.
 
+One slot is **active**: the one holding the save's forty cards. It is not
+written anywhere; each time the decks are read, the active slot is the one
+whose deck the save has (the one the screen last made active, if it still
+does). A deck in no slot takes the first empty one.
+
+The decks are a draft kept with the save. Using a deck, making one or
+clearing one changes the draft, and so does leaving Build Deck: the active
+slot takes the deck Build Deck wrote, when it is forty cards (the not-ready
+way out can leave fewer, and then the slot stays as it was). The file is
+written only when the game is saved through the save slot menu, and read
+again when a save is loaded (`SaveMenu_SaveCount`, `SaveMenu_LoadCount`).
+So the decks go with the save: a game left unsaved loses its deck changes
+with the rest. A save state holds the draft (the `deck-slots` chunk); a
+state from before it reads the file. A restored draft is written on the next
+game save even if it was clean in the snapshot, since the file may have
+changed afterwards. Loading a state also closes any old deck picker.
+The screen shows "saved with the game"
+while the draft differs from the file.
+
 The screen (`deck_menu.c`) is drawn in the overlay like the save slot menu.
-It is read from the pad, or the keys mapped to it: Cross uses a deck, Square
-keeps the current one in a slot, Triangle clears a slot, Circle or Esc
-closes. While it is open, the game gets no buttons, and it gets them back
-once the button that closed the screen is released, so the game never takes
-that press as its own.
+It is read from the pad, or the keys mapped to it: Cross uses a deck (on an
+empty slot, it makes a new one, a copy of the current deck), Triangle clears
+a slot other than the active one, Circle or Esc closes. While it is open,
+the game gets no buttons, and it gets them back once the button that closed
+the screen is released, so the game never takes that press as its own.
+
+Build Deck opens with it. `Main_RunBuildDeckMenu` asks
+`DeckMenu_BuildDeckEntry` before it copies the deck (`func_800323F8`):
+while the list is up, the mode is not set up yet (0x40 clear), so Build Deck
+has no copy yet. An incomplete deck bypasses the picker so it can be repaired. Cross picks the deck to edit, which becomes the active one,
+and Build Deck is then set up from the save. Circle goes back where Build
+Deck was entered from (`D_8009B269`), as its own way out does. As Build Deck
+leaves, `DeckMenu_BuildDeckLeft` puts the deck it wrote in the active slot.
 
 The screen opens with a game loaded, on screens that keep no copy of the
 deck:
@@ -491,11 +518,13 @@ deck:
 - a card shop's menu (Save / Build Deck / Return to Title / Leave Shop)
   while it waits for a choice: the only way to Build Deck in the present,
   which has no map (`Script_OpSavePrompt`, scene-script command 13);
-- Free Duel's opponent select.
+- Free Duel's opponent select;
+- Build Deck, as it is entered (above).
 
 Changes are made where `Main_Loop` or that loop is between two steps.
-Elsewhere (Build Deck works on its own copy), the screen says where it
-opens. The setting `deck_slots` (Game > Use deck slots) turns it off.
+Elsewhere, the screen says where it opens. The setting `deck_slots`
+(Game > Use deck slots) turns all of it off: Build Deck, the shop's menu and
+the file are then the game's alone.
 
 The card shop's own menu also offers it: DECK SLOTS under BUILD DECK.
 `Script_OpSavePrompt` asks `DeckMenu_ShopMenu` as it makes the menu (a row
@@ -532,9 +561,21 @@ save loaded through the save slot menu:
   holds slot 2's deck, and each of the 722 trunk counts is exactly what the
   swap should leave;
 - the missing-card refusal with the card's name, and an invalid slot;
-- the screen on Free Duel's opponent select, and the refusal in Build Deck;
+- the screen on Free Duel's opponent select;
 - F6 and the menu item, which are off on the title's menu and with the
-  setting off, and Esc closing the screen without quitting.
+  setting off, and Esc closing the screen without quitting;
+- Build Deck from the main menu: the list first, slot 2 picked, Build Deck
+  set up with its deck; left, the decks file unchanged until SAVE;
+- an empty slot picked (a copy), left, then SAVE and Overwrite: the file
+  gains the slot; the same without SAVE: the file is unchanged;
+- the active deck picked, a trunk card swapped for a deck card in Build
+  Deck, left, SAVE: the active slot has the swap;
+- a new slot left unsaved, F5, then a new session loading that state and
+  saving: the file gains the slot (the draft came with the state);
+- Build Deck from the card shop: Circle on the list goes back to the shop,
+  a deck picked opens Build Deck, which returns to the shop;
+- the setting off: Build Deck from the main menu and from the shop
+  pixel-identical to master.
 
 ### Present pass (Video > Color)
 

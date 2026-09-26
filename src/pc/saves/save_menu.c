@@ -148,14 +148,23 @@ static void start(int channel)
     if (!any) show_message(2, 1, "There are no saved games to load.", 0);
 }
 
+/* Games saved and loaded through the menu (SaveMenu_SaveCount). */
+static unsigned saves_done, loads_done;
+unsigned SaveMenu_SaveCount(void) { return saves_done; }
+unsigned SaveMenu_LoadCount(void) { return loads_done; }
+
 static int load(int slot)
 {
     if (menu.size != SAVE_SLOT_STATE_SIZE || SaveSlots_ReadState(slot, menu.buffer, check)) {
         show_message(BACK_TO_LIST, 1, "Slot %d could not be read.", slot);
         return 0;
     }
-    if (menu.step == SAVE_MENU_LOAD_PAIR) menu.pair_slot[menu.side] = slot;
-    else menu.current_slot = slot;
+    if (menu.step == SAVE_MENU_LOAD_PAIR) {
+        menu.pair_slot[menu.side] = slot;
+    } else {
+        menu.current_slot = slot;
+        loads_done++;
+    }
     return close_with(1);
 }
 
@@ -168,6 +177,7 @@ static void save(int slot)
         return;
     }
     menu.current_slot = slot;
+    saves_done++;
     SaveSlots_Scan(menu.slots, check);
     show_message(1, 0, "Saved to slot %d.", slot);
 }
