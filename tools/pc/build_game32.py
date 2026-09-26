@@ -303,6 +303,55 @@ def guest_addresses():
     return tables["SLUS_014.11"], {name: tables[name] for name, _, _, _ in MODULES}, text
 
 
+def exe_icon(build):
+    """The executable's icon on Windows: the game's memory card icon (the
+    save header template, src/pc/platform/save_icon.h), made here from the
+    game's own game/SLUS_014.11 and never kept in the repository. [] (no
+    icon) without the game, the template, or a resource compiler."""
+    windres = shutil.which(CC.replace("clang", "windres"))
+    try:
+        with open("config/pc/guest_addresses.txt") as table:
+            address = next(int(line.split()[1], 16) for line in table
+                           if line.split()[:1] == ["gSaveData_aHeaderTemplate"])
+        with open("game/SLUS_014.11", "rb") as executable:
+            image = executable.read()
+    except (OSError, StopIteration, ValueError, IndexError):
+        return []
+    # A PS-X EXE: its text loads at t_addr (+0x18) from file offset 0x800.
+    at = address - struct.unpack_from("<I", image, 0x18)[0] + 0x800
+    header = image[at:at + 0x200] if 0x800 <= at <= len(image) - 0x200 else b""
+    if not windres or header[:2] != b"SC" or not 0x11 <= header[2] <= 0x13:
+        return []
+    clut = [struct.unpack_from("<H", header, 0x60 + 2 * i)[0] for i in range(16)]
+
+    def bgra(x, y):  # frame 0, 16x16 at 4 bits, the low nibble first
+        byte = header[0x80 + (y * 16 + x) // 2]
+        colour = clut[byte >> 4 if x & 1 else byte & 15]
+        return ((colour >> 10 & 31) * 255 // 31, (colour >> 5 & 31) * 255 // 31, (colour & 31) * 255 // 31,
+                255 if colour else 0)
+
+    entries = []
+    for size in (16, 32, 48, 64):  # pixel-doubled, bottom-up 32-bit DIBs with an empty AND mask
+        k = size // 16
+        rows = bytes(v for y in range(size - 1, -1, -1) for x in range(size) for v in bgra(x // k, y // k))
+        mask = bytes((size + 31) // 32 * 4 * size)
+        entries.append(struct.pack("<IiiHHIIiiII", 40, size, size * 2, 1, 32, 0, len(rows) + len(mask), 0, 0, 0, 0)
+                       + rows + mask)
+    icon = struct.pack("<HHH", 0, 1, len(entries))
+    offset = 6 + 16 * len(entries)
+    for size, dib in zip((16, 32, 48, 64), entries):
+        icon += struct.pack("<BBBBHHII", size, size, 0, 0, 1, 32, len(dib), offset)
+        offset += len(dib)
+    ico = os.path.abspath(f"{build}/icon.ico").replace("\\", "/")
+    with open(ico, "wb") as out:
+        out.write(icon + b"".join(entries))
+    with open(f"{build}/icon.rc", "w") as rc:
+        rc.write(f'1 ICON "{ico}"\n')
+    if subprocess.run([windres, f"{build}/icon.rc", "-O", "coff", "-o", f"{build}/icon.o"]).returncode:
+        return []
+    return [f"{build}/icon.o"]
+
+
 def build_mods(build):
     """Each directory under mods/ becomes a mod directory beside the game.
 
@@ -622,6 +671,7 @@ def main():
     output = f"{options.build}/memories-pc"
     if WINDOWS:
         output += ".exe"
+        icon = exe_icon(options.build)
         for name in ("guest_symbols", "section_markers"):
             run([CC, "-c", f"{options.build}/{name}.s", "-o", f"{options.build}/{name}.o"])
         # The pins first: a game unit's tentative definition of a pinned
@@ -634,7 +684,7 @@ def main():
         run([CC, "-o", output, "-Wl,--large-address-aware", "-Wl,--disable-dynamicbase", "-Wl,--nxcompat",
              "-Wl,--allow-multiple-definition", f"{options.build}/guest_symbols.o",
              *[obj(s) for s in NATIVE + game], f"{options.build}/stubs.o", f"{options.build}/mod_exports.o",
-             f"{options.build}/section_markers.o",
+             f"{options.build}/section_markers.o", *icon,
              f"{WIN32_DEPS}/sdl/lib/libSDL3.dll.a", "-lopengl32", f"{WIN32_DEPS}/lib/libfreetype.a",
              f"{WIN32_DEPS}/lib/libpng16.a", f"{WIN32_DEPS}/lib/libzs.a", "-ldbghelp", "-static", "-lpthread"])
         shutil.copy(f"{WIN32_DEPS}/sdl/bin/SDL3.dll", options.build)

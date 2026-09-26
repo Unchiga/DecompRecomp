@@ -25,6 +25,7 @@
 #include "pc/debug/monitor.h"
 #include "pc/debug/hud.h"
 #include "pc/guest/state.h"
+#include "save_icon.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
 #include "pc/render/gl_picture.h"
@@ -1847,11 +1848,43 @@ static void run_event_script(unsigned frame)
     }
 }
 
+/* The window's icon: the game's memory card icon (save_icon.h), once the
+ * game is in memory, at 16 pixels and pixel-doubled for larger taskbars. */
+static void set_icon(void)
+{
+    static int set;
+    uint8_t small[SAVE_ICON_SIZE * SAVE_ICON_SIZE * 4];
+    SDL_Surface *icon;
+    int times;
+    if (set || !window || !SaveIcon_Rgba(0, small)) return;
+    set = 1;
+    icon = SDL_CreateSurface(SAVE_ICON_SIZE, SAVE_ICON_SIZE, SDL_PIXELFORMAT_RGBA32);
+    if (!icon) return;
+    memcpy(icon->pixels, small, sizeof(small)); /* 16 x 4 bytes a row: no padding */
+    for (times = 2; times <= 4; times++) {
+        SDL_Surface *large = SDL_CreateSurface(SAVE_ICON_SIZE * times, SAVE_ICON_SIZE * times, SDL_PIXELFORMAT_RGBA32);
+        int x, y;
+        if (!large) continue;
+        for (y = 0; y < SAVE_ICON_SIZE * times; y++) {
+            for (x = 0; x < SAVE_ICON_SIZE * times; x++) {
+                memcpy((uint8_t *)large->pixels + y * large->pitch + x * 4,
+                       small + ((y / times) * SAVE_ICON_SIZE + x / times) * 4, 4);
+            }
+        }
+        SDL_AddSurfaceAlternateImage(icon, large);
+        SDL_DestroySurface(large);
+    }
+    if (!SDL_SetWindowIcon(window, icon)) LOG(LOG_WINDOW, "window icon: %s", SDL_GetError());
+    else LOG(LOG_WINDOW, "window icon: the game's memory card icon");
+    SDL_DestroySurface(icon);
+}
+
 void Platform_Frame(unsigned frame)
 {
     static int shown_rate = -2;
     static unsigned composed_then;
     current_frame = frame;
+    set_icon();
     Log_Drain();
     if (frame % 120 == 0) {
         LOG(LOG_WINDOW, "overlay composed %u times in 120 frames", compose_count - composed_then);
