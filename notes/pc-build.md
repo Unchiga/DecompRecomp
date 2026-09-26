@@ -506,6 +506,17 @@ and Build Deck is then set up from the save. Circle goes back where Build
 Deck was entered from (`D_8009B269`), as its own way out does. As Build Deck
 leaves, `DeckMenu_BuildDeckLeft` puts the deck it wrote in the active slot.
 
+In Build Deck, waiting on a pane, F6 (or the menu item) goes back to the
+list: Build Deck is left the way Circle leaves it (step 4,
+`func_800339D0`, which writes the deck back) and entered again to the list
+instead of returning. With fewer than forty cards, that step asks first, as
+the game does. Its BUILD DECK goes back to editing and drops the list. The
+shop's EXIT leaves with the deck short, and then the game itself refuses the
+campaign ("YOU MUST PREPARE A DECK..."). The list is not shown for a deck
+short of forty: Build Deck opens straight on it to be finished, since no
+deck can be used in its place. Nothing here makes a deck short of forty:
+slots hold forty cards, and a deck is used only when it checks out.
+
 The screen opens with a game loaded, on screens that keep no copy of the
 deck:
 
@@ -519,7 +530,7 @@ deck:
   while it waits for a choice: the only way to Build Deck in the present,
   which has no map (`Script_OpSavePrompt`, scene-script command 13);
 - Free Duel's opponent select;
-- Build Deck, as it is entered (above).
+- Build Deck, as it is entered, and from a pane (above).
 
 Changes are made where `Main_Loop` or that loop is between two steps.
 Elsewhere, the screen says where it opens. The setting `deck_slots`

@@ -6,8 +6,9 @@
 
 u8 D_801D0000[sizeof(SaveDataWorkspace)];
 /* Rendering and input are outside these draft tests. */
-u8 D_8009B269, D_8009B26C, gMain_bMenuID;
+u8 D_8009B269, D_8009B26C, gMain_bMenuID, gDuel_bEffectState;
 u16 D_8009B27C;
+BuildDeckTransitionState *gBuildDeck_pState; /* controlled by the transition tests below */
 u32 D_801D9000[1];
 s32 gDuel_adwCardStats[1];
 unsigned Memories_PresentedFrames(void) { return 0; }
@@ -110,5 +111,31 @@ int main(void)
     assert(draft.code == 0 && picking == PICK_NONE);
     enabled = 0;
     assert(!DeckMenu_BuildDeckEntry());
+    /* Idle guards and returning through the retail exit to the list. */
+    {
+        static BuildDeckTransitionState screen;
+        enabled = 1; gBuildDeck_pState = &screen; D_8009B26C = 0x47;
+        screen.state = 2;
+        assert(build_deck_idle());
+        screen.state = 3; assert(build_deck_idle());
+        screen.state |= 0x4000; assert(!build_deck_idle());
+        screen.state = 2; screen.transition_ticks = 1; assert(!build_deck_idle());
+        screen.transition_ticks = 0; gDuel_bEffectState = 1; assert(!build_deck_idle());
+        gDuel_bEffectState = 0;
+        picking = PICK_NONE; menu.view = VIEW_CLOSED; requested = 1;
+        D_8009B269 = MODE_CAMPAIGN;
+        DeckMenu_Poll(DECK_MENU_MAIN_LOOP);
+        assert(screen.state == 4 && screen.next_state == 2 && list_after_build_deck);
+        D_8009B26C = MODE_CAMPAIGN;
+        DeckMenu_BuildDeckLeft();
+        assert(D_8009B26C == MODE_BUILD_DECK && D_8009B269 == MODE_CAMPAIGN && !list_after_build_deck);
+        /* Incomplete-deck EXIT returns to its caller, never to the picker. */
+        deck[39] = 0; list_after_build_deck = 1; D_8009B26C = MODE_CAMPAIGN;
+        DeckMenu_BuildDeckLeft(); assert(D_8009B26C == MODE_CAMPAIGN && !list_after_build_deck);
+        /* Choosing BUILD DECK in the notice cancels the queued list. */
+        D_8009B26C = 0x47; screen.state = 3; list_after_build_deck = 1;
+        DeckMenu_Poll(DECK_MENU_MAIN_LOOP); assert(!list_after_build_deck);
+        list_after_build_deck = 1; DeckMenu_State(&snapshot); assert(!list_after_build_deck);
+    }
     return 0;
 }

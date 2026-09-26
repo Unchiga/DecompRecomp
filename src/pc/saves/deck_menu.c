@@ -6,6 +6,7 @@
 #include "save_slots.h"
 #include "types.h"
 #include "game/save_data.h"
+#include "game/build_deck_transition_state.h"
 #include "pc/cards/cards.h"
 #include "pc/platform/paths.h"
 #include "pc/platform/platform.h"
@@ -30,6 +31,7 @@ unsigned Memories_PresentedFrames(void);
 #define MODE_CAMPAIGN_MAP 5
 #define MODE_FREE_DUEL 6
 #define MODE_BUILD_DECK 7
+extern u8 gDuel_bEffectState; /* duel_effect.h: the card viewer and the like */
 #define MODE_MENU 8
 
 /* The campaign's card shop (the only way to Build Deck in the present, which
@@ -91,6 +93,7 @@ static unsigned seen_saves, seen_loads;
 /* Build Deck asks for a deck as it is entered (DeckMenu_BuildDeckEntry). */
 enum { PICK_NONE, PICK_OPEN, PICK_CHOSEN };
 static int picking;
+static int list_after_build_deck; /* F6 in Build Deck: its way out goes to the list */
 extern u8 D_8009B269; /* main_mode_state.h: where Build Deck returns to */
 
 
@@ -114,6 +117,19 @@ static const char *identity(int id)
 
 static int game_loaded(void) { return workspace()->state.player_deck[0] != 0; }
 
+/* Build Deck, set up (0x40): its step table (duel_transition_step_table.c)
+ * waits for input in steps 2 and 3, one per pane; not while the not-ready
+ * confirm (0x4000), a pane's slide or an effect (the card viewer) runs. */
+static int build_deck_idle(void)
+{
+    const BuildDeckTransitionState *screen = gBuildDeck_pState;
+    unsigned step;
+    if ((D_8009B26C & 0x1F) != MODE_BUILD_DECK || !(D_8009B26C & 0x40) || !screen) return 0;
+    step = screen->state & 0x3F;
+    return (step == 2 || step == 3) && !(screen->state & 0x4000) && screen->transition_ticks == 0 &&
+           gDuel_bEffectState == 0;
+}
+
 static int screen_allowed(int where)
 {
     int mode = D_8009B26C & 0x1F;
@@ -124,8 +140,9 @@ static int screen_allowed(int where)
         unsigned state = D_8009B27C;
         return (state & 0x1F) == SCRIPT_COMMAND_SHOP && (state & SHOP_OPEN) && !(state & SHOP_BUSY);
     }
-    /* Build Deck being entered, before it copies the deck (0x40 clear). */
-    if (mode == MODE_BUILD_DECK) return picking == PICK_OPEN && !(D_8009B26C & 0x40);
+    /* Build Deck being entered, before it copies the deck (0x40 clear), or
+     * waiting on a pane, where the list is reached by leaving it (back_to_list). */
+    if (mode == MODE_BUILD_DECK) return (picking == PICK_OPEN && !(D_8009B26C & 0x40)) || build_deck_idle();
     return mode == MODE_CAMPAIGN_MAP || mode == MODE_FREE_DUEL;
 }
 
@@ -302,6 +319,7 @@ void DeckMenu_State(MemoriesState *state)
         seen_saves = SaveMenu_SaveCount();
         seen_loads = SaveMenu_LoadCount();
         picking = PICK_NONE;
+        list_after_build_deck = 0;
         requested = allowed = holding = 0;
         previous_bits = 0;
         DeckMenu_Close();
@@ -333,6 +351,8 @@ int DeckMenu_BuildDeckEntry(void)
 void DeckMenu_BuildDeckLeft(void)
 {
     const unsigned short *deck = workspace()->state.player_deck;
+    int to_list = list_after_build_deck;
+    list_after_build_deck = 0;
     if (!Settings_Get(SET_DECK_SLOTS) || !game_loaded()) return;
     if (draft.code == (uint32_t)workspace()->state.duelist_code && draft.active >= 0 && draft.active < DECK_SLOT_COUNT && deck_complete()) {
         DeckSlot *slot = &draft.slots[draft.active];
@@ -341,9 +361,25 @@ void DeckMenu_BuildDeckLeft(void)
             draft.dirty = 1;
             fprintf(stderr, "memories-pc: slot %d takes the deck Build Deck wrote\n", draft.active + 1);
         }
-        return;
+    } else {
+        reconcile(); /* not picked here, or not forty cards: the slots stay */
     }
-    reconcile(); /* not picked here, or not forty cards: the slots stay */
+    /* Entered again, to the list, instead of where it returns to; not when
+     * the not-ready confirm's EXIT left a deck short of forty. */
+    if (to_list && deck_complete()) D_8009B26C = MODE_BUILD_DECK;
+}
+
+/* The screen asked for in Build Deck (F6 on a pane): the deck was already
+ * picked as it opened, so it is left the way Circle leaves it, the step
+ * func_800339D0 that writes the deck back (and asks first when it is not
+ * forty cards), and entered again to the list (DeckMenu_BuildDeckLeft). */
+static void back_to_list(void)
+{
+    BuildDeckTransitionState *screen = gBuildDeck_pState;
+    list_after_build_deck = 1;
+    screen->next_state = screen->state & 0x3F; /* the pane the not-ready confirm returns to */
+    screen->state = 4;
+    fprintf(stderr, "memories-pc: Build Deck left for the deck list\n");
 }
 
 static void cancel_pick(void)
@@ -366,7 +402,7 @@ static void show(void)
     holding = 1;
     menu.top = 0;
     if (!allowed) {
-        message(1, "Decks open on the main menu, the map, a card shop or Free Duel, and as you enter Build Deck.");
+        message(1, "Decks open on the main menu, the map, a card shop, Free Duel and Build Deck.");
         return;
     }
     reconcile();
@@ -534,10 +570,13 @@ void DeckMenu_Poll(int where)
     bits = Platform_Pad(0);
     pressed = bits & ~previous_bits;
     previous_bits = bits;
+    /* The not-ready confirm answered with a return to the deck: no list. */
+    if (list_after_build_deck && build_deck_idle()) list_after_build_deck = 0;
     if (requested) {
         requested = 0;
         if (menu.view == VIEW_CLOSED) {
-            show();
+            if (allowed && build_deck_idle()) back_to_list();
+            else show();
             return;
         }
     }
