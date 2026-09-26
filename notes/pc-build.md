@@ -1115,14 +1115,20 @@ Not covered yet: the sword and shield icons (pictures, not lettering).
 
 ### Precise geometry (PGXP)
 
-Video > Precise geometry (PGXP) (`pgxp`, `MEMORIES_PGXP=1`, off by default)
-fixes two things in the OpenGL picture at 2x and up.
+Video > Precise geometry (PGXP) (`pgxp`, `MEMORIES_PGXP`, off by default)
+fixes one or two things in the OpenGL picture at 2x and up.
 
-- **Rounded vertices.** The GTE's perspective transform rounds each vertex
-  to a whole console pixel, which makes 3D polygons wobble as they move.
-  Polygons are now drawn at the vertices' precise positions.
-- **Affine textures.** The GTE keeps no depth with a vertex, so textures on
-  3D polygons bend. Textured polygons are now drawn in perspective.
+- **Affine textures** (`pgxp=1`, *Textures*). The GTE keeps no depth with a
+  vertex, so textures on 3D polygons bend. Textured polygons are drawn in
+  perspective, at the console's whole-pixel vertices.
+- **Rounded vertices** (`pgxp=2`, *Textures and positions*, experimental).
+  The GTE's perspective transform rounds each vertex to a whole console
+  pixel, which makes 3D polygons wobble as they move. Polygons are also
+  drawn at the vertices' precise positions. On the small 3D Monsters models
+  this opens dark gaps (a head a few console pixels high shows black
+  triangles). The likeliest reason: the console's rounding closes seams
+  between their tiny polygons that the precise positions leave open. So it
+  is not the default level.
 
 **How it works** (`src/pc/compat/pgxp.c`):
 
@@ -1142,7 +1148,9 @@ fixes two things in the OpenGL picture at 2x and up.
    one frame round to, with different precise values, is left as it is.
 4. The matches go with the batch to the OpenGL pass (`SoftGpu_SetPrecise`,
    the recorder's `precise`, arena op `OP_PRECISE`). There `polygon()`
-   places each vertex at its precise position.
+   places each vertex at its precise position. Below level 2, `DrawOTag`
+   puts the word's own whole-pixel position there first, so only the depth
+   is new.
 5. A textured triangle whose three vertices all have their depths
    interpolates uv / w and 1 / w and divides back per pixel (flag 32). Every
    other triangle takes the path it took before, so with PGXP off the

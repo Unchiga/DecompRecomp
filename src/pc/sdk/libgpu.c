@@ -362,13 +362,21 @@ void DrawOTag(u32 *list)
     }
     pending_words = count;
     /* PGXP (pgxp.h): the frame's words that are vertices projected since the
-     * last DrawOTag, with where they really are; then the next frame's. */
+     * last DrawOTag, with where they really are; then the next frame's.
+     * Below level 2 a vertex keeps the console's whole-pixel position and
+     * only its depth is used (textures in perspective): on the small
+     * monster models, precise positions open dark gaps. */
     pending_precise = 0;
     if (Pgxp_Active) {
+        int positions = Settings_Get(SET_PGXP) >= 2;
         size_t i;
         for (i = 0; i < count && pending_precise < MAX_FRAME_PRECISE; i++) {
             PgxpVertex *vertex = &frame_precise[pending_precise];
             if (Pgxp_Find(frame_words[i], &vertex->x, &vertex->y, &vertex->w)) {
+                if (!positions) {
+                    vertex->x = (float)(int16_t)(frame_words[i] & 0xffffu);
+                    vertex->y = (float)(int16_t)(frame_words[i] >> 16);
+                }
                 vertex->index = (uint32_t)i;
                 pending_precise++;
             }
