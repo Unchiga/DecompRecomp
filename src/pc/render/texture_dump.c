@@ -300,8 +300,12 @@ void TextureDump_Loaded(int x, int y, int w, int h, const uint16_t *pixels)
     if (!TextureDump_Tags) return;
     if (!delivered((uintptr_t)pixels, (uintptr_t)(pixels + (size_t)w * h)) ||
         (!provenance((uintptr_t)pixels) && !provenance((uintptr_t)&pixels[(size_t)w * h - 1]))) {
-        disc = found_by_content(pixels, (size_t)w * h);
-        if (!disc && TextureDump_Recall) disc = TextureDump_Recall(pixels, (size_t)w * h);
+        /* Prefer the pack's verified block to an arbitrary recent copy.
+         * Card thumbnails also live in the full-art records read for
+         * battles/effects. After a readback or deck-table copy, the newest
+         * delivery can name that duplicate, which the pack does not cover. */
+        if (TextureDump_Recall) disc = TextureDump_Recall(pixels, (size_t)w * h);
+        if (!disc) disc = found_by_content(pixels, (size_t)w * h);
         if (!disc) {
             TextureDump_Cleared(x, y, w, h);
             return;
